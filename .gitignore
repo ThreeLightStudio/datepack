@@ -1,0 +1,46 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Electrobun toolchain artifacts (hutch, cottontail)
+.hutch/
+.cottontail-tmp/
+
+# Local caches and transient data
+.cache/
+*.sqlite*
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Local configuration and credentials; examples must contain placeholders only
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.netrc
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Editor backups and operating-system metadata
+*.bak
+*.orig
+*.rej
+.DS_Store
+._*
+
+# Impeccable design-review artifacts (local working notes)
+.impeccable/
+
+# ZCode session artifacts (plans, local notes)
+.zcode/
+.zcodeignore
