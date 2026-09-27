@@ -4,8 +4,10 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'node:path';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   root: resolve(import.meta.dirname),
+  // GitHub Pages serves project sites from /<repo>/ — dev keeps the root.
+  base: command === 'build' ? '/datepack/' : '/',
   plugins: [
     react(),
     VitePWA({
@@ -18,20 +20,21 @@ export default defineConfig({
           '데이트 전체가 파일 하나로. 로컬 퍼스트 데이트 플래너. / The whole date lives in one file.',
         lang: 'ko',
         display: 'standalone',
-        start_url: '/',
+        // Relative to the manifest URL, so the app also works from /datepack/.
+        start_url: '.',
         background_color: '#FFFBF9',
         theme_color: '#FFFBF9',
         icons: [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
           {
-            src: '/icon-maskable-192.png',
+            src: 'icon-maskable-192.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'maskable',
           },
           {
-            src: '/icon-maskable-512.png',
+            src: 'icon-maskable-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
@@ -56,4 +59,4 @@ export default defineConfig({
     }),
   ],
   resolve: { alias: { '@': resolve(import.meta.dirname, 'src') } },
-});
+}));
