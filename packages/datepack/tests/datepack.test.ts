@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createDatePack, createEvent } from '../src/datepack/create';
-import { readDatePack, DatePackReadError } from '../src/datepack/read';
-import { writeDatePack } from '../src/datepack/write';
-import { validateDatePack, validatePlan } from '../src/datepack/validate';
-import type { DatePack, DatePackAsset } from '../src/datepack/types';
-import { assetPath } from '../src/datepack/assets';
+import { createDatePack, createEvent } from '../src/create';
+import { readDatePack, DatePackReadError } from '../src/read';
+import { writeDatePack } from '../src/write';
+import { validateDatePack, validatePlan } from '../src/validate';
+import type { DatePack, DatePackAsset } from '../src/types';
+import { assetPath } from '../src/assets';
 
 function makePack(): { pack: DatePack; blob: Blob } {
   const pack = createDatePack({ title: '테스트 데이트', date: '2026-09-28' });

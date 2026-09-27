@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { findPlanConflicts } from '../src/datepack/consistency';
-import { createEvent } from '../src/datepack/create';
+import { findPlanConflicts } from '../src/consistency';
+import { createEvent } from '../src/create';
 import { format } from '../src/i18n/core';
-import type { DatePlan } from '../src/datepack/types';
+import type { DatePlan } from '../src/types';
 
 function planFrom(events: Parameters<typeof createEvent>[0][]): DatePlan {
   return {

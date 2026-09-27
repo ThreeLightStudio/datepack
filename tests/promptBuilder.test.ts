@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DatePackRuntimeState, DatePlan } from '../src/datepack/types';
-import { createEvent } from '../src/datepack/create';
+import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
+import { createEvent } from '@datepack/core';
 import { buildAiPrompt } from '../src/features/ai/promptBuilder';
 
 function makePlan(): DatePlan {

@@ -1,0 +1,47 @@
+{
+  "name": "@datepack/core",
+  "version": "0.2.0",
+  "description": "DatePack file format library — read, write, validate and patch portable .datepack.json documents.",
+  "license": "MIT",
+  "author": "ThreeLight",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ThreeLightStudio/datepack.git",
+    "directory": "packages/datepack"
+  },
+  "bugs": {
+    "url": "https://github.com/ThreeLightStudio/datepack/issues"
+  },
+  "keywords": [
+    "datepack",
+    "local-first",
+    "file-format",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=24.14.1"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "pnpm run typecheck && pnpm run test"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

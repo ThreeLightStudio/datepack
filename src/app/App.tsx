@@ -18,7 +18,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { BetaBanner } from '../components/BetaBanner';
 import type { ViewId } from './routes';
 import { HeartIcon, UndoIcon } from '../components/icons';
-import { todayISO } from '../utils/time';
+import { todayISO } from '@datepack/core';
 
 export default function App() {
   const store = useStore();

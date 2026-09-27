@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlanFromDraft, parsePlanDraft } from '../src/datepack/planDraft';
-import { validateDatePack } from '../src/datepack/validate';
+import { buildPlanFromDraft, parsePlanDraft } from '../src/planDraft';
+import { validateDatePack } from '../src/validate';
 
 const validDraft = {
   type: 'datepack.plan',

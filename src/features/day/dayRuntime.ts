@@ -1,10 +1,5 @@
-import type {
-  DateEvent,
-  DatePackRuntimeState,
-  DatePlan,
-  EventRuntimeState,
-} from '../../datepack/types';
-import { floorTo5, formatTime, minutesOfDay, parseTime, todayISO } from '../../utils/time';
+import type { DateEvent, DatePackRuntimeState, DatePlan, EventRuntimeState } from '@datepack/core';
+import { floorTo5, formatTime, minutesOfDay, parseTime, todayISO } from '@datepack/core';
 
 export type DayEventStatus = 'completed' | 'skipped' | 'current' | 'past' | 'upcoming';
 

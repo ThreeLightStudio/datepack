@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { DatePack, DatePackAsset, DatePackRuntimeState } from '../datepack/types';
+import type { DatePack, DatePackAsset, DatePackRuntimeState } from '@datepack/core';
 
 interface DatePackDB extends DBSchema {
   packs: { key: string; value: { pack: DatePack; savedAt: string } };

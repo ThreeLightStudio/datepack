@@ -1,7 +1,5 @@
-import type { DatePack, DatePackAsset, DatePlan } from '../datepack/types';
-import { createEvent, createPlace } from '../datepack/create';
-import { assetPath } from '../datepack/assets';
-import { todayISO } from '../utils/time';
+import type { DatePack, DatePackAsset, DatePlan } from '@datepack/core';
+import { assetPath, createEvent, createPlace, todayISO } from '@datepack/core';
 import type { Locale } from '../i18n/core';
 
 /**

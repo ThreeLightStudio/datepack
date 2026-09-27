@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import type { DateEvent, DatePackRuntimeState, DatePlan, Place } from '../../datepack/types';
+import type { DateEvent, DatePackRuntimeState, DatePlan, Place } from '@datepack/core';
+import { formatTime, parseTime } from '@datepack/core';
 import { computeDayContext, timeRangeLabel, type DayEventView } from './dayRuntime';
-import { formatTime, parseTime } from '../../utils/time';
 import { mapBridgeUrl } from '../../utils/mapBridge';
 import {
   completeEvent,

@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import type { DatePackRuntimeState, DatePlan } from '../../datepack/types';
+import type {
+  DatePackRuntimeState,
+  DatePlan,
+  PatchChange,
+  PatchChangeDetail,
+} from '@datepack/core';
+import { describePatch, findPlanConflicts, parsePatch } from '@datepack/core';
 import { buildAiPrompt, SITUATIONS } from './promptBuilder';
-import {
-  describePatch,
-  parsePatch,
-  type PatchChange,
-  type PatchChangeDetail,
-} from '../../datepack/patch';
 import { applyPatchWithUndo, showToast, undo, useStore } from '../../store/datepackStore';
-import { findPlanConflicts } from '../../datepack/consistency';
 import { CopyIcon, SparkleIcon, UndoIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
 

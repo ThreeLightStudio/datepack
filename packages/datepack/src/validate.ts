@@ -1,15 +1,15 @@
 import type { DateEvent, DatePack, DatePackPatch, DatePlan } from './types';
 import { DATE_EVENT_TYPES } from './types';
-import { isValidTime, isValidDateISO } from '../utils/time';
-import type { I18nIssue } from '../i18n/core';
+import { isValidTime, isValidDateISO } from './utils/time';
+import type { DatePackIssue } from './i18n/core';
 
-export type ValidationResult = { ok: boolean; errors: I18nIssue[]; warnings: I18nIssue[] };
+export type ValidationResult = { ok: boolean; errors: DatePackIssue[]; warnings: DatePackIssue[] };
 
-function ok(warnings: I18nIssue[] = []): ValidationResult {
+function ok(warnings: DatePackIssue[] = []): ValidationResult {
   return { ok: true, errors: [], warnings };
 }
 
-function fail(errors: I18nIssue[], warnings: I18nIssue[] = []): ValidationResult {
+function fail(errors: DatePackIssue[], warnings: DatePackIssue[] = []): ValidationResult {
   return { ok: false, errors, warnings };
 }
 
@@ -18,7 +18,7 @@ export function validatePlan(plan: unknown): ValidationResult {
     return fail([{ key: 'err.read.badPlan' }]);
   }
   const p = plan as Partial<DatePlan>;
-  const errors: I18nIssue[] = [];
+  const errors: DatePackIssue[] = [];
 
   if (typeof p.id !== 'string' || p.id.length === 0) errors.push({ key: 'err.plan.noId' });
   if (typeof p.title !== 'string' || p.title.trim().length === 0)
@@ -84,8 +84,8 @@ export function validateDatePack(pack: DatePack): ValidationResult {
   const planResult = validatePlan(pack.plan);
   if (!planResult.ok) return planResult;
 
-  const warnings: I18nIssue[] = [];
-  const errors: I18nIssue[] = [];
+  const warnings: DatePackIssue[] = [];
+  const errors: DatePackIssue[] = [];
   if (typeof pack.manifest?.version !== 'string') {
     errors.push({ key: 'err.plan.manifestVersion' });
   }
@@ -110,12 +110,12 @@ export function validateDatePack(pack: DatePack): ValidationResult {
 const PATCH_OPS = ['replace', 'move', 'remove', 'insertBefore', 'insertAfter'] as const;
 
 export type PatchValidation =
-  | { ok: true; patch: DatePackPatch; warnings: I18nIssue[] }
-  | { ok: false; patch: null; errors: I18nIssue[]; warnings: I18nIssue[] };
+  | { ok: true; patch: DatePackPatch; warnings: DatePackIssue[] }
+  | { ok: false; patch: null; errors: DatePackIssue[]; warnings: DatePackIssue[] };
 
 export function validatePatch(raw: unknown): PatchValidation {
-  const warnings: I18nIssue[] = [];
-  const errors: I18nIssue[] = [];
+  const warnings: DatePackIssue[] = [];
+  const errors: DatePackIssue[] = [];
 
   if (typeof raw !== 'object' || raw === null) {
     errors.push({ key: 'err.patch.notJson' });

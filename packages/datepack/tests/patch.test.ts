@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatch, describePatch, parsePatch, type PatchChange } from '../src/datepack/patch';
-import { createEvent } from '../src/datepack/create';
-import { validatePatch } from '../src/datepack/validate';
+import { applyPatch, describePatch, parsePatch, type PatchChange } from '../src/patch';
+import { createEvent } from '../src/create';
+import { validatePatch } from '../src/validate';
 import { format } from '../src/i18n/core';
-import type { DatePlan } from '../src/datepack/types';
+import type { DatePlan } from '../src/types';
 
 function makePlan(): DatePlan {
   return {

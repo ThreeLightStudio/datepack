@@ -3,9 +3,9 @@ import { DATE_EVENT_TYPES } from './types';
 import { createEvent, createPlace, sortEventsByStart } from './create';
 import { makeManifest } from './schema';
 import { extractJsonObject } from './json';
-import { createId } from '../utils/id';
-import { isValidTime, isValidDateISO, normalizeTime } from '../utils/time';
-import type { I18nIssue } from '../i18n/core';
+import { createId } from './utils/id';
+import { isValidTime, isValidDateISO, normalizeTime } from './utils/time';
+import type { DatePackIssue } from './i18n/core';
 
 /**
  * A plan authored by an external AI ("datepack.plan" JSON) before it becomes a
@@ -32,8 +32,8 @@ export type PlanDraft = {
 };
 
 export type PlanDraftParse =
-  | { ok: true; draft: PlanDraft; warnings: I18nIssue[] }
-  | { ok: false; errors: I18nIssue[]; warnings: I18nIssue[] };
+  | { ok: true; draft: PlanDraft; warnings: DatePackIssue[] }
+  | { ok: false; errors: DatePackIssue[]; warnings: DatePackIssue[] };
 
 /**
  * Parse an AI reply into a PlanDraft. Tolerates markdown code fences and
@@ -48,8 +48,8 @@ export function parsePlanDraft(raw: string): PlanDraftParse {
 }
 
 function validatePlanDraft(raw: unknown): PlanDraftParse {
-  const warnings: I18nIssue[] = [];
-  const errors: I18nIssue[] = [];
+  const warnings: DatePackIssue[] = [];
+  const errors: DatePackIssue[] = [];
 
   if (typeof raw !== 'object' || raw === null) {
     return { ok: false, errors: [{ key: 'err.planDraft.notJson' }], warnings };

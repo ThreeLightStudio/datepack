@@ -1,14 +1,19 @@
+import { useSyncExternalStore } from 'react';
+import { datepackKo, datepackEn, type DatePackIssueKey } from '@datepack/core';
 import { ko, type MessageKey } from './ko';
 import { en } from './en';
 
 export type Locale = 'ko' | 'en';
 
-const CATALOGS = { ko, en } as const;
+const CATALOGS: Record<Locale, Record<MessageKey | DatePackIssueKey, string>> = {
+  ko: { ...ko, ...datepackKo },
+  en: { ...en, ...datepackEn },
+};
 const STORAGE_KEY = 'datepack.locale';
 
 export type I18nVars = Record<string, string | number>;
-export type I18nIssue = { key: MessageKey; params?: I18nVars };
-export type I18nInput = MessageKey | I18nIssue;
+export type I18nIssue = { key: MessageKey | DatePackIssueKey; params?: I18nVars };
+export type I18nInput = MessageKey | DatePackIssueKey | I18nIssue;
 
 let current: Locale = detectLocale();
 const listeners = new Set<() => void>();
@@ -61,8 +66,8 @@ function interpolate(template: string, params?: I18nVars): string {
 /** Format with an explicit locale — used by phrase helpers and tests. */
 export function format(locale: Locale, key: I18nInput, params?: I18nVars): string {
   const issue: I18nIssue = typeof key === 'string' ? { key } : key;
-  const catalog = CATALOGS[locale] as Record<MessageKey, string>;
-  const template = catalog[issue.key] ?? ko[issue.key] ?? issue.key;
+  const catalog = CATALOGS[locale];
+  const template = catalog[issue.key] ?? issue.key;
   return interpolate(template, issue.params ?? params);
 }
 
@@ -146,7 +151,7 @@ export function localizeAll(locale: Locale, issues: readonly I18nIssue[]): strin
   return issues.map((issue) => format(locale, issue));
 }
 
-// tiny local copy to avoid a circular import with utils/time
+// tiny local copy to avoid a circular import with @datepack/core
 function floorTo5(minutes: number): number {
   return Math.floor(minutes / 5) * 5;
 }

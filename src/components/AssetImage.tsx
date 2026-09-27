@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { getCachedBlob, resolveBlob } from '../store/datepackStore';
 import { EVENT_TYPE_ICONS } from './icons';
 import { t } from '../i18n/core';
-import type { DateEventType } from '../datepack/types';
+import type { DateEventType } from '@datepack/core';
 
 const urlCache = new Map<string, string>();
 

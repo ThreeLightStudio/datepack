@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import type { DateEvent, DatePackRuntimeState, DatePlan } from '../../datepack/types';
+import type { DateEvent, DatePackRuntimeState, DatePlan } from '@datepack/core';
+import { formatTime, parseTime, todayISO } from '@datepack/core';
 import { computeDayContext } from '../day/dayRuntime';
-import { formatTime, parseTime, todayISO } from '../../utils/time';
 import { unmarkEvent, completeEvent, skipEvent } from '../../store/datepackStore';
 import { EventEditorSheet } from '../editor/EventEditorSheet';
 import { PlanMetaSheet } from '../editor/PlanMetaSheet';

@@ -1,6 +1,6 @@
 import type { DatePackManifest } from './types';
-import type { I18nIssue } from '../i18n/core';
-import { version as APP_VERSION } from '../../package.json';
+import type { DatePackIssue } from './i18n/core';
+import { version as CORE_VERSION } from '../package.json';
 
 /**
  * DatePack file format version policy (major.minor):
@@ -14,17 +14,17 @@ export const DATEPACK_FORMAT_VERSION = '2.0';
 export const DATEPACK_SUPPORTED_MINOR = 0;
 /** Majors this reader understands: 1 = legacy ZIP container, 2 = single-file JSON container. */
 export const DATEPACK_SUPPORTED_MAJORS = [1, 2] as const;
-/** Package/library version — sourced from package.json so the UI, the file
- *  generator string and the release number can never drift apart. */
-export const PACKAGE_VERSION: string = APP_VERSION;
+/** @datepack/core version — sourced from this package's package.json so the
+ *  file generator string and the release number can never drift apart. */
+export const PACKAGE_VERSION: string = CORE_VERSION;
 export const DATEPACK_ENTRY = 'plan.json' as const;
 
 export type ParsedFormatVersion = { major: number; minor: number; raw: string };
 
 export type VersionCheck =
   | { status: 'ok'; parsed: ParsedFormatVersion }
-  | { status: 'warn'; parsed: ParsedFormatVersion; message: I18nIssue }
-  | { status: 'reject'; parsed: ParsedFormatVersion | null; message: I18nIssue };
+  | { status: 'warn'; parsed: ParsedFormatVersion; message: DatePackIssue }
+  | { status: 'reject'; parsed: ParsedFormatVersion | null; message: DatePackIssue };
 
 /** Accepts "1.0", "1", and the number 1 (older drafts of the spec). */
 export function parseFormatVersion(raw: unknown): ParsedFormatVersion | null {
@@ -78,13 +78,13 @@ export function makeManifest(): DatePackManifest {
     entry: DATEPACK_ENTRY,
     createdAt: now,
     updatedAt: now,
-    generator: `datepack-web ${PACKAGE_VERSION}`,
+    generator: `datepack-core ${PACKAGE_VERSION}`,
   };
 }
 
 export type ManifestResult =
-  | { ok: true; manifest: DatePackManifest; warnings: I18nIssue[] }
-  | { ok: false; errors: I18nIssue[] };
+  | { ok: true; manifest: DatePackManifest; warnings: DatePackIssue[] }
+  | { ok: false; errors: DatePackIssue[] };
 
 export function parseManifest(raw: unknown): ManifestResult {
   if (typeof raw !== 'object' || raw === null) {
@@ -102,7 +102,7 @@ export function parseManifest(raw: unknown): ManifestResult {
   if (version.status === 'reject') {
     return { ok: false, errors: [version.message] };
   }
-  const warnings: I18nIssue[] = version.status === 'warn' ? [version.message] : [];
+  const warnings: DatePackIssue[] = version.status === 'warn' ? [version.message] : [];
 
   // entry only ever pointed at plan.json; readers fall back to it regardless.
   return {

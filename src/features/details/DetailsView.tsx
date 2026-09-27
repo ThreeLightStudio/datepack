@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { DatePackRuntimeState, DatePlan } from '../../datepack/types';
+import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import {
   addEventAssets,
   createNewPack,
@@ -9,8 +9,8 @@ import {
   switchPack,
   useStore,
 } from '../../store/datepackStore';
-import { exportFilename } from '../../datepack/write';
-import { PACKAGE_VERSION } from '../../datepack/schema';
+import { exportFilename, todayISO } from '@datepack/core';
+import { version as APP_VERSION } from '../../../package.json';
 import { REPO_URL } from '../../app/meta';
 import { AssetImage } from '../../components/AssetImage';
 import { DownloadIcon, EditIcon, PlusIcon, TrashIcon, UploadIcon } from '../../components/icons';
@@ -19,7 +19,6 @@ import { CreateWithAiSheet } from '../ai/CreateWithAiSheet';
 import { PlanMetaSheet } from '../editor/PlanMetaSheet';
 import { formatDate, format, setLocale, useLocale, LOCALES } from '../../i18n';
 import { showImportError } from '../../app/App';
-import { todayISO } from '../../utils/time';
 
 type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
 
@@ -262,7 +261,7 @@ export function DetailsView({ plan, runtime }: Props) {
             : 'DatePack — everything stays on this device'}
         </p>
         <p>
-          v{PACKAGE_VERSION} · Public Beta ·{' '}
+          v{APP_VERSION} · Public Beta ·{' '}
           <a href={REPO_URL} target="_blank" rel="noreferrer">
             GitHub ↗
           </a>

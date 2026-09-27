@@ -2,12 +2,12 @@ import type { DatePackPatch, DatePackPatchNewEvent, DatePlan, DateEvent } from '
 import { validatePatch } from './validate';
 import { createEvent, sortEventsByStart } from './create';
 import { extractJsonObject } from './json';
-import { isValidTime, normalizeTime } from '../utils/time';
-import type { I18nIssue } from '../i18n/core';
+import { isValidTime, normalizeTime } from './utils/time';
+import type { DatePackIssue } from './i18n/core';
 
 export type PatchParseResult =
-  | { ok: true; patch: DatePackPatch; warnings: I18nIssue[] }
-  | { ok: false; errors: I18nIssue[]; warnings: I18nIssue[] };
+  | { ok: true; patch: DatePackPatch; warnings: DatePackIssue[] }
+  | { ok: false; errors: DatePackIssue[]; warnings: DatePackIssue[] };
 
 export function parsePatch(raw: string): PatchParseResult {
   const parsed = extractJsonObject(raw);
@@ -65,7 +65,7 @@ export type PatchOutcome = {
    * Operations that matched nothing (unknown target/anchor). They are skipped
    * rather than fatal so one bad target can't discard the rest of the patch.
    */
-  skipped: I18nIssue[];
+  skipped: DatePackIssue[];
 };
 
 /** Preview what a patch would change, without mutating anything. */
@@ -81,7 +81,7 @@ export function applyPatch(
 ): PatchOutcome {
   const next: DatePlan = options.dryRun ? plan : structuredClone(plan);
   const applied: PatchChange[] = [];
-  const skipped: I18nIssue[] = [];
+  const skipped: DatePackIssue[] = [];
 
   for (const op of patch.operations) {
     const targetId = op.target.startsWith('event:') ? op.target.slice(6) : op.target;

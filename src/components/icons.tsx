@@ -1,5 +1,5 @@
 import type { ReactElement, SVGProps } from 'react';
-import type { DateEventType } from '../datepack/types';
+import type { DateEventType } from '@datepack/core';
 
 type IconProps = SVGProps<SVGSVGElement>;
 

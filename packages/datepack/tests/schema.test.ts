@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { checkFormatVersion, parseFormatVersion, parseManifest } from '../src/datepack/schema';
-import { DATEPACK_FORMAT_VERSION } from '../src/datepack/schema';
+import { checkFormatVersion, parseFormatVersion, parseManifest } from '../src/schema';
+import { DATEPACK_FORMAT_VERSION } from '../src/schema';
 import { format } from '../src/i18n/core';
 
 describe('format version policy', () => {

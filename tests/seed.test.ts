@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSeoulSeed } from '../src/seed/seoul';
-import { validateDatePack } from '../src/datepack/validate';
+import { validateDatePack } from '@datepack/core';
 import { buildAiPrompt, SITUATIONS } from '../src/features/ai/promptBuilder';
 import { format } from '../src/i18n/core';
 import { emptyRuntime } from '../src/features/day/dayRuntime';

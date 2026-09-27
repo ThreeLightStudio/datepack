@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
+import { createEvent } from '@datepack/core';
 import { computeDayContext, emptyRuntime, getRuntimeEntry } from '../src/features/day/dayRuntime';
-import { createEvent } from '../src/datepack/create';
-import type { DatePackRuntimeState, DatePlan } from '../src/datepack/types';
 
 const DAY = '2026-09-28';
 

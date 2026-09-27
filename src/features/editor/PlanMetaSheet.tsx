@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import type { DatePlan, PlanConstraints } from '../../datepack/types';
+import type { DatePlan, PlanConstraints } from '@datepack/core';
+import { isValidDateISO } from '@datepack/core';
 import { updatePlan } from '../../store/datepackStore';
-import { isValidDateISO } from '../../utils/time';
 import { Sheet } from '../../components/Sheet';
 import { CheckIcon } from '../../components/icons';
 import { useLocale } from '../../i18n';

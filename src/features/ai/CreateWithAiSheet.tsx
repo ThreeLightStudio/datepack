@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react';
 import { Sheet } from '../../components/Sheet';
 import { CopyIcon, SparkleIcon } from '../../components/icons';
 import { buildCreatePrompt } from './createPromptBuilder';
-import { buildPlanFromDraft, parsePlanDraft } from '../../datepack/planDraft';
-import type { DatePack } from '../../datepack/types';
+import type { DatePack } from '@datepack/core';
+import { buildPlanFromDraft, parsePlanDraft, todayISO } from '@datepack/core';
 import { createPackFromPlan, showToast } from '../../store/datepackStore';
 import { formatDate, format, useLocale } from '../../i18n';
-import { todayISO } from '../../utils/time';
 
 type Props = { open: boolean; onClose: () => void };
 

@@ -3,16 +3,15 @@ import type { DatePack, DatePackAsset } from './types';
 import { parseManifest, DATEPACK_FORMAT } from './schema';
 import { validateDatePack } from './validate';
 import { ASSETS_DIR, mimeFromFilename } from './assets';
-import type { I18nIssue } from '../i18n/core';
-import { localizeAll } from '../i18n/core';
+import { localizeIssues, type DatePackIssue } from './i18n/core';
 
 export class DatePackReadError extends Error {
   /** Structured, localizable issues — the UI renders these per locale. */
-  readonly issues: I18nIssue[];
+  readonly issues: DatePackIssue[];
 
-  constructor(issues: I18nIssue[]) {
+  constructor(issues: DatePackIssue[]) {
     // message stays a readable Korean fallback for logs/console; the UI uses `issues`.
-    super(localizeAll('ko', issues).join(' '));
+    super(localizeIssues('ko', issues).join(' '));
     this.name = 'DatePackReadError';
     this.issues = issues;
   }
@@ -22,7 +21,7 @@ export type ReadResult = {
   pack: DatePack;
   /** asset id → blob */
   blobs: Map<string, Blob>;
-  warnings: I18nIssue[];
+  warnings: DatePackIssue[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

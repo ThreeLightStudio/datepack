@@ -22,7 +22,7 @@ opens from your home screen / launcher and works fully offline:
 {
   "format": "datepack",
   "version": "2.0",
-  "createdAt": "…", "updatedAt": "…", "generator": "datepack-web 0.2.0",
+  "createdAt": "…", "updatedAt": "…", "generator": "datepack-core 0.2.0",
   "plan":    { /* the itinerary: events, places, constraints, Plan B's */ },
   "assets": [
     {
@@ -53,7 +53,7 @@ phone, get back to each other.
   photos inlined as base64 data URLs, so it previews and opens anywhere. Versioned
   `major.minor` (currently `2.0`): newer _minor_ versions stay readable with a
   warning, a new _major_ is a clean break. Legacy v1.0 `.datepack` ZIP files are
-  still readable. See `src/datepack/schema.ts` for the reader policy.
+  still readable. See `packages/datepack/src/schema.ts` for the reader policy.
 - **Plan B per stop.** Each stop can carry a fallback plan ("if the line is out
   the door, skip it and swing back at 15:30") and switching is one tap and
   always reversible.
@@ -81,7 +81,7 @@ state, written in the active UI language.
 ```bash
 pnpm install
 pnpm dev        # vite dev server
-pnpm verify     # format (oxfmt) + lint (oxlint) + typecheck + tests (vitest)
+pnpm verify     # format (oxfmt) + lint (oxlint) + typecheck + tests (vitest) — app and packages
 pnpm build      # production build to dist/
 ```
 
@@ -89,19 +89,28 @@ Requires Node ≥ 24 and pnpm 10.
 
 ### Project layout
 
+This is a pnpm workspace. The DatePack file format lives in its own versioned
+package so other products can consume it without coupling to the app.
+
 ```text
-src/
-├─ datepack/     # the format: types, schema, create/read/write, validate, patch — no UI here
+packages/
+└─ datepack/     # @datepack/core — the format library: types, schema, create/read/write,
+                 #   validate, patch, plan drafts, consistency checks, ko/en message catalogs.
+                 #   Versioned independently (see its CHANGELOG.md); the app depends on
+                 #   "workspace:^".
+src/             # the web app
 ├─ storage/      # IndexedDB (packs, asset blobs, day-mode runtime state, meta)
 ├─ store/        # app state: current pack, undo stack, toasts
 ├─ features/     # day (Today), plan (Itinerary), editor, details, ai
 ├─ components/   # icons, sheet, tab bar, image loader, error boundary
-├─ i18n/         # ko/en catalogs + locale store
-└─ utils/        # time math, MapBridge URLs, ids
+├─ i18n/         # ko/en app catalogs (merged with @datepack/core's) + locale store
+└─ utils/        # MapBridge URLs and other app-side helpers
 ```
 
-`src/datepack/` is deliberately UI-free and is the seed of a future
-`@datepack/core` package.
+`@datepack/core` is deliberately UI-free (no React, no components). Its issue
+messages (`err.*`, `warn.conflict.*`, `change.*`) live in the package's own
+catalogs; the app's i18n layer merges them in, so error surfaces keep working
+unchanged.
 
 ## Things you should know
 
@@ -151,7 +160,7 @@ DatePack은 웹에서 동작하는 데이트 플래너입니다. 일정, 장소,
 - **`.datepack.json` 포맷.** 계획과 사진(base64 data URL)이 하나의 평범한 JSON 문서로
   담겨 어디서든 미리보기하고 열 수 있어요. 버전은 `major.minor`(현재 `2.0`)로 관리하고,
   같은 major의 더 새로운 minor는 경고 후 읽을 수 있어요. 구버전(v1.0) `.datepack` ZIP
-  파일도 계속 읽을 수 있어요. 정책은 `src/datepack/schema.ts` 참고.
+  파일도 계속 읽을 수 있어요. 정책은 `packages/datepack/src/schema.ts` 참고.
 - **일정마다 Plan B.** "줄이 너무 길면 건너뛰고 15:30에 재방문" 같은 대체 계획을
   일정마다 붙일 수 있고, 전환도 한 번의 탭, 언제든 되돌리기 가능.
 - **AI 백엔드 없는 AI 재계획.** 앱이 상황과 제약을 담은 요청문을 만들어 주면, AI의
@@ -171,10 +180,13 @@ DatePack은 웹에서 동작하는 데이트 플래너입니다. 일정, 장소,
 
 ## 개발
 
+pnpm 워크스페이스로, 포맷 라이브러리(`@datepack/core`)가 `packages/datepack`에서
+독립적으로 버전 관리됩니다.
+
 ```bash
 pnpm install
 pnpm dev        # vite 개발 서버
-pnpm verify     # oxfmt + oxlint + tsc + vitest
+pnpm verify     # oxfmt + oxlint + tsc + vitest (앱 + 패키지 전체)
 pnpm build      # 프로덕션 빌드 → dist/
 ```
 

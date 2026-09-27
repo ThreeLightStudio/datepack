@@ -1,5 +1,5 @@
 import type { DatePackAsset } from './types';
-import { createId } from '../utils/id';
+import { createId } from './utils/id';
 
 export const ASSETS_DIR = 'assets/';
 

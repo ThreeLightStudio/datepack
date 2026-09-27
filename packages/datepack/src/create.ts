@@ -1,8 +1,8 @@
 import type { DateEvent, DatePack, DatePlan, Place } from './types';
 import { DATE_EVENT_TYPES } from './types';
 import { makeManifest } from './schema';
-import { createId } from '../utils/id';
-import { parseTime } from '../utils/time';
+import { createId } from './utils/id';
+import { parseTime } from './utils/time';
 
 export function createEvent(
   partial: Partial<DateEvent> & Pick<DateEvent, 'title' | 'start'>,
