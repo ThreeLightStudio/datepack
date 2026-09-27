@@ -273,18 +273,24 @@ export async function addEventAssets(
   }
 
   const runtime = state.runtime ?? emptyRuntime(plan.id);
+  // Persist blobs before rendering: AssetImage resolves the blob once on mount
+  // (cache, then IndexedDB) and never retries — a miss would freeze the
+  // placeholder in place until the next reload.
+  const stored = await Promise.all(
+    registered.map(async ({ asset, blob }) => {
+      blobCache.set(cacheKey(plan.id, asset.id), blob);
+      try {
+        await putAsset(plan.id, asset, blob);
+        return true;
+      } catch (error) {
+        console.error('[datepack] asset persist failed', error);
+        return false;
+      }
+    }),
+  );
   setState({ pack, runtime });
   await persist(pack, runtime);
-  for (const { asset, blob } of registered) {
-    blobCache.set(cacheKey(plan.id, asset.id), blob);
-    try {
-      await putAsset(plan.id, asset, blob);
-    } catch (error) {
-      console.error('[datepack] asset persist failed', error);
-      showToast(t('toast.persistFailed'));
-      break;
-    }
-  }
+  if (stored.some((ok) => !ok)) showToast(t('toast.persistFailed'));
   showToast(t('toast.photos.added'));
 }
 
@@ -298,8 +304,8 @@ export async function setCoverFromFiles(files: FileList | File[]): Promise<void>
   const asset = registerAsset(pack, first.asset);
   pack.plan.coverAssetId = asset.id;
   const runtime = state.runtime ?? emptyRuntime(pack.plan.id);
-  setState({ pack, runtime });
-  await persist(pack, runtime);
+  // Same ordering rule as addEventAssets: blob must be resolvable before the
+  // cover image renders, or the placeholder sticks until a reload.
   blobCache.set(cacheKey(pack.plan.id, asset.id), first.blob);
   try {
     await putAsset(pack.plan.id, asset, first.blob);
@@ -307,6 +313,8 @@ export async function setCoverFromFiles(files: FileList | File[]): Promise<void>
     console.error('[datepack] asset persist failed', error);
     showToast(t('toast.persistFailed'));
   }
+  setState({ pack, runtime });
+  await persist(pack, runtime);
   showToast(t('toast.cover.changed'));
 }
 
