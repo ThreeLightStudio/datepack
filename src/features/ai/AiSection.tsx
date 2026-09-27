@@ -8,6 +8,7 @@ import {
   type PatchChangeDetail,
 } from '../../datepack/patch';
 import { applyPatchWithUndo, showToast, undo, useStore } from '../../store/datepackStore';
+import { findPlanConflicts } from '../../datepack/consistency';
 import { CopyIcon, SparkleIcon, UndoIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
 
@@ -42,33 +43,38 @@ function detailLabel(locale: 'ko' | 'en', d: PatchChangeDetail): string {
 }
 
 function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
-  switch (change.op) {
-    case 'move':
-      return format(locale, 'change.move', {
-        title: change.title,
-        from: change.from ?? '',
-        to: change.to ?? '',
-      });
-    case 'remove':
-      return format(locale, 'change.remove', { title: change.title });
-    case 'insertBefore':
-      return format(locale, 'change.insertBefore', {
-        title: change.title,
-        newTitle: change.newTitle,
-        time: change.newStart,
-      });
-    case 'insertAfter':
-      return format(locale, 'change.insertAfter', {
-        title: change.title,
-        newTitle: change.newTitle,
-        time: change.newStart,
-      });
-    case 'replace':
-      return format(locale, 'change.replace', {
-        title: change.title,
-        details: change.details.map((d) => detailLabel(locale, d)).join(', '),
-      });
-  }
+  const label = (() => {
+    switch (change.op) {
+      case 'move':
+        return format(locale, 'change.move', {
+          title: change.title,
+          from: change.from ?? '',
+          to: change.to ?? '',
+        });
+      case 'remove':
+        return format(locale, 'change.remove', { title: change.title });
+      case 'insertBefore':
+        return format(locale, 'change.insertBefore', {
+          title: change.title,
+          newTitle: change.newTitle,
+          time: change.newStart,
+        });
+      case 'insertAfter':
+        return format(locale, 'change.insertAfter', {
+          title: change.title,
+          newTitle: change.newTitle,
+          time: change.newStart,
+        });
+      case 'replace':
+        return format(locale, 'change.replace', {
+          title: change.title,
+          details: change.details.map((d) => detailLabel(locale, d)).join(', '),
+        });
+    }
+  })();
+  // A locked stop changing hands is legal (the user may have rebooked it) but
+  // must be impossible to miss in the review list.
+  return change.fixed ? `${label} ${format(locale, 'change.fixedTag')}` : label;
 }
 
 export function AiSection({ plan, runtime }: Props) {
@@ -127,16 +133,20 @@ export function AiSection({ plan, runtime }: Props) {
       return;
     }
     const outcome = describePatch(plan, parsed.patch);
-    if (outcome.errors.length > 0) {
-      setReview({ ok: false, errors: outcome.errors.map((e) => format(locale, e)) });
+    const warnings = [
+      ...parsed.warnings.map((w) => format(locale, w)),
+      ...outcome.skipped.map((s) => format(locale, s)),
+      // Conflicts in the would-be plan are advisory — apply stays possible.
+      ...findPlanConflicts(outcome.plan).map((c) => format(locale, c)),
+    ];
+    if (outcome.applied.length === 0) {
+      setReview({
+        ok: false,
+        errors: warnings.length > 0 ? warnings : [format(locale, 'err.patch.nothingApplied')],
+      });
       return;
     }
-    setReview({
-      ok: true,
-      changes: outcome.applied,
-      warnings: parsed.warnings.map((w) => format(locale, w)),
-      patchJson: patchText,
-    });
+    setReview({ ok: true, changes: outcome.applied, warnings, patchJson: patchText });
   }
 
   function applyApproved(): void {
@@ -147,8 +157,14 @@ export function AiSection({ plan, runtime }: Props) {
       return;
     }
     void applyPatchWithUndo(parsed.patch).then((result) => {
-      if (result.errors.length > 0) {
-        setReview({ ok: false, errors: result.errors.map((e) => format(locale, e as never)) });
+      if (result.applied.length === 0) {
+        setReview({
+          ok: false,
+          errors:
+            result.skipped.length > 0
+              ? result.skipped.map((e) => format(locale, e))
+              : [format(locale, 'err.patch.nothingApplied')],
+        });
         return;
       }
       setReview(null);

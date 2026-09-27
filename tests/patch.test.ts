@@ -84,19 +84,19 @@ describe('patch apply', () => {
       version: 1,
       operations: [{ op: 'move', target: 'event:sungsimdang-2', value: { start: '16:10' } }],
     });
-    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
     expect(result.plan.events[1].start).toBe('16:10');
   });
 
-  it('reports unknown targets as keyed errors', () => {
+  it('reports unknown targets as skipped ops (the rest still applies)', () => {
     const plan = makePlan();
     const result = applyPatch(plan, {
       type: 'datepack.patch',
       version: 1,
       operations: [{ op: 'move', target: 'event:does-not-exist', value: { start: '16:10' } }],
     });
-    expect(result.errors.length).toBe(1);
-    expect(result.errors[0]).toMatchObject({ key: 'err.patch.unknownTarget' });
+    expect(result.skipped.length).toBe(1);
+    expect(result.skipped[0]).toMatchObject({ key: 'err.patch.unknownTarget' });
     expect(result.applied).toHaveLength(0);
   });
 
@@ -109,7 +109,7 @@ describe('patch apply', () => {
         { op: 'move', target: 'event:event-sungsimdang', value: { start: '16:10', end: '17:10' } },
       ],
     });
-    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
     expect(result.plan.events[1].start).toBe('16:10');
     expect(result.plan.events[1].end).toBe('17:10');
     const change = result.applied[0] as Extract<PatchChange, { op: 'move' }>;
@@ -146,7 +146,7 @@ describe('patch apply', () => {
         },
       ],
     });
-    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
     const walk = result.plan.events[2];
     expect(walk.title).toBe('실내 카페');
     expect(walk.type).toBe('cafe');
@@ -174,7 +174,7 @@ describe('patch apply', () => {
         },
       ],
     });
-    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
     expect(result.plan.events).toHaveLength(5);
     expect(result.plan.events[1].title).toBe('커피 대신 실내 카페');
     expect(result.plan.events[4].title).toBe('아이스크림');
@@ -187,7 +187,7 @@ describe('patch apply', () => {
       version: 1,
       operations: [{ op: 'remove', target: 'event:event-walk' }],
     });
-    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
     expect(result.plan.events).toHaveLength(2);
     expect(result.plan.events.find((e) => e.id === 'event-walk')).toBeUndefined();
     expect(result.applied[0]).toMatchObject({ op: 'remove', title: '야외 산책' });
@@ -215,7 +215,7 @@ describe('patch apply', () => {
       ],
     });
     expect(preview.applied).toHaveLength(1);
-    expect(preview.errors).toHaveLength(1);
+    expect(preview.skipped).toHaveLength(1);
     expect(plan.events[1].start).toBe('15:30');
   });
 });
@@ -228,7 +228,99 @@ describe('patch target tolerance', () => {
       version: 1,
       operations: [{ op: 'move', target: 'event:sungsimdang', value: { start: '16:10' } }],
     });
-    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
     expect(result.plan.events[1].start).toBe('16:10');
+  });
+});
+
+describe('patch reply tolerance', () => {
+  it('parses a reply wrapped in markdown fences and commentary', () => {
+    const patch = {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [{ op: 'move', target: 'event:event-sungsimdang', value: { start: '16:10' } }],
+    };
+    const parsed = parsePatch(
+      `수정된 일정입니다!\n\`\`\`json\n${JSON.stringify(patch, null, 2)}\n\`\`\`\n좋은 하루 되세요`,
+    );
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('normalizes loose times ("9:30" → "09:30") on move and insert', () => {
+    const plan = makePlan();
+    const result = applyPatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        { op: 'move', target: 'event:event-sungsimdang', value: { start: '9:30', end: '10:45' } },
+        {
+          op: 'insertAfter',
+          target: 'event:event-walk',
+          value: { title: '아이스크림', start: '8:05' },
+        },
+      ],
+    });
+    expect(result.skipped).toHaveLength(0);
+    const moved = result.plan.events.find((e) => e.id === 'event-sungsimdang');
+    expect(moved?.start).toBe('09:30');
+    expect(moved?.end).toBe('10:45');
+    const inserted = result.plan.events.find((e) => e.title === '아이스크림');
+    expect(inserted?.start).toBe('08:05');
+    const move = result.applied[0] as Extract<PatchChange, { op: 'move' }>;
+    expect(move.to).toBe('09:30'); // the preview shows the canonical form too
+  });
+
+  it('skips unmatched targets and applies the rest, stored in time order', () => {
+    const plan = makePlan();
+    const result = applyPatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        { op: 'move', target: 'event:event-walk', value: { start: '14:00' } },
+        { op: 'move', target: 'event:ghost', value: { start: '12:00' } }, // skipped
+        {
+          op: 'insertAfter',
+          target: 'event:event-walk',
+          value: { title: '아이스크림', start: '14:40' },
+        },
+      ],
+    });
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]).toMatchObject({ key: 'err.patch.unknownTarget' });
+    expect(result.applied).toHaveLength(2);
+    expect(result.plan.events.map((e) => e.title)).toEqual([
+      '대전역 도착',
+      '야외 산책',
+      '아이스크림',
+      '성심당 본점',
+    ]);
+  });
+
+  it('flags locked stops in the preview so approval stays informed', () => {
+    const plan = makePlan();
+    plan.events[2].fixed = true; // 야외 산책
+    const preview = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [{ op: 'move', target: 'event:event-walk', value: { start: '16:40' } }],
+    });
+    expect(preview.applied[0]).toMatchObject({ op: 'move', fixed: true });
+    expect(format('ko', 'change.fixedTag')).toBe('(고정 일정)');
+    expect(format('en', 'change.fixedTag')).toBe('(locked)');
+  });
+
+  it('rejects an insert whose end is not a valid time', () => {
+    const bad = validatePatch({
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        {
+          op: 'insertAfter',
+          target: 'event:a',
+          value: { title: 'X', start: '10:00', end: '10-11' },
+        },
+      ],
+    });
+    expect(bad.ok).toBe(false);
   });
 });

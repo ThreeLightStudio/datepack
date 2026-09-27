@@ -163,6 +163,9 @@ export function validatePatch(raw: unknown): PatchValidation {
       if (!isValidTime(typeof v.start === 'string' ? v.start : undefined)) {
         errors.push({ key: 'err.patch.needStart', params: { index } });
       }
+      if (v.end !== undefined && v.end !== null && !isValidTime(v.end as string)) {
+        errors.push({ key: 'err.patch.badTime', params: { index, field: 'end' } });
+      }
       if (
         v.type !== undefined &&
         !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string)

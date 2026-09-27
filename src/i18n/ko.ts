@@ -229,6 +229,7 @@ export const ko = {
   'change.field.fixedOff': '고정 해제',
   'change.field.other': '{field}을 {to}으로',
   'change.field.none': '없음',
+  'change.fixedTag': '(고정 일정)',
 
   // event types
   'type.place': '장소',
@@ -331,8 +332,14 @@ export const ko = {
   'err.patch.badTravel': 'operations[{index}]: travelMinutes는 0 이상의 숫자여야 합니다.',
   'err.patch.badJson': 'JSON 파싱에 실패했어요: {detail}',
   'err.patch.notJson': 'Patch JSON을 읽을 수 없습니다.',
-  'err.patch.unknownTarget': '일정을 찾을 수 없어요: {target}',
-  'err.patch.noAnchor': '기준 일정을 찾을 수 없어요: {target}',
+  'err.patch.unknownTarget': '"{target}" 일정을 찾을 수 없어 이 변경은 건너뛰었어요.',
+  'err.patch.noAnchor': '기준 일정 "{target}"을(를) 찾을 수 없어 이 변경은 건너뛰었어요.',
+  'err.patch.nothingApplied': '적용할 수 있는 변경이 없어요.',
+
+  // plan-level consistency warnings (advisory — shown in the AI review card)
+  'warn.conflict.overlap': '"{prev}"과(와) "{next}" 일정이 겹쳐요.',
+  'warn.conflict.travel': '"{next}"은(는) 이동 시간 {minutes}분을 고려하면 너무 이르게 시작해요.',
+  'warn.conflict.endBeforeStart': '"{title}" 일정의 종료가 시작보다 앞서 있어요.',
 
   // plan draft (AI-authored datepack.plan)
   'err.planDraft.notJson': '계획 JSON을 찾지 못했어요. AI가 답한 내용 전체를 붙여넣어 주세요.',

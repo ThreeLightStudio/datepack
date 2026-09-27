@@ -95,12 +95,7 @@ describe('write → read roundtrip', () => {
 
   it('warns on newer minor versions but still reads', async () => {
     const { pack } = makePack();
-    const doc = {
-      format: 'datepack',
-      version: '1.3',
-      plan: pack.plan,
-      assets: [],
-    };
+    const doc = { format: 'datepack', version: '1.3', plan: pack.plan, assets: [] };
     const read = await readDatePack(new Blob([JSON.stringify(doc)], { type: 'application/json' }));
     expect(read.pack.manifest.version).toBe('1.3');
     expect(read.warnings.some((w) => w.params?.value === '1.3')).toBe(true);

@@ -11,6 +11,7 @@ import { readDatePack } from '../datepack/read';
 import { writeDatePack, downloadBlob } from '../datepack/write';
 import { createAssetsFromFiles, registerAsset } from '../datepack/assets';
 import { applyPatch } from '../datepack/patch';
+import type { PatchChange } from '../datepack/patch';
 import { validateDatePack } from '../datepack/validate';
 import {
   deletePack,
@@ -29,7 +30,7 @@ import {
 } from '../storage/indexedDb';
 import { createSeoulSeed } from '../seed/seoul';
 import { emptyRuntime, getRuntimeEntry } from '../features/day/dayRuntime';
-import { t, getLocale } from '../i18n/core';
+import { t, getLocale, type I18nIssue } from '../i18n/core';
 import { todayISO } from '../utils/time';
 
 export type SavedPackSummary = { pack: DatePack; savedAt: string };
@@ -410,12 +411,14 @@ export async function switchToPlanA(eventId: string): Promise<void> {
 // AI patch
 // ---------------------------------------------------------------------------
 
-export async function applyPatchWithUndo(
-  patch: DatePackPatch,
-): Promise<{ applied: unknown[]; errors: unknown[] }> {
-  if (!state.pack) return { applied: [], errors: [] };
+export type PatchApplyResult = { applied: PatchChange[]; skipped: I18nIssue[] };
+
+export async function applyPatchWithUndo(patch: DatePackPatch): Promise<PatchApplyResult> {
+  if (!state.pack) return { applied: [], skipped: [] };
   const outcome = applyPatch(state.pack.plan, patch);
-  if (outcome.errors.length > 0) return outcome;
+  // Unmatched targets were already surfaced as warnings in the review step —
+  // apply whatever matched instead of throwing the whole patch away.
+  if (outcome.applied.length === 0) return { applied: [], skipped: outcome.skipped };
   pushUndo(t('undo.patch'));
   const plan = outcome.plan;
   const pack: DatePack = {
@@ -426,7 +429,7 @@ export async function applyPatchWithUndo(
   const runtime = state.runtime ?? emptyRuntime(plan.id);
   setState({ pack, runtime });
   await persist(pack, runtime);
-  return outcome;
+  return { applied: outcome.applied, skipped: outcome.skipped };
 }
 
 // ---------------------------------------------------------------------------

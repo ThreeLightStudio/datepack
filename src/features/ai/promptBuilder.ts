@@ -1,5 +1,5 @@
 import type { DatePackRuntimeState, DatePlan } from '../../datepack/types';
-import { computeDayContext } from '../day/dayRuntime';
+import { computeDayContext, type DayEventView } from '../day/dayRuntime';
 import { formatTime, nowLabel, todayISO } from '../../utils/time';
 import type { Locale } from '../../i18n/core';
 import type { MessageKey } from '../../i18n/ko';
@@ -57,8 +57,10 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
   ]
 }
 - op는 replace / move / remove / insertBefore / insertAfter 중 하나입니다.
-- target은 위에 적힌 event id 앞에 "event:"를 붙인 문자열입니다. (예: "event:abc123")
-- replace의 value로 쓸 수 있는 필드: title, start, end, type(place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId.
+- target은 위에 적힌 event id 앞에 "event:"를 붙인 문자열입니다. (예: "event:abc123") 위 목록에 없는 id는 절대 사용할 수 없습니다.
+- replace의 value로 쓸 수 있는 필드: title, start, end, type(place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed(true|false).
+- start와 end는 24시간 HH:mm 형식입니다. (예: "09:30")
+- travelMinutes는 그 일정 장소까지 가는 이동 시간(분)입니다.
 - 새 일정 insert 시 value에는 title과 start(HH:mm)가 반드시 필요합니다.`,
   en: `Patch JSON shape:
 {
@@ -73,8 +75,10 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
   ]
 }
 - op is one of replace / move / remove / insertBefore / insertAfter.
-- target is "event:" followed by one of the event ids listed above (e.g. "event:abc123").
-- Allowed replace value fields: title, start, end, type (place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId.
+- target is "event:" followed by one of the event ids listed above (e.g. "event:abc123"). Never use an id that is not in the list above.
+- Allowed replace value fields: title, start, end, type (place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed (true|false).
+- start and end use 24-hour HH:mm (e.g. "09:30").
+- travelMinutes is the travel time, in minutes, to reach that stop's place.
 - An inserted stop always needs a title and a start (HH:mm) in its value.`,
 };
 
@@ -111,9 +115,7 @@ export function buildAiPrompt(input: {
 
   if (ctx.current) {
     lines.push(L.nowHeader);
-    lines.push(
-      `- ${formatTime(ctx.current.startMinutes)} ${ctx.current.event.title}${planBNote(ctx.current)}`,
-    );
+    lines.push(stopLine(ctx.current, locale));
     lines.push('');
   }
 
@@ -121,8 +123,7 @@ export function buildAiPrompt(input: {
     lines.push(L.remainingHeader);
     for (const view of remaining) {
       if (ctx.current && view.event.id === ctx.current.event.id) continue;
-      const end = view.event.end ? `–${view.event.end}` : '';
-      lines.push(`- ${formatTime(view.startMinutes)}${end} ${view.event.title}${planBNote(view)}`);
+      lines.push(stopLine(view, locale));
     }
     lines.push('');
   }
@@ -177,6 +178,21 @@ export function buildAiPrompt(input: {
   return lines.join('\n');
 }
 
+/**
+ * One stop the AI may target. The id is mandatory here — without it the AI
+ * invents targets and every patch fails to apply. Times are the effective
+ * ones (runtime delay included) so the replan starts from reality.
+ */
+function stopLine(view: DayEventView, locale: Locale): string {
+  const delay = view.delayedByMinutes;
+  const start = formatTime(view.startMinutes + delay);
+  const end = view.endMinutes !== null ? `–${formatTime(view.endMinutes + delay)}` : '';
+  const tags = [`id: ${view.event.id}`, view.event.type];
+  if (view.event.fixed) tags.push(locale === 'ko' ? '고정' : 'fixed');
+  if (delay > 0) tags.push(locale === 'ko' ? `지연 ${delay}분` : `delayed ${delay} min`);
+  return `- ${start}${end} ${view.event.title} (${tags.join(', ')})${planBNote(view)}`;
+}
+
 function planBNote(view: { event: { planB?: { title: string } | null } }): string {
   return view.event.planB ? ` (${view.event.planB.title})` : '';
 }
@@ -209,12 +225,16 @@ const koText: PromptText = {
   mustHeader: 'Must (절대 지켜야 함):',
   preferHeader: 'Prefer (가능하면):',
   avoidHeader: 'Avoid (피하기):',
-  fixedHeader: '고정 일정 (수정 금지):',
+  fixedHeader: '고정 일정 (사용자가 확정 — 사용자가 명시적으로 요청할 때만 변경):',
   planBHeader: '현재 Plan B:',
   variableHeader: '현재 변수:',
   instructions: [
-    '위 변수를 반영해 남은 일정만 수정해주세요. 완료한 일정은 변경하지 마세요.',
-    '고정 일정과 Must 조건은 반드시 유지해주세요.',
+    '위 변수를 반영해 남은 일정만 수정해주세요. 완료/건너뜀 처리된 일정은 변경하지 마세요.',
+    'target으로는 위에 적힌 id만 사용하세요. id를 절대 지어내지 마세요.',
+    '고정 일정과 Must 조건은 유지해주세요. 다만 사용자가 고정 일정 자체의 변경(재예매 등)을 요청하면 그대로 반영하고, 고정 일정이 당겨지거나 늦어지면 나머지 일정도 그에 맞게 재배치하세요.',
+    '한 일정의 시간 변경이 다른 일정에 영향을 준다면, 영향받는 모든 후속 일정의 move도 빠짐없이 포함하세요. 일부만 고치고 끝내지 마세요.',
+    '수정 후 일정끼리 겹치면 안 되고, 각 일정은 직전 일정 종료 + 이동 시간(travelMinutes) 이후에 시작해야 합니다.',
+    '사용자가 특정 장소나 시간을 확정했다고 하면 해당 일정을 fixed: true로 지정하고, 그 일정을 중심으로 나머지 일정을 배치하세요.',
     '새로 추가하거나 시간을 옮긴 일정은 실제로 지도에서 검색되는 장소명으로, 해당 시간에 영업 중이고 브레이크타임이나 라스트오더에 걸리지 않는지 확인해주세요.',
     '',
     '반드시 아래 형식의 DatePack Patch JSON만 답해주세요. 다른 설명은 붙이지 마세요.',
@@ -232,12 +252,16 @@ const enText: PromptText = {
   mustHeader: 'Must (non-negotiable):',
   preferHeader: 'Nice to have:',
   avoidHeader: 'Avoid:',
-  fixedHeader: 'Locked stops (do not touch):',
+  fixedHeader: 'Locked stops (user-confirmed — change only if the user explicitly asks):',
   planBHeader: 'Plan B already on file:',
   variableHeader: 'What changed:',
   instructions: [
-    "Replan only the stops that are still ahead. Leave everything we've already done untouched.",
-    'Keep the locked stops and the Must rules no matter what.',
+    'Replan only the stops that are still ahead. Leave completed and skipped stops untouched.',
+    'Use only the ids listed above as targets — never invent one.',
+    'Keep the locked stops and the Must rules. If the user explicitly asks to change a locked stop itself (e.g. a rebooked train), apply that — and when a locked stop moves earlier or later, reschedule the stops around it to match.',
+    'When one stop shifts and others are affected, include a move for every affected later stop — never leave any out.',
+    'After replanning, no stops may overlap, and each stop must start after the previous stop ends plus its travel time (travelMinutes).',
+    'When the user says a place or time is confirmed, mark that stop fixed: true and lay out the rest of the day around it.',
     'Any stop you add or reschedule must use a real venue name searchable on maps, actually be open at its new time, and steer clear of break time and last order.',
     '',
     'Reply with a DatePack Patch JSON in exactly the shape below — no commentary.',

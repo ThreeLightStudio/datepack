@@ -230,6 +230,7 @@ export const en: Record<MessageKey, string> = {
   'change.field.fixedOff': 'unlocked',
   'change.field.other': '{field} → {to}',
   'change.field.none': 'none',
+  'change.fixedTag': '(locked)',
 
   // event types
   'type.place': 'Place',
@@ -330,8 +331,14 @@ export const en: Record<MessageKey, string> = {
   'err.patch.badTravel': 'operations[{index}]: travelMinutes must be a number, 0 or more.',
   'err.patch.badJson': 'Could not parse the JSON: {detail}',
   'err.patch.notJson': 'Could not read the patch.',
-  'err.patch.unknownTarget': 'No such stop: {target}',
-  'err.patch.noAnchor': "Can't find the anchor stop: {target}",
+  'err.patch.unknownTarget': 'No such stop: {target} — skipped this change.',
+  'err.patch.noAnchor': "Can't find the anchor stop: {target} — skipped this change.",
+  'err.patch.nothingApplied': 'No changes could be applied.',
+
+  // plan-level consistency warnings (advisory — shown in the AI review card)
+  'warn.conflict.overlap': '"{prev}" and "{next}" overlap.',
+  'warn.conflict.travel': '"{next}" starts too early for its {minutes}-min travel time.',
+  'warn.conflict.endBeforeStart': '"{title}" ends before it starts.',
 
   // plan draft (AI-authored datepack.plan)
   'err.planDraft.notJson': "Couldn't find a plan JSON — paste the full reply from your AI.",

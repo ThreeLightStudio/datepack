@@ -1,6 +1,8 @@
 import type { DatePackPatch, DatePackPatchNewEvent, DatePlan, DateEvent } from './types';
 import { validatePatch } from './validate';
-import { createEvent } from './create';
+import { createEvent, sortEventsByStart } from './create';
+import { extractJsonObject } from './json';
+import { isValidTime, normalizeTime } from '../utils/time';
 import type { I18nIssue } from '../i18n/core';
 
 export type PatchParseResult =
@@ -8,20 +10,9 @@ export type PatchParseResult =
   | { ok: false; errors: I18nIssue[]; warnings: I18nIssue[] };
 
 export function parsePatch(raw: string): PatchParseResult {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    return {
-      ok: false,
-      errors: [
-        {
-          key: 'err.patch.badJson',
-          params: { detail: error instanceof Error ? error.message : String(error) },
-        },
-      ],
-      warnings: [],
-    };
+  const parsed = extractJsonObject(raw);
+  if (parsed === undefined) {
+    return { ok: false, errors: [{ key: 'err.patch.notJson' }], warnings: [] };
   }
   const result = validatePatch(parsed);
   if (!result.ok) return { ok: false, errors: result.errors, warnings: result.warnings };
@@ -45,21 +36,23 @@ export type PatchChangeDetail = {
 };
 
 export type PatchChange =
-  | { op: 'replace'; target: string; title: string; details: PatchChangeDetail[] }
+  | { op: 'replace'; target: string; title: string; fixed?: boolean; details: PatchChangeDetail[] }
   | {
       op: 'move';
       target: string;
       title: string;
+      fixed?: boolean;
       from?: string;
       to?: string;
       fromEnd?: string;
       toEnd?: string;
     }
-  | { op: 'remove'; target: string; title: string }
+  | { op: 'remove'; target: string; title: string; fixed?: boolean }
   | {
       op: 'insertBefore' | 'insertAfter';
       target: string;
       title: string;
+      fixed?: boolean;
       newTitle: string;
       newStart: string;
     };
@@ -68,8 +61,11 @@ export type PatchOutcome = {
   plan: DatePlan;
   /** Human-renderable list of what changed — the UI localizes these. */
   applied: PatchChange[];
-  /** Operations that could not be applied (e.g. unknown target). */
-  errors: I18nIssue[];
+  /**
+   * Operations that matched nothing (unknown target/anchor). They are skipped
+   * rather than fatal so one bad target can't discard the rest of the patch.
+   */
+  skipped: I18nIssue[];
 };
 
 /** Preview what a patch would change, without mutating anything. */
@@ -85,7 +81,7 @@ export function applyPatch(
 ): PatchOutcome {
   const next: DatePlan = options.dryRun ? plan : structuredClone(plan);
   const applied: PatchChange[] = [];
-  const errors: I18nIssue[] = [];
+  const skipped: I18nIssue[] = [];
 
   for (const op of patch.operations) {
     const targetId = op.target.startsWith('event:') ? op.target.slice(6) : op.target;
@@ -96,7 +92,7 @@ export function applyPatch(
       case 'replace': {
         const event = next.events[index];
         if (!event) {
-          errors.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
+          skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
         const { value } = op;
@@ -104,24 +100,32 @@ export function applyPatch(
         const details: PatchChangeDetail[] = [];
         for (const [key, newValue] of Object.entries(value)) {
           if (newValue === undefined || newValue === null) continue;
-          details.push(detailFor(key, record[key], newValue));
+          details.push(detailFor(key, record[key], displayValue(key, newValue)));
         }
         if (!options.dryRun) Object.assign(event, sanitizeReplaceValue(value));
         if (details.length > 0)
-          applied.push({ op: 'replace', target: event.id, title: event.title, details });
+          applied.push({
+            op: 'replace',
+            target: event.id,
+            title: event.title,
+            fixed: event.fixed === true,
+            details,
+          });
         break;
       }
       case 'move': {
         const event = next.events[index];
         if (!event) {
-          errors.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
+          skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
-        const { start, end } = op.value;
+        const start = isValidTime(op.value.start) ? normalizeTime(op.value.start) : op.value.start;
+        const end = isValidTime(op.value.end) ? normalizeTime(op.value.end) : op.value.end;
         const change: PatchChange = {
           op: 'move',
           target: event.id,
           title: event.title,
+          fixed: event.fixed === true,
           from: start ? event.start : undefined,
           to: start,
           fromEnd: end !== undefined ? event.end : undefined,
@@ -137,18 +141,23 @@ export function applyPatch(
       case 'remove': {
         const event = next.events[index];
         if (!event) {
-          errors.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
+          skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
         if (!options.dryRun) next.events.splice(index, 1);
-        applied.push({ op: 'remove', target: event.id, title: event.title });
+        applied.push({
+          op: 'remove',
+          target: event.id,
+          title: event.title,
+          fixed: event.fixed === true,
+        });
         break;
       }
       case 'insertBefore':
       case 'insertAfter': {
         const event = next.events[index];
         if (!event) {
-          errors.push({ key: 'err.patch.noAnchor', params: { target: op.target } });
+          skipped.push({ key: 'err.patch.noAnchor', params: { target: op.target } });
           break;
         }
         const created = createEventFromPatchValue(op.value);
@@ -167,19 +176,31 @@ export function applyPatch(
     }
   }
 
-  return { plan: next, applied, errors };
+  // Ops anchor to array positions, so the array stays put while they run;
+  // canonical time order is restored once the whole patch has landed.
+  if (!options.dryRun) next.events = sortEventsByStart(next.events);
+
+  return { plan: next, applied, skipped };
 }
 
 function createEventFromPatchValue(value: DatePackPatchNewEvent): DateEvent {
   return createEvent({
     title: value.title,
-    start: value.start,
-    end: value.end,
+    start: normalizeTime(value.start),
+    end: value.end !== undefined && isValidTime(value.end) ? normalizeTime(value.end) : undefined,
     type: value.type ?? 'place',
     note: value.note,
     placeId: value.placeId,
     travelMinutes: value.travelMinutes,
   });
+}
+
+/** Times arrive as "9:30" as often as "09:30" — preview the canonical form. */
+function displayValue(key: string, value: unknown): unknown {
+  if ((key === 'start' || key === 'end') && typeof value === 'string' && isValidTime(value)) {
+    return normalizeTime(value);
+  }
+  return value;
 }
 
 function detailFor(key: string, oldValue: unknown, newValue: unknown): PatchChangeDetail {
@@ -216,9 +237,13 @@ function sanitizeReplaceValue(value: Record<string, unknown>): Partial<DateEvent
     'fixed',
   ];
   for (const key of keys) {
-    if (value[key] !== undefined) {
-      (out as Record<string, unknown>)[key] = value[key];
+    const v = value[key];
+    if (v === undefined || v === null) continue;
+    if ((key === 'start' || key === 'end') && isValidTime(String(v))) {
+      (out as Record<string, unknown>)[key] = normalizeTime(String(v));
+      continue;
     }
+    (out as Record<string, unknown>)[key] = v;
   }
   return out;
 }

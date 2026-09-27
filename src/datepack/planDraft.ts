@@ -2,6 +2,7 @@ import type { DateEventType, DatePack, PlanConstraints } from './types';
 import { DATE_EVENT_TYPES } from './types';
 import { createEvent, createPlace, sortEventsByStart } from './create';
 import { makeManifest } from './schema';
+import { extractJsonObject } from './json';
 import { createId } from '../utils/id';
 import { isValidTime, isValidDateISO, normalizeTime } from '../utils/time';
 import type { I18nIssue } from '../i18n/core';
@@ -44,23 +45,6 @@ export function parsePlanDraft(raw: string): PlanDraftParse {
     return { ok: false, errors: [{ key: 'err.planDraft.notJson' }], warnings: [] };
   }
   return validatePlanDraft(parsed);
-}
-
-function extractJsonObject(text: string): unknown {
-  const trimmed = text.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // Fall through: chat replies often wrap the JSON in fences or commentary.
-  }
-  const start = trimmed.indexOf('{');
-  const end = trimmed.lastIndexOf('}');
-  if (start === -1 || end <= start) return undefined;
-  try {
-    return JSON.parse(trimmed.slice(start, end + 1));
-  } catch {
-    return undefined;
-  }
 }
 
 function validatePlanDraft(raw: unknown): PlanDraftParse {
