@@ -18,7 +18,7 @@ export const en: Record<MessageKey, string> = {
   'fallback.packTitle': 'New date',
   'empty.namePlaceholder': 'Date name (e.g. Our day out)',
   'empty.create': 'Create the date',
-  'empty.openFile': 'Open a .datepack file',
+  'empty.openFile': 'Open a .datepack.json file',
   'empty.demo': 'Try the demo',
   'empty.lang': 'Language',
   'empty.storageError': "Couldn't open local storage: {detail}",
@@ -149,9 +149,10 @@ export const en: Record<MessageKey, string> = {
   'details.addPhoto': 'Add photos',
   'details.files': 'Your DatePack files',
   'details.export.eyebrow': 'Everything in one file',
-  'details.export.hint': 'The whole date — itinerary and photos — packs into one .datepack file.',
+  'details.export.hint':
+    'The whole date — itinerary and photos — packs into one .datepack.json file.',
   'details.export.btn': 'Download',
-  'details.import.btn': 'Open .datepack',
+  'details.import.btn': 'Open .datepack.json',
   'details.export.filename': 'File name: {filename}',
   'details.import.guard':
     "You're mid-date. Opening another DatePack takes you off this screen — continue?",
@@ -211,7 +212,7 @@ export const en: Record<MessageKey, string> = {
   'create.review.apply': 'Start this date',
   'create.review.cancel': 'Cancel',
   'create.review.error': "That reply won't work",
-  'create.toast.download': 'Download .datepack',
+  'create.toast.download': 'Download .datepack.json',
 
   // change rendering
   'change.replace': '"{title}": {details}',
@@ -259,7 +260,7 @@ export const en: Record<MessageKey, string> = {
   'toast.planb.on': 'Switched to Plan B.',
   'toast.pack.created': 'New date created ♡',
   'toast.pack.imported': 'Opened "{title}"{warn}',
-  'toast.pack.exported': '.datepack downloaded.',
+  'toast.pack.exported': '.datepack.json downloaded.',
   'toast.pack.exportedPartial': 'Saved (some images were missing and left out)',
   'toast.pack.switched': 'Opened "{title}".',
   'toast.pack.deleted': 'Date deleted.',
@@ -283,16 +284,16 @@ export const en: Record<MessageKey, string> = {
   'undo.patch': 'AI patch',
 
   // errors
-  'err.read.badZip': "Couldn't open the file — it doesn't look like a valid .datepack (ZIP).",
-  'err.read.noManifest': 'manifest.json is missing. Is this a .datepack file?',
+  'err.read.badZip': "Couldn't open the file — it's damaged or not a DatePack file.",
+  'err.read.noManifest': 'manifest.json is missing. Is this a DatePack file?',
   'err.read.badManifest': 'manifest.json could not be parsed.',
-  'err.read.noEntry': 'plan.json is missing. Is this a .datepack file?',
+  'err.read.noEntry': 'The plan data is missing. Is this a DatePack file?',
   'err.read.badPlan': 'plan.json could not be parsed.',
   'err.read.badAssets': 'assets.json could not be parsed.',
   'err.read.invalidContent': 'Problems found inside this DatePack:',
   'err.read.formatWrong': 'Not a DatePack (format: {value}).',
   'err.read.unsupportedVersion':
-    'Unsupported format version (v{value}) — this reader understands 1.x only.',
+    'Unsupported format version (v{value}) — this reader understands 1.x (ZIP) and 2.x (JSON) only.',
   'err.read.badVersion': 'Unreadable format version: {value}',
   'err.read.newerVersion':
     'Made with a newer compatible format (v{value}) — some fields may be ignored.',

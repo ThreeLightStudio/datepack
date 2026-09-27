@@ -170,7 +170,7 @@ function EmptyState({ error }: { error?: string | null }) {
             {format(locale, 'empty.openFile')}
             <input
               type="file"
-              accept=".datepack,.zip"
+              accept=".json,.datepack.json,.datepack,.zip"
               hidden
               onChange={(e) => {
                 const file = e.target.files?.[0];

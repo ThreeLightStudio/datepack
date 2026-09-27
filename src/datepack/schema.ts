@@ -1,5 +1,6 @@
 import type { DatePackManifest } from './types';
 import type { I18nIssue } from '../i18n/core';
+import { version as APP_VERSION } from '../../package.json';
 
 /**
  * DatePack file format version policy (major.minor):
@@ -8,11 +9,14 @@ import type { I18nIssue } from '../i18n/core';
  *    and accept newer minors with a "some fields may be ignored" warning
  */
 export const DATEPACK_FORMAT = 'datepack';
-export const DATEPACK_FORMAT_VERSION = '1.0';
-/** Highest minor this reader fully understands for major 1. */
+export const DATEPACK_FORMAT_VERSION = '2.0';
+/** Highest minor this reader fully understands (applies per major). */
 export const DATEPACK_SUPPORTED_MINOR = 0;
-/** Package/library version — separate from the file format version on purpose. */
-export const PACKAGE_VERSION = '0.1.0';
+/** Majors this reader understands: 1 = legacy ZIP container, 2 = single-file JSON container. */
+export const DATEPACK_SUPPORTED_MAJORS = [1, 2] as const;
+/** Package/library version — sourced from package.json so the UI, the file
+ *  generator string and the release number can never drift apart. */
+export const PACKAGE_VERSION: string = APP_VERSION;
 export const DATEPACK_ENTRY = 'plan.json' as const;
 
 export type ParsedFormatVersion = { major: number; minor: number; raw: string };
@@ -49,7 +53,7 @@ export function checkFormatVersion(raw: unknown): VersionCheck {
       message: { key: 'err.read.badVersion', params: { value: String(raw) } },
     };
   }
-  if (parsed.major !== 1) {
+  if (!(DATEPACK_SUPPORTED_MAJORS as readonly number[]).includes(parsed.major)) {
     return {
       status: 'reject',
       parsed,
@@ -100,7 +104,7 @@ export function parseManifest(raw: unknown): ManifestResult {
   }
   const warnings: I18nIssue[] = version.status === 'warn' ? [version.message] : [];
 
-  // 1.0 always uses plan.json as the entry; readers fall back to it regardless.
+  // entry only ever pointed at plan.json; readers fall back to it regardless.
   return {
     ok: true,
     warnings,

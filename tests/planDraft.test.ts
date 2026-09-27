@@ -140,6 +140,6 @@ describe('buildPlanFromDraft', () => {
     // the result passes full pack validation (manifest included)
     const result = validateDatePack(pack);
     expect(result.errors).toEqual([]);
-    expect(pack.manifest.version).toBe('1.0');
+    expect(pack.manifest.version).toBe('2.0');
   });
 });

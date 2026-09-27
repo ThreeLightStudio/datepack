@@ -48,14 +48,14 @@ describe('write → read roundtrip', () => {
     const { pack, blob } = makePack();
 
     const written = await writeDatePack(pack, () => Promise.resolve(blob));
-    expect(written.filename).toBe('datepack-2026-09-28.datepack');
+    expect(written.filename).toBe('datepack-2026-09-28.datepack.json');
     expect(written.missingAssetIds).toHaveLength(0);
 
     const read = await readDatePack(written.blob);
     expect(read.warnings).toHaveLength(0);
     expect(read.pack.plan).toEqual(pack.plan);
     expect(read.pack.manifest.format).toBe('datepack');
-    expect(read.pack.manifest.version).toBe('1.0');
+    expect(read.pack.manifest.version).toBe('2.0');
     expect(read.pack.assets).toHaveLength(1);
     expect(read.pack.assets[0]).toMatchObject({ id: 'asset-1', mimeType: 'image/png' });
 
@@ -69,44 +69,63 @@ describe('write → read roundtrip', () => {
     const { pack } = makePack();
     const written = await writeDatePack(pack, () => Promise.resolve(null));
     expect(written.missingAssetIds).toEqual(['asset-1']);
-    // ZIP is still valid and readable; asset registry stays but file is absent
+    // The file is still valid and readable; the asset registry stays without data.
     const read = await readDatePack(written.blob);
     expect(read.blobs.size).toBe(0);
   });
 
   it('rejects files that are not DatePacks', async () => {
-    const notAZip = new Blob(['hello world'], { type: 'text/plain' });
-    await expect(readDatePack(notAZip)).rejects.toBeInstanceOf(DatePackReadError);
+    const notADatePack = new Blob(['hello world'], { type: 'text/plain' });
+    await expect(readDatePack(notADatePack)).rejects.toBeInstanceOf(DatePackReadError);
 
-    const zip = await writeDatePack(makePack().pack, () => Promise.resolve(null));
-    await expect(readDatePack(zip.blob)).resolves.toBeDefined();
+    const validJson = new Blob([JSON.stringify({ hello: 'world' })], { type: 'application/json' });
+    await expect(readDatePack(validJson)).rejects.toThrow(/format/);
+
+    const written = await writeDatePack(makePack().pack, () => Promise.resolve(null));
+    await expect(readDatePack(written.blob)).resolves.toBeDefined();
   });
 
-  it('rejects major version 2 with a clear error', async () => {
-    const fakeV2 = new Blob(
-      [JSON.stringify({ format: 'datepack', version: '2.0', entry: 'plan.json' })],
+  it('rejects major version 3 with a clear error', async () => {
+    const fakeV3 = new Blob(
+      [JSON.stringify({ format: 'datepack', version: '3.0', plan: makePack().pack.plan })],
       { type: 'application/json' },
     );
-    const zip = await v2Zip(fakeV2);
-    await expect(readDatePack(zip)).rejects.toThrow(/2\.0|지원하지 않는/);
+    await expect(readDatePack(fakeV3)).rejects.toThrow(/3\.0|지원하지 않는/);
   });
 
   it('warns on newer minor versions but still reads', async () => {
     const { pack } = makePack();
-    pack.manifest = { ...pack.manifest, version: '1.3' };
-    const written = await writeDatePack(pack, () => Promise.resolve(null));
-    const read = await readDatePack(written.blob);
+    const doc = {
+      format: 'datepack',
+      version: '1.3',
+      plan: pack.plan,
+      assets: [],
+    };
+    const read = await readDatePack(new Blob([JSON.stringify(doc)], { type: 'application/json' }));
     expect(read.pack.manifest.version).toBe('1.3');
     expect(read.warnings.some((w) => w.params?.value === '1.3')).toBe(true);
   });
+
+  it('still reads legacy v1.0 ZIP packs', async () => {
+    const read = await readDatePack(await legacyZip());
+    expect(read.pack.manifest.version).toBe('1.0');
+    expect(read.pack.plan.title).toBe('테스트 데이트');
+    expect(read.pack.assets).toHaveLength(1);
+    const restored = read.blobs.get('asset-1');
+    expect(restored).toBeDefined();
+    expect(restored!.type).toBe('image/png');
+  });
 });
 
-async function v2Zip(manifestBlob: Blob): Promise<Blob> {
+async function legacyZip(): Promise<Blob> {
   const JSZip = (await import('jszip')).default;
+  const { pack, blob } = makePack();
   const zip = new JSZip();
-  zip.file('manifest.json', await manifestBlob.arrayBuffer());
-  zip.file('plan.json', JSON.stringify(makePack().pack.plan));
-  return zip.generateAsync({ type: 'blob' });
+  zip.file('manifest.json', JSON.stringify({ ...pack.manifest, version: '1.0' }));
+  zip.file('plan.json', JSON.stringify(pack.plan));
+  zip.file('assets.json', JSON.stringify(pack.assets));
+  zip.file('assets/cafe.png', await blob.arrayBuffer());
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
 
 describe('validation', () => {

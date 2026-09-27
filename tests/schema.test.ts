@@ -20,15 +20,17 @@ describe('format version policy', () => {
     expect(warn.status === 'warn' && format('en', warn.message)).toContain('ignored');
   });
 
-  it('rejects other majors and garbage', () => {
-    expect(checkFormatVersion('2.0').status).toBe('reject');
+  it('accepts supported majors and rejects other majors and garbage', () => {
+    expect(checkFormatVersion('1.0').status).toBe('ok');
+    expect(checkFormatVersion('2.0').status).toBe('ok');
+    expect(checkFormatVersion('3.0').status).toBe('reject');
     expect(checkFormatVersion('0.9').status).toBe('reject');
     expect(checkFormatVersion('abc').status).toBe('reject');
     expect(checkFormatVersion(null).status).toBe('reject');
   });
 
   it('exposes the current format version constant', () => {
-    expect(DATEPACK_FORMAT_VERSION).toBe('1.0');
+    expect(DATEPACK_FORMAT_VERSION).toBe('2.0');
   });
 });
 
@@ -53,7 +55,7 @@ describe('manifest parsing', () => {
 
   it('rejects non-datepack formats and bad versions', () => {
     expect(parseManifest({ ...base, format: 'other' }).ok).toBe(false);
-    expect(parseManifest({ ...base, version: '2.0' }).ok).toBe(false);
+    expect(parseManifest({ ...base, version: '3.0' }).ok).toBe(false);
     expect(parseManifest('nope').ok).toBe(false);
     expect(parseManifest(null).ok).toBe(false);
   });

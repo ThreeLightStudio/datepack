@@ -18,7 +18,7 @@ export const ko = {
   'fallback.packTitle': '새 데이트',
   'empty.namePlaceholder': '데이트 이름 (예: 우리의 하루)',
   'empty.create': '새 데이트 만들기',
-  'empty.openFile': '.datepack 파일 열기',
+  'empty.openFile': '.datepack.json 파일 열기',
   'empty.demo': '데모 살펴보기',
   'empty.lang': '언어',
   'empty.storageError': '저장 공간을 여는데 실패했어요: {detail}',
@@ -149,9 +149,9 @@ export const ko = {
   'details.addPhoto': '사진 추가',
   'details.files': '내 데이트 파일들',
   'details.export.eyebrow': '파일 하나로 내보내기',
-  'details.export.hint': '이 데이트 전체(일정 + 사진)가 .datepack 파일 하나로 저장돼요.',
+  'details.export.hint': '이 데이트 전체(일정 + 사진)가 .datepack.json 파일 하나로 저장돼요.',
   'details.export.btn': '내려받기',
-  'details.import.btn': '.datepack 열기',
+  'details.import.btn': '.datepack.json 열기',
   'details.export.filename': '파일 이름: {filename}',
   'details.import.guard':
     '지금 데이트 중이에요. 다른 DatePack을 열면 이 화면에서 벗어나요. 계속할까요?',
@@ -211,7 +211,7 @@ export const ko = {
   'create.review.apply': '이 데이트로 시작',
   'create.review.cancel': '취소',
   'create.review.error': '답안에 문제가 있어요',
-  'create.toast.download': '.datepack 내려받기',
+  'create.toast.download': '.datepack.json 내려받기',
 
   // change rendering (AI patch preview)
   'change.replace': '"{title}"에서 {details} 변경',
@@ -259,7 +259,7 @@ export const ko = {
   'toast.planb.on': 'Plan B로 전환했어요.',
   'toast.pack.created': '새 데이트를 만들었어요 ♡',
   'toast.pack.imported': '"{title}"을 불러왔어요{warn}',
-  'toast.pack.exported': '.datepack 파일을 내려받았어요.',
+  'toast.pack.exported': '.datepack.json 파일을 내려받았어요.',
   'toast.pack.exportedPartial': '파일을 저장했어요 (일부 이미지를 찾지 못해 제외됨)',
   'toast.pack.switched': '"{title}"을 열었어요.',
   'toast.pack.deleted': '데이트를 삭제했어요.',
@@ -284,16 +284,16 @@ export const ko = {
   'undo.patch': 'AI patch 적용',
 
   // error keys (core throws these; the UI renders them localized)
-  'err.read.badZip': '.datepack 파일(ZIP)을 여는데 실패했어요. 손상된 파일 같아요.',
+  'err.read.badZip': 'DatePack 파일을 여는데 실패했어요. 손상되었거나 지원하지 않는 형식이에요.',
   'err.read.noManifest': 'manifest.json이 없어요. DatePack 파일이 맞나요?',
   'err.read.badManifest': 'manifest.json을 파싱할 수 없어요.',
-  'err.read.noEntry': 'plan.json이 없어요. DatePack 파일이 맞나요?',
+  'err.read.noEntry': '일정 데이터(plan)가 없어요. DatePack 파일이 맞나요?',
   'err.read.badPlan': 'plan.json을 파싱할 수 없어요.',
   'err.read.badAssets': 'assets.json을 파싱할 수 없어요.',
   'err.read.invalidContent': 'DatePack 내용에 문제가 있어요:',
   'err.read.formatWrong': 'DatePack 포맷이 아닙니다. (format: {value})',
   'err.read.unsupportedVersion':
-    '지원하지 않는 포맷 버전입니다 (v{value}). 이 리더는 1.x만 읽을 수 있어요.',
+    '지원하지 않는 포맷 버전입니다 (v{value}). 이 앱은 1.x(구 ZIP)와 2.x(JSON)만 읽을 수 있어요.',
   'err.read.badVersion': '읽을 수 없는 포맷 버전입니다: {value}',
   'err.read.newerVersion':
     '이 DatePack은 더 새로운 호환 포맷(v{value})으로 만들어졌어요. 일부 필드는 무시될 수 있습니다.',

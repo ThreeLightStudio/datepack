@@ -122,8 +122,8 @@ export function DetailsView({ plan, runtime }: Props) {
           <p className="eyebrow">{ko ? '파일 하나로 내보내기' : 'Everything in one file'}</p>
           <p className="hint-text">
             {ko
-              ? '이 데이트 전체(일정 + 사진)가 .datepack 파일 하나로 저장돼요.'
-              : 'The whole date — itinerary and photos — packs into one .datepack file.'}
+              ? '이 데이트 전체(일정 + 사진)가 .datepack.json 파일 하나로 저장돼요.'
+              : 'The whole date — itinerary and photos — packs into one .datepack.json file.'}
           </p>
           <div className="action-row">
             <button
@@ -138,7 +138,8 @@ export function DetailsView({ plan, runtime }: Props) {
               className="btn btn-soft"
               onClick={() => importRef.current?.click()}
             >
-              <UploadIcon width={16} height={16} /> {ko ? '.datepack 열기' : 'Open .datepack'}
+              <UploadIcon width={16} height={16} />{' '}
+              {ko ? '.datepack.json 열기' : 'Open .datepack.json'}
             </button>
           </div>
           <p className="hint-text mono">
@@ -147,7 +148,7 @@ export function DetailsView({ plan, runtime }: Props) {
           <input
             ref={importRef}
             type="file"
-            accept=".datepack,.zip"
+            accept=".json,.datepack.json,.datepack,.zip"
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];

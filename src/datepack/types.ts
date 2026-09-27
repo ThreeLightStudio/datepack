@@ -1,5 +1,5 @@
 // DatePack format types.
-// File format version follows major.minor ("1.0"). See schema.ts for the reader policy.
+// File format version follows major.minor ("2.0"). See schema.ts for the reader policy.
 
 export const DATE_EVENT_TYPES = [
   'place',
@@ -15,13 +15,14 @@ export type DateEventType = (typeof DATE_EVENT_TYPES)[number];
 
 /**
  * A portable date plan file.
- * On disk it is a ZIP: manifest.json + plan.json + assets/*
+ * On disk it is one JSON document (.datepack.json, format 2.0).
  */
 export type DatePack = { manifest: DatePackManifest; plan: DatePlan; assets: DatePackAsset[] };
 
 export type DatePackManifest = {
   format: 'datepack';
-  version: string; // "1.0"
+  version: string; // "2.0"
+  /** Legacy ZIP field — meaningless in the JSON container, still normalized on read. */
   entry: 'plan.json';
   createdAt?: string;
   updatedAt?: string;
@@ -84,9 +85,15 @@ export type DatePackAsset = {
   id: string;
   filename: string;
   mimeType: string;
-  /** Path inside the .datepack ZIP, e.g. "assets/cafe.jpg" */
-  path: string;
+  /** Legacy ZIP path ("assets/cafe.jpg"); omitted in the JSON container. */
+  path?: string;
   createdAt?: string;
+  /**
+   * JSON container only: the image inlined as a "data:<mime>;base64,…" URL.
+   * Absent at runtime (blobs live in IndexedDB) and for assets whose blob
+   * could not be loaded at export time.
+   */
+  data?: string;
 };
 
 // ---------------------------------------------------------------------------

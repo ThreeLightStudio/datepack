@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import type { DatePack, DatePackAsset } from './types';
-import { parseManifest } from './schema';
+import { parseManifest, DATEPACK_FORMAT } from './schema';
 import { validateDatePack } from './validate';
 import { ASSETS_DIR, mimeFromFilename } from './assets';
 import type { I18nIssue } from '../i18n/core';
@@ -25,8 +25,16 @@ export type ReadResult = {
   warnings: I18nIssue[];
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 /**
- * .datepack = ZIP {
+ * .datepack.json (format 2.0) = one JSON document:
+ * { format, version, createdAt, updatedAt, generator, plan, assets }
+ * where each asset carries its image as a base64 "data:…" URL.
+ *
+ * .datepack (format 1.0, legacy) = ZIP {
  *   manifest.json   — format/version/entry
  *   plan.json       — DatePlan
  *   assets.json     — DatePackAsset[] registry (id, filename, mimeType, path)
@@ -35,6 +43,68 @@ export type ReadResult = {
  * Everything is parsed in the browser; no server involved.
  */
 export async function readDatePack(file: Blob): Promise<ReadResult> {
+  let doc: unknown = null;
+  try {
+    doc = JSON.parse(await file.text());
+  } catch {
+    doc = null;
+  }
+  if (isRecord(doc)) {
+    if (doc.format === DATEPACK_FORMAT) return readJsonContainer(doc);
+    // Valid JSON but not a DatePack — clearer than falling through to the ZIP error.
+    throw new DatePackReadError([
+      { key: 'err.read.formatWrong', params: { value: String(doc.format ?? 'json') } },
+    ]);
+  }
+  return readLegacyZip(file);
+}
+
+async function readJsonContainer(doc: Record<string, unknown>): Promise<ReadResult> {
+  const manifestResult = parseManifest(doc);
+  if (!manifestResult.ok) throw new DatePackReadError(manifestResult.errors);
+
+  const planRaw = doc.plan;
+  if (!isRecord(planRaw)) throw new DatePackReadError([{ key: 'err.read.noEntry' }]);
+
+  const pack: DatePack = {
+    manifest: manifestResult.manifest,
+    plan: planRaw as unknown as DatePack['plan'],
+    assets: [],
+  };
+
+  const blobs = new Map<string, Blob>();
+  if (Array.isArray(doc.assets)) {
+    for (const raw of doc.assets) {
+      if (!isRecord(raw)) continue;
+      const id = typeof raw.id === 'string' ? raw.id : '';
+      if (!id) continue;
+      const asset: DatePackAsset = {
+        id,
+        filename: typeof raw.filename === 'string' ? raw.filename : id,
+        mimeType: typeof raw.mimeType === 'string' ? raw.mimeType : 'application/octet-stream',
+        ...(typeof raw.createdAt === 'string' ? { createdAt: raw.createdAt } : {}),
+      };
+      pack.assets.push(asset);
+      const data = typeof raw.data === 'string' ? raw.data : '';
+      if (!data.startsWith('data:')) continue; // exported without image data
+      try {
+        blobs.set(id, await (await fetch(data)).blob());
+      } catch {
+        // Undecodable data URL: keep the registry entry without a blob.
+      }
+    }
+  }
+
+  const validation = validateDatePack(pack);
+  if (!validation.ok) {
+    throw new DatePackReadError([{ key: 'err.read.invalidContent' }, ...validation.errors]);
+  }
+
+  const warnings = [...manifestResult.warnings, ...validation.warnings];
+  return { pack, blobs, warnings };
+}
+
+async function readLegacyZip(file: Blob): Promise<ReadResult> {
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(file);
