@@ -15,6 +15,11 @@ import {
   saveDeviceState,
   saveImportedPack,
   savePack,
+  saveRuntimeAndAdvanceContext,
+  loadRuntime,
+  getCurrentPackId,
+  savePackWithPendingRequest,
+  savePendingRequest,
 } from '../src/storage/indexedDb';
 import { openDB } from 'idb';
 
@@ -67,6 +72,35 @@ describe('device IndexedDB persistence', () => {
     });
   });
 
+  it('creates an empty AI draft and its fully identified request in one restart-safe transaction', async () => {
+    const pack = createDatePack({ title: 'New date' });
+    const generatedAt = '2026-09-29T10:00:00.000Z';
+    const request = {
+      id: 'create-request',
+      planId: pack.plan.id,
+      kind: 'create' as const,
+      status: 'ready' as const,
+      input: 'request text',
+      baseRevision: 0,
+      contextRevision: 0,
+      generatedAt,
+      createdAt: generatedAt,
+      updatedAt: generatedAt,
+    };
+    await savePackWithPendingRequest(pack, request);
+    await closeStorage();
+    expect(await getCurrentPackId()).toBe(pack.plan.id);
+    expect((await loadPack(pack.plan.id))?.plan.events).toEqual([]);
+    expect((await loadDeviceState(pack.plan.id)).pendingRequest).toMatchObject({
+      id: request.id,
+      planId: pack.plan.id,
+      kind: 'create',
+      baseRevision: 0,
+      contextRevision: 0,
+      generatedAt,
+    });
+  });
+
   it('commits plan and undo atomically and rejects a concurrent stale revision', async () => {
     const initial = createDatePack({ title: 'Test', date: '2026-09-29' });
     await savePack(initial);
@@ -100,6 +134,121 @@ describe('device IndexedDB persistence', () => {
     expect(await getAssetBlob(initial.plan.id, asset.id)).toBeUndefined();
   });
 
+  it('atomically commits an approved AI plan and marks its request applied', async () => {
+    const pack = createDatePack({ title: 'AI transaction', date: '2026-09-29' });
+    await savePack(pack);
+    await saveDeviceState({
+      planId: pack.plan.id,
+      undoStack: [],
+      liveContext: { planId: pack.plan.id, revision: 7, updatedAt: '2026-09-29T00:00:00Z' },
+      pendingRequest: {
+        id: 'request-ai',
+        planId: pack.plan.id,
+        kind: 'remaining-change',
+        status: 'review',
+        input: 'request',
+        answerText: 'answer',
+        responseFingerprint: 'fingerprint',
+        baseRevision: 0,
+        contextRevision: 7,
+        generatedAt: '2026-09-29T00:00:00Z',
+        createdAt: '2026-09-29T00:00:00Z',
+        updatedAt: '2026-09-29T00:01:00Z',
+      },
+    });
+    const requestUpdate = {
+      id: 'request-ai',
+      planId: pack.plan.id,
+      kind: 'remaining-change' as const,
+      status: 'applied' as const,
+      input: 'request',
+      answerText: 'answer',
+      responseFingerprint: 'fingerprint',
+      baseRevision: 0,
+      contextRevision: 7,
+      generatedAt: '2026-09-29T00:00:00Z',
+      createdAt: '2026-09-29T00:00:00Z',
+      updatedAt: '2026-09-29T00:02:00Z',
+    };
+    await commitPlanChange(
+      pack.plan.id,
+      0,
+      'AI change',
+      { ...pack.plan, title: 'Reviewed' },
+      undefined,
+      [],
+      {
+        requestId: 'request-ai',
+        kind: 'remaining-change',
+        baseRevision: 0,
+        contextRevision: 7,
+        generatedAt: '2026-09-29T00:00:00Z',
+        responseFingerprint: 'fingerprint',
+        answerText: 'answer',
+        requestUpdate,
+      },
+    );
+    expect((await loadPack(pack.plan.id))?.plan.title).toBe('Reviewed');
+    expect((await loadDeviceState(pack.plan.id)).pendingRequest?.status).toBe('applied');
+  });
+
+  it('advances context revision atomically when day runtime changes', async () => {
+    const pack = createDatePack({ title: 'Context changes' });
+    await savePack(pack);
+    const nextRevision = await saveRuntimeAndAdvanceContext({
+      planId: pack.plan.id,
+      updatedAt: '2026-09-29T10:00:00.000Z',
+      events: { stop: { eventId: 'stop', status: 'completed' } },
+    });
+    expect(nextRevision).toBe(1);
+    await closeStorage();
+    expect((await loadDeviceState(pack.plan.id)).contextRevision).toBe(1);
+    expect(await loadRuntime(pack.plan.id)).toMatchObject({
+      events: { stop: { status: 'completed' } },
+    });
+  });
+
+  it('rejects an answer review when runtime context changed after the request', async () => {
+    const pack = createDatePack({ title: 'Context-bound request' });
+    await savePack(pack);
+    const generatedAt = '2026-09-29T10:00:00.000Z';
+    const request = {
+      id: 'context-request',
+      planId: pack.plan.id,
+      kind: 'remaining-change' as const,
+      status: 'ready' as const,
+      input: 'request',
+      baseRevision: 0,
+      contextRevision: 0,
+      generatedAt,
+      createdAt: generatedAt,
+      updatedAt: generatedAt,
+    };
+    await savePendingRequest(request, null);
+    await saveRuntimeAndAdvanceContext({
+      planId: pack.plan.id,
+      updatedAt: generatedAt,
+      events: {},
+    });
+    await expect(
+      savePendingRequest(
+        { ...request, status: 'review', answerText: 'answer' },
+        {
+          id: request.id,
+          kind: request.kind,
+          status: request.status,
+          baseRevision: 0,
+          contextRevision: 0,
+          generatedAt,
+          updatedAt: generatedAt,
+          answerText: undefined,
+          responseFingerprint: undefined,
+        },
+      ),
+    ).rejects.toThrow('context-revision-conflict');
+    expect((await loadDeviceState(pack.plan.id)).pendingRequest?.status).toBe('ready');
+  });
+
   it('retains pending requests and undo through a database restart', async () => {
     const pack = createDatePack({ title: 'Test', date: '2026-09-29' });
     await savePack(pack);
@@ -110,10 +259,14 @@ describe('device IndexedDB persistence', () => {
       pendingRequest: {
         id: 'request-1',
         planId: pack.plan.id,
-        status: 'waiting',
+        kind: 'remaining-change',
+        status: 'review',
         input: 'adjust this',
+        answerText: 'recovered answer',
+        responseFingerprint: 'same-answer',
         baseRevision: 1,
         contextRevision: 2,
+        generatedAt: '2026-09-29T00:00:00.000Z',
         createdAt: '2026-09-29T00:00:00.000Z',
         updatedAt: '2026-09-29T00:00:00.000Z',
       },
@@ -130,6 +283,7 @@ describe('device IndexedDB persistence', () => {
     await closeStorage();
     const reopened = await loadDeviceState(pack.plan.id);
     expect(reopened.pendingRequest?.id).toBe('request-1');
+    expect(reopened.pendingRequest?.answerText).toBe('recovered answer');
     expect(reopened.liveContext?.revision).toBe(2);
     expect(reopened.liveContext).toMatchObject({
       place: 'Seoul Station',

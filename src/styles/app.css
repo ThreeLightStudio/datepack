@@ -1839,3 +1839,37 @@ div.asset-placeholder,
     transition: none;
   }
 }
+.ai-scope {
+  border: 0;
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  min-width: 0;
+}
+.ai-scope legend {
+  padding: 0;
+}
+.memory-ai-actions {
+  margin-top: var(--sp-2);
+}
+.memory-ai-editor {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg);
+}
+.memory-ai-editor details summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.memory-ai-prompt {
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--font-small);
+}

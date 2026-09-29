@@ -3,6 +3,8 @@ import { formatTime, nowLabel, todayISO } from '@datepack/core';
 import { computeDayContext, type DayEventView } from '../day/dayRuntime';
 import type { Locale } from '../../i18n/core';
 import type { MessageKey } from '../../i18n/ko';
+import type { AiRequestIdentity } from './exchange';
+import { responseContract } from './exchange';
 
 export type Situation = { id: string; labelKey: MessageKey };
 
@@ -61,7 +63,7 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
 - replace의 value로 쓸 수 있는 필드: title, start, end, type(place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed(true|false).
 - start와 end는 24시간 HH:mm 형식입니다. (예: "09:30")
 - travelMinutes는 그 일정 장소까지 가는 이동 시간(분)입니다.
-- 새 일정 insert 시 value에는 title과 start(HH:mm)가 반드시 필요합니다.`,
+- 새 일정 insert 시 value에는 title과 start(HH:mm)가 필요합니다. 장소가 새로 생기면 place에 장소 이름도 적으세요.`,
   en: `Patch JSON shape:
 {
   "type": "datepack.patch",
@@ -79,7 +81,7 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
 - Allowed replace value fields: title, start, end, type (place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed (true|false).
 - start and end use 24-hour HH:mm (e.g. "09:30").
 - travelMinutes is the travel time, in minutes, to reach that stop's place.
-- An inserted stop always needs a title and a start (HH:mm) in its value.`,
+- An inserted stop needs a title and a start (HH:mm). Include place with a searchable venue name when adding a place.`,
 };
 
 export function buildAiPrompt(input: {
@@ -89,6 +91,8 @@ export function buildAiPrompt(input: {
   customInput?: string;
   locale?: Locale;
   now?: Date;
+  identity?: AiRequestIdentity;
+  scopeEventIds?: string[];
 }): string {
   const locale = input.locale ?? 'ko';
   const now = input.now ?? new Date();
@@ -110,12 +114,15 @@ export function buildAiPrompt(input: {
 
   const settled = ctx.events.filter((v) => v.status === 'completed' || v.status === 'skipped');
   // Unknown elapsed items stay out of default replans until the user confirms them.
-  const remaining = ctx.events.filter(
-    (v) =>
-      v.status === 'upcoming' ||
-      v.status === 'current' ||
-      (v.status === 'unknown-past' && v.includeInRemaining),
-  );
+  const allowed = input.scopeEventIds ? new Set(input.scopeEventIds) : undefined;
+  const remaining = ctx.events
+    .filter(
+      (v) =>
+        v.status === 'upcoming' ||
+        v.status === 'current' ||
+        (v.status === 'unknown-past' && v.includeInRemaining),
+    )
+    .filter((v) => !allowed || allowed.has(v.event.id));
 
   if (settled.length > 0) {
     lines.push(L.settledHeader);
@@ -187,6 +194,17 @@ export function buildAiPrompt(input: {
 
   lines.push(...L.instructions);
   lines.push('');
+  if (input.identity) {
+    lines.push(
+      locale === 'ko'
+        ? '최종 답안은 설명이나 마크다운 없이 DatePack Response 봉투 하나로 반환하세요. result에는 아래 Patch JSON을 넣으세요. 새 장소를 제안할 때 place에 지도 검색 이름을 적고, 실제 영업 여부를 확인하지 못하면 미확인이라고 표시하세요.'
+        : 'Return one DatePack Response envelope with no commentary or markdown. Put the Patch JSON below inside result. For a new stop, include place as a searchable venue name; mark opening hours unverified when you could not confirm them.',
+    );
+    lines.push(
+      responseContract(input.identity, { type: 'datepack.patch', version: 1, operations: [] }),
+    );
+    lines.push('');
+  }
   lines.push(PATCH_SCHEMA_HINT[locale]);
   return lines.join('\n');
 }
@@ -267,7 +285,7 @@ const koText: PromptText = {
     '사용자가 특정 장소나 시간을 확정했다고 하면 해당 일정을 fixed: true로 지정하고, 그 일정을 중심으로 나머지 일정을 배치하세요.',
     '새로 추가하거나 시간을 옮긴 일정은 실제로 지도에서 검색되는 장소명으로, 해당 시간에 영업 중이고 브레이크타임이나 라스트오더에 걸리지 않는지 확인해주세요.',
     '',
-    '반드시 아래 형식의 DatePack Patch JSON만 답해주세요. 다른 설명은 붙이지 마세요.',
+    '최종 답안의 형식은 아래 DatePack Response 안내를 따르세요. 중간 대화에서는 JSON을 만들지 않아도 됩니다.',
   ],
 };
 
@@ -294,6 +312,6 @@ const enText: PromptText = {
     'When the user says a place or time is confirmed, mark that stop fixed: true and lay out the rest of the day around it.',
     'Any stop you add or reschedule must use a real venue name searchable on maps, actually be open at its new time, and steer clear of break time and last order.',
     '',
-    'Reply with a DatePack Patch JSON in exactly the shape below — no commentary.',
+    'Follow the DatePack Response envelope below for the final answer. You do not need to emit JSON during discussion.',
   ],
 };

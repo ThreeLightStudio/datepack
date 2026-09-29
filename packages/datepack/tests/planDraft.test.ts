@@ -25,6 +25,16 @@ const validDraft = {
 };
 
 describe('parsePlanDraft', () => {
+  it('accepts an empty plan only for the v2 review flow', () => {
+    const empty = { ...validDraft, date: undefined, events: [] };
+    expect(parsePlanDraft(JSON.stringify(empty)).ok).toBe(false);
+    const parsed = parsePlanDraft(JSON.stringify(empty), { allowEmpty: true, allowUndated: true });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(buildPlanFromDraft(parsed.draft).plan.events).toEqual([]);
+    expect(buildPlanFromDraft(parsed.draft).plan.date).toBeUndefined();
+  });
+
   it('parses a valid draft, normalizing times', () => {
     const parsed = parsePlanDraft(JSON.stringify(validDraft));
     expect(parsed.ok).toBe(true);

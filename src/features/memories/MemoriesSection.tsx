@@ -1,6 +1,19 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createAssetsFromFiles, registerAsset, type Experience } from '@datepack/core';
-import { useStore, updateExperiences, showToast } from '../../store/datepackStore';
+import {
+  useStore,
+  updateExperiences,
+  showToast,
+  updatePendingRequest,
+  applyAiMemoryNote,
+} from '../../store/datepackStore';
+import type { PendingRequest } from '../../storage/indexedDb';
+import {
+  parseAiResponse,
+  responseContract,
+  responseFingerprint,
+  type AiRequestIdentity,
+} from '../ai/exchange';
 import { useLocale, formatDate } from '../../i18n';
 import { AssetImage } from '../../components/AssetImage';
 import { buildExperienceShareText } from './shareText';
@@ -30,7 +43,7 @@ async function copyText(text: string): Promise<void> {
 export function MemoriesSection() {
   const locale = useLocale();
   const ko = locale === 'ko';
-  const { pack } = useStore();
+  const { pack, pendingRequest, contextRevision } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState('');
   const [eventId, setEventId] = useState('');
@@ -43,6 +56,66 @@ export function MemoriesSection() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [noteIds, setNoteIds] = useState<Set<string>>(() => new Set());
   const [saving, setSaving] = useState(false);
+  const [aiTargetId, setAiTargetId] = useState<string | null>(null);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiReply, setAiReply] = useState('');
+  const [aiReview, setAiReview] = useState<
+    { experienceId: string; originalText: string; editedText: string } | { error: string } | null
+  >(null);
+  const [aiBusy, setAiBusy] = useState(false);
+
+  useEffect(() => {
+    const payload = pendingRequest?.payload as
+      | { experienceId?: unknown; originalText?: unknown }
+      | undefined;
+    if (
+      pendingRequest?.kind !== 'memory-edit' ||
+      pendingRequest.planId !== pack?.plan.id ||
+      ['applied', 'cancelled'].includes(pendingRequest.status) ||
+      typeof payload?.experienceId !== 'string'
+    )
+      return;
+    setAiTargetId(payload.experienceId);
+    setAiPrompt(pendingRequest.input);
+    setAiReply(pendingRequest.answerText ?? '');
+    setAiReview(null);
+    if (pendingRequest.status === 'review' && pendingRequest.answerText && pack) {
+      const identity: AiRequestIdentity = {
+        requestId: pendingRequest.id,
+        packId: pendingRequest.planId,
+        baseRevision: pendingRequest.baseRevision,
+        contextRevision: pendingRequest.contextRevision,
+        generatedAt: pendingRequest.generatedAt,
+        kind: 'memory-edit',
+      };
+      const parsed = parseAiResponse(pendingRequest.answerText, identity);
+      const result =
+        parsed.ok && parsed.response.result && typeof parsed.response.result === 'object'
+          ? (parsed.response.result as Record<string, unknown>)
+          : null;
+      const experience = pack.experiences.find((item) => item.id === payload.experienceId);
+      if (
+        experience &&
+        result?.experienceId === payload.experienceId &&
+        typeof result.editedText === 'string' &&
+        experience?.note === payload.originalText &&
+        pack.revision === pendingRequest.baseRevision &&
+        contextRevision === pendingRequest.contextRevision
+      ) {
+        setAiReview({
+          experienceId: experience.id,
+          originalText: experience.note ?? '',
+          editedText: result.editedText,
+        });
+      } else if (pendingRequest.status === 'review') {
+        setAiReview({
+          error: ko
+            ? '최신 계획이나 원문이 달라졌어요. 새 요청을 만들어주세요.'
+            : 'The latest plan or original text changed. Start a new request.',
+        });
+      }
+    }
+  }, [pendingRequest?.id, pack?.plan.id]);
 
   if (!pack) return null;
   const activePack = pack;
@@ -164,6 +237,292 @@ export function MemoriesSection() {
         );
       }
     }
+  }
+
+  async function startMemoryEdit(experience: Experience): Promise<void> {
+    if (!experience.note?.trim() || !activePack) return;
+    if (pendingRequest && !['applied', 'cancelled', 'stale'].includes(pendingRequest.status)) {
+      showToast(
+        ko
+          ? '진행 중인 요청을 먼저 마치거나 취소해주세요.'
+          : 'Finish or cancel the current request first.',
+      );
+      return;
+    }
+    const id = crypto.randomUUID();
+    const generatedAt = new Date().toISOString();
+    const identity: AiRequestIdentity = {
+      requestId: id,
+      packId: activePack.plan.id,
+      baseRevision: activePack.revision,
+      contextRevision,
+      generatedAt,
+      kind: 'memory-edit',
+    };
+    const prompt = [
+      ko
+        ? '선택한 기록 문장을 읽기 편하게 다듬어주세요. 아래 사실만 사용하고, 방문·대화·감정·시간을 새로 만들거나 추측하지 마세요. 확인이 필요한 부분은 결과에 추가하지 말고 원문을 유지할 수 있게 해주세요.'
+        : 'Polish the selected memory text for readability. Use only the facts below. Do not invent or infer visits, conversations, feelings, or times. Do not add facts that need confirmation.',
+      '',
+      `${ko ? '기록 제목' : 'Memory title'}: ${experience.title}`,
+      `${ko ? '원문' : 'Original text'}: ${experience.note}`,
+      '',
+      ko
+        ? '최종 답안은 설명이나 마크다운 없이 아래 DatePack Response 봉투 하나로 반환하세요. editedText에는 다듬은 문장만 넣으세요.'
+        : 'Return one DatePack Response envelope with no commentary or markdown. Put only the polished wording in editedText.',
+      responseContract(identity, { experienceId: experience.id, editedText: '...' }),
+    ].join('\n');
+    const request: PendingRequest = {
+      id,
+      planId: identity.packId,
+      kind: 'memory-edit',
+      status: 'ready',
+      input: prompt,
+      baseRevision: identity.baseRevision,
+      contextRevision: identity.contextRevision,
+      generatedAt,
+      createdAt: generatedAt,
+      updatedAt: generatedAt,
+      payload: {
+        experienceId: experience.id,
+        originalText: experience.note,
+        title: experience.title,
+      },
+    };
+    try {
+      await updatePendingRequest(request);
+      setAiTargetId(experience.id);
+      setAiPrompt(prompt);
+      setAiReply('');
+      setAiReview(null);
+    } catch {
+      showToast(
+        ko
+          ? '요청을 저장하지 못했어요. 원문은 그대로예요.'
+          : 'Could not save the request. The original is unchanged.',
+      );
+    }
+  }
+
+  async function copyAiPrompt(): Promise<void> {
+    try {
+      await copyText(aiPrompt);
+    } catch {
+      showToast(
+        ko
+          ? '복사하지 못했어요. 요청문을 선택해 복사해주세요.'
+          : 'Copy failed. Select and copy the request note.',
+      );
+      return;
+    }
+    if (pendingRequest?.kind === 'memory-edit')
+      await updatePendingRequest({
+        ...pendingRequest,
+        status: 'waiting',
+        updatedAt: new Date().toISOString(),
+      });
+    showToast(ko ? '기록 정리 요청을 복사했어요.' : 'Memory edit request copied.');
+  }
+
+  async function shareAiPrompt(): Promise<void> {
+    if (!navigator.share) {
+      await copyAiPrompt();
+      return;
+    }
+    try {
+      await navigator.share({
+        title: ko ? 'DatePack 기록 정리' : 'DatePack memory edit',
+        text: aiPrompt,
+      });
+      if (pendingRequest?.kind === 'memory-edit')
+        await updatePendingRequest({
+          ...pendingRequest,
+          status: 'waiting',
+          updatedAt: new Date().toISOString(),
+        });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        if (pendingRequest?.kind === 'memory-edit')
+          await updatePendingRequest({
+            ...pendingRequest,
+            status: 'ready',
+            updatedAt: new Date().toISOString(),
+          });
+        showToast(
+          ko
+            ? '공유를 취소했어요. 복사해 직접 붙여넣을 수 있어요.'
+            : 'Sharing was cancelled. You can copy the request and paste it yourself.',
+        );
+      } else
+        showToast(
+          ko
+            ? '공유를 열지 못했어요. 복사 경로를 이용해주세요.'
+            : 'Could not open sharing. Use Copy request instead.',
+        );
+    }
+  }
+
+  async function reviewAiReply(): Promise<void> {
+    if (
+      !pendingRequest ||
+      pendingRequest.kind !== 'memory-edit' ||
+      !activePack ||
+      !aiTargetId ||
+      !aiReply.trim()
+    )
+      return;
+    const identity: AiRequestIdentity = {
+      requestId: pendingRequest.id,
+      packId: pendingRequest.planId,
+      baseRevision: pendingRequest.baseRevision,
+      contextRevision: pendingRequest.contextRevision,
+      generatedAt: pendingRequest.generatedAt,
+      kind: pendingRequest.kind,
+    };
+    const fingerprint = responseFingerprint(aiReply);
+    const payload = pendingRequest.payload as
+      | { experienceId?: unknown; originalText?: unknown }
+      | undefined;
+    const fail = async (message: string, status: PendingRequest['status'] = 'error') => {
+      setAiReview({ error: message });
+      try {
+        await updatePendingRequest({
+          ...pendingRequest,
+          status,
+          answerText: aiReply,
+          responseFingerprint: fingerprint,
+          error: message,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {
+        showToast(
+          ko
+            ? '요청 상태가 달라졌어요. 최신 화면에서 다시 확인해주세요.'
+            : 'The request changed. Check the latest state and try again.',
+        );
+      }
+    };
+    if (
+      pendingRequest.responseFingerprint === fingerprint &&
+      pendingRequest.answerText === aiReply
+    ) {
+      setAiReview({ error: ko ? '이미 검토한 답안이에요.' : 'This reply was already reviewed.' });
+      return;
+    }
+    if (
+      activePack.revision !== identity.baseRevision ||
+      contextRevision !== identity.contextRevision
+    ) {
+      await fail(
+        ko
+          ? '요청 뒤 계획이나 현재 상황이 바뀌었어요. 새 요청을 만들어주세요.'
+          : 'The plan or current situation changed. Start a new request.',
+        'stale',
+      );
+      return;
+    }
+    const parsed = parseAiResponse(aiReply, identity);
+    if (!parsed.ok) {
+      await fail(
+        parsed.reason === 'mismatch'
+          ? ko
+            ? '다른 요청의 답안이에요.'
+            : 'This reply belongs to another request.'
+          : ko
+            ? '요청 식별 정보가 없거나 답안 형식이 올바르지 않아요.'
+            : 'Request identifiers are missing or the reply format is invalid.',
+      );
+      return;
+    }
+    const result = parsed.response.result;
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      await fail(ko ? '다듬은 문장을 찾을 수 없어요.' : 'No edited text was found.');
+      return;
+    }
+    const body = result as Record<string, unknown>;
+    if (
+      body.experienceId !== payload?.experienceId ||
+      typeof body.editedText !== 'string' ||
+      !body.editedText.trim()
+    ) {
+      await fail(
+        ko
+          ? '기록 ID가 다르거나 다듬은 문장이 비어 있어요.'
+          : 'The memory id does not match or the edited text is empty.',
+      );
+      return;
+    }
+    const experience = activePack.experiences.find((item) => item.id === aiTargetId);
+    if (!experience || experience.note !== payload?.originalText) {
+      await fail(
+        ko
+          ? '원문이 요청 이후 바뀌었어요. 새 요청을 만들어주세요.'
+          : 'The original text changed. Start a new request.',
+        'stale',
+      );
+      return;
+    }
+    await updatePendingRequest({
+      ...pendingRequest,
+      status: 'review',
+      answerText: aiReply,
+      responseFingerprint: fingerprint,
+      error: undefined,
+      updatedAt: new Date().toISOString(),
+    });
+    setAiReview({
+      experienceId: aiTargetId,
+      originalText: experience.note ?? '',
+      editedText: body.editedText.trim(),
+    });
+  }
+
+  async function applyAiReply(): Promise<void> {
+    if (!aiReview || 'error' in aiReview || !pendingRequest || aiBusy) return;
+    setAiBusy(true);
+    try {
+      const saved = await applyAiMemoryNote(
+        {
+          id: pendingRequest.id,
+          planId: pendingRequest.planId,
+          baseRevision: pendingRequest.baseRevision,
+          contextRevision: pendingRequest.contextRevision,
+          generatedAt: pendingRequest.generatedAt,
+          kind: 'memory-edit',
+        },
+        aiReview.experienceId,
+        aiReview.editedText,
+      );
+      if (saved) {
+        setAiReview(null);
+        setAiReply('');
+        showToast(
+          ko
+            ? '다듬은 문장을 원문과 함께 저장했어요.'
+            : 'Edited wording saved alongside the original.',
+        );
+      } else
+        setAiReview({
+          error: ko
+            ? '최신 상태를 확인한 뒤 다시 요청해주세요.'
+            : 'Check the latest state and start a new request.',
+        });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function cancelAiEdit(): Promise<void> {
+    if (pendingRequest?.kind === 'memory-edit')
+      await updatePendingRequest({
+        ...pendingRequest,
+        status: 'cancelled',
+        updatedAt: new Date().toISOString(),
+      });
+    setAiReview(null);
+    setAiTargetId(null);
+    setAiReply('');
+    setAiPrompt('');
   }
 
   return (
@@ -353,6 +712,135 @@ export function MemoriesSection() {
                     {ko ? '기록한 시각' : 'Recorded'} · {recorded}
                   </p>
                   {experience.note && <p className="memory-note">{experience.note}</p>}
+                  {experience.editedNote && (
+                    <p className="memory-note">
+                      <strong>{ko ? '확인해 저장한 문장' : 'Reviewed wording'}</strong>
+                      <br />
+                      {experience.editedNote}
+                    </p>
+                  )}
+                  {experience.note && (
+                    <div className="memory-ai-actions">
+                      <button
+                        type="button"
+                        className="btn btn-soft"
+                        onClick={() => void startMemoryEdit(experience)}
+                      >
+                        {ko ? 'AI로 문장 다듬기' : 'Polish text with AI'}
+                      </button>
+                    </div>
+                  )}
+                  {aiTargetId === experience.id &&
+                    aiPrompt &&
+                    pendingRequest?.kind === 'memory-edit' && (
+                      <div
+                        className="memory-ai-editor"
+                        aria-label={ko ? 'AI 기록 문장 정리' : 'AI memory wording review'}
+                      >
+                        <p className="hint-text">
+                          {ko
+                            ? '보내는 내용은 이 기록의 제목과 메모뿐이에요. 사진과 계획은 포함하지 않아요.'
+                            : 'Only this memory title and note are included. Photos and the plan are not sent.'}
+                        </p>
+                        <details>
+                          <summary>
+                            {ko ? 'AI에 보낼 요청문 보기' : 'Review the request sent to AI'}
+                          </summary>
+                          <pre className="memory-ai-prompt">{aiPrompt}</pre>
+                        </details>
+                        <div className="action-row">
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            onClick={() =>
+                              void shareAiPrompt().catch(() =>
+                                showToast(ko ? '요청 상태가 달라졌어요.' : 'The request changed.'),
+                              )
+                            }
+                          >
+                            {ko ? '요청문 공유' : 'Share request'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-soft"
+                            onClick={() =>
+                              void copyAiPrompt().catch(() =>
+                                showToast(ko ? '요청 상태가 달라졌어요.' : 'The request changed.'),
+                              )
+                            }
+                          >
+                            {ko ? '요청문 복사' : 'Copy request'}
+                          </button>
+                        </div>
+                        <label className="field">
+                          <span>{ko ? 'AI 답안 붙여넣기' : 'Paste AI reply'}</span>
+                          <textarea
+                            rows={6}
+                            value={aiReply}
+                            onChange={(event) => {
+                              setAiReply(event.target.value);
+                              setAiReview(null);
+                            }}
+                          />
+                        </label>
+                        <div className="action-row">
+                          <button
+                            type="button"
+                            className="btn btn-soft"
+                            disabled={!aiReply.trim()}
+                            onClick={() =>
+                              void reviewAiReply().catch(() =>
+                                showToast(ko ? '요청 상태가 달라졌어요.' : 'The request changed.'),
+                              )
+                            }
+                          >
+                            {ko ? '다듬은 문장 검토' : 'Review wording'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={() =>
+                              void cancelAiEdit().catch(() =>
+                                showToast(ko ? '요청 상태가 달라졌어요.' : 'The request changed.'),
+                              )
+                            }
+                          >
+                            {ko ? '요청 취소' : 'Cancel request'}
+                          </button>
+                        </div>
+                        {aiReview && 'editedText' in aiReview && (
+                          <div className="review-card" aria-live="polite">
+                            <p className="review-head">
+                              {ko ? '저장 전 확인' : 'Review before saving'}
+                            </p>
+                            <p className="eyebrow">
+                              {ko ? '원문 — 그대로 보존' : 'Original — kept unchanged'}
+                            </p>
+                            <p className="memory-note">{aiReview.originalText}</p>
+                            <p className="eyebrow">{ko ? '다듬은 문장' : 'Edited wording'}</p>
+                            <p className="memory-note">{aiReview.editedText}</p>
+                            <p className="hint-text">
+                              {ko
+                                ? '사실이 달라지지 않았는지 확인하세요. 적용해도 원문은 그대로 남아요.'
+                                : 'Check the facts. Applying this keeps the original text as well.'}
+                            </p>
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              disabled={aiBusy}
+                              onClick={() => void applyAiReply()}
+                            >
+                              {ko ? '원문과 함께 저장' : 'Save alongside original'}
+                            </button>
+                          </div>
+                        )}
+                        {aiReview && 'error' in aiReview && (
+                          <p className="form-warning" role="alert">
+                            {aiReview.error}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   {experience.assetIds?.length ? (
                     <div className="memory-photos" aria-label={ko ? '추억 사진' : 'Memory photos'}>
                       {experience.assetIds.map((assetId) => (

@@ -29,8 +29,9 @@ export function buildExperienceShareText(
             : ' · time not recorded';
       const place = experience.placeSnapshot?.name ? ` · ${experience.placeSnapshot.name}` : '';
       const lines = [`${outcome}: ${experience.title}${place} · ${date}${time}`];
-      if (noteIds.has(experience.id) && experience.note?.trim()) {
-        lines.push(experience.note.trim());
+      const note = experience.editedNote?.trim() || experience.note?.trim();
+      if (noteIds.has(experience.id) && note) {
+        lines.push(note);
       }
       return lines.join('\n');
     })

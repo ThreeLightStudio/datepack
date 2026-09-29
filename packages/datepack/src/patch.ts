@@ -1,6 +1,6 @@
 import type { DatePackPatch, DatePackPatchNewEvent, DatePlan, DateEvent } from './types';
 import { validatePatch } from './validate';
-import { createEvent } from './create';
+import { createEvent, createPlace } from './create';
 import { extractJsonObject } from './json';
 import { isValidTime, normalizeTime, parseTime } from './utils/time';
 import type { DatePackIssue } from './i18n/core';
@@ -56,6 +56,7 @@ export type PatchChange =
       fixed?: boolean;
       newTitle: string;
       newStart: string;
+      newPlace?: string;
     };
 
 export type PatchOutcome = {
@@ -184,7 +185,7 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           skipped.push({ key: 'err.patch.noAnchor', params: { target: op.target } });
           break;
         }
-        const created = createEventFromPatchValue(op.value);
+        const created = createEventFromPatchValue(op.value, next);
         next.events.splice(op.op === 'insertBefore' ? index : index + 1, 0, created);
         applied.push({
           op: op.op,
@@ -192,6 +193,7 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           title: event.title,
           newTitle: created.title,
           newStart: created.start ?? '',
+          ...(op.value.place ? { newPlace: op.value.place.trim() } : {}),
         });
         break;
       }
@@ -244,14 +246,27 @@ export function applyPatch(
   return describePatch(plan, patch);
 }
 
-function createEventFromPatchValue(value: DatePackPatchNewEvent): DateEvent {
+function createEventFromPatchValue(value: DatePackPatchNewEvent, plan: DatePlan): DateEvent {
+  let placeId = value.placeId;
+  if (value.place?.trim()) {
+    const name = value.place.trim();
+    const existing = plan.places?.find(
+      (place) => place.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+    );
+    if (existing) placeId = existing.id;
+    else {
+      const place = createPlace(name, name);
+      plan.places = [...(plan.places ?? []), place];
+      placeId = place.id;
+    }
+  }
   return createEvent({
     title: value.title,
     start: normalizeTime(value.start),
     end: value.end !== undefined && isValidTime(value.end) ? normalizeTime(value.end) : undefined,
     type: value.type ?? 'place',
     note: value.note,
-    placeId: value.placeId,
+    placeId,
     travelMinutes: value.travelMinutes,
   });
 }

@@ -29,14 +29,104 @@ export type PersonalJourney = {
 export type PendingRequest = {
   id: string;
   planId: string;
-  status: 'draft' | 'ready' | 'waiting' | 'review';
+  kind: 'create' | 'next-change' | 'remaining-change' | 'memory-edit';
+  status: 'draft' | 'ready' | 'waiting' | 'review' | 'applied' | 'cancelled' | 'stale' | 'error';
   input: string;
   baseRevision: number;
   contextRevision: number;
+  generatedAt: string;
   createdAt: string;
   updatedAt: string;
+  answerText?: string;
+  responseFingerprint?: string;
+  scopeEventIds?: string[];
+  error?: string;
   payload?: unknown;
 };
+export type AiCommitGuard = {
+  requestId: string;
+  kind: PendingRequest['kind'];
+  baseRevision: number;
+  contextRevision: number;
+  generatedAt: string;
+  responseFingerprint: string;
+  answerText: string;
+  requestUpdate: PendingRequest;
+};
+export type PendingRequestGuard = Pick<
+  PendingRequest,
+  | 'id'
+  | 'kind'
+  | 'status'
+  | 'baseRevision'
+  | 'contextRevision'
+  | 'generatedAt'
+  | 'updatedAt'
+  | 'answerText'
+  | 'responseFingerprint'
+>;
+
+export async function savePendingRequest(
+  request: PendingRequest | undefined,
+  expected: PendingRequestGuard | null,
+): Promise<void> {
+  if (!request) throw new Error('request-required');
+  const db = await getDb();
+  const tx = db.transaction(['packsV3', 'device'], 'readwrite');
+  const row = await tx.objectStore('packsV3').get(request.planId);
+  if (!row) {
+    abortReadWrite(tx);
+    throw new Error('pack-missing');
+  }
+  const store = tx.objectStore('device');
+  const current = (await store.get(request.planId)) ?? defaultDevice(request.planId);
+  const actual = current.pendingRequest;
+  const matches =
+    expected === null
+      ? actual === undefined
+      : Boolean(
+          actual &&
+          actual.id === expected.id &&
+          actual.kind === expected.kind &&
+          actual.status === expected.status &&
+          actual.baseRevision === expected.baseRevision &&
+          actual.contextRevision === expected.contextRevision &&
+          actual.generatedAt === expected.generatedAt &&
+          actual.updatedAt === expected.updatedAt &&
+          actual.answerText === expected.answerText &&
+          actual.responseFingerprint === expected.responseFingerprint,
+        );
+  if (!matches) {
+    abortReadWrite(tx);
+    throw new Error('request-conflict');
+  }
+  if (['ready', 'waiting', 'review'].includes(request.status)) {
+    if (row.pack.revision !== request.baseRevision) {
+      abortReadWrite(tx);
+      throw new Error('revision-conflict');
+    }
+    if (
+      (current.contextRevision ?? current.liveContext?.revision ?? 0) !== request.contextRevision
+    ) {
+      abortReadWrite(tx);
+      throw new Error('context-revision-conflict');
+    }
+  }
+  if (
+    actual &&
+    actual.id === request.id &&
+    (actual.planId !== request.planId ||
+      actual.kind !== request.kind ||
+      actual.baseRevision !== request.baseRevision ||
+      actual.contextRevision !== request.contextRevision ||
+      actual.generatedAt !== request.generatedAt)
+  ) {
+    abortReadWrite(tx);
+    throw new Error('request-conflict');
+  }
+  await store.put({ ...current, pendingRequest: structuredClone(request) }, request.planId);
+  await tx.done;
+}
 export type StoredUndoEntry = {
   label: string;
   plan: DatePlan;
@@ -45,6 +135,7 @@ export type StoredUndoEntry = {
 };
 export type DeviceState = {
   planId: string;
+  contextRevision?: number;
   liveContext?: LiveContext;
   personalJourney?: PersonalJourney;
   pendingRequest?: PendingRequest;
@@ -112,7 +203,7 @@ function assetKey(packId: string, assetId: string): string {
   return `${packId}:${assetId}`;
 }
 function defaultDevice(planId: string): DeviceState {
-  return { planId, undoStack: [] };
+  return { planId, contextRevision: 0, undoStack: [] };
 }
 function abortReadWrite(tx: { done: Promise<unknown>; abort: () => void }): void {
   void tx.done.catch(() => undefined);
@@ -189,6 +280,40 @@ export async function savePack(
   return storedPack;
 }
 
+/** Create the blank AI draft and its request as one durable local transaction. */
+export async function savePackWithPendingRequest(
+  pack: DatePack,
+  pendingRequest: PendingRequest,
+): Promise<void> {
+  if (
+    pendingRequest.kind !== 'create' ||
+    pendingRequest.planId !== pack.plan.id ||
+    pendingRequest.baseRevision !== pack.revision ||
+    pendingRequest.contextRevision !== 0 ||
+    pendingRequest.status !== 'ready'
+  )
+    throw new Error('request-plan-mismatch');
+  validate(pack);
+  const db = await getDb();
+  const tx = db.transaction(['packsV3', 'runtime', 'device', 'meta'], 'readwrite');
+  if (await tx.objectStore('packsV3').get(pack.plan.id)) {
+    abortReadWrite(tx);
+    throw new Error('pack-already-exists');
+  }
+  await tx.objectStore('packsV3').put({ pack, savedAt: new Date().toISOString() }, pack.plan.id);
+  await tx
+    .objectStore('runtime')
+    .put({ planId: pack.plan.id, updatedAt: new Date().toISOString(), events: {} }, pack.plan.id);
+  await tx
+    .objectStore('device')
+    .put(
+      { ...defaultDevice(pack.plan.id), pendingRequest: structuredClone(pendingRequest) },
+      pack.plan.id,
+    );
+  await tx.objectStore('meta').put(pack.plan.id, CURRENT_PACK_KEY);
+  await tx.done;
+}
+
 export async function listPacks(): Promise<Array<{ pack: DatePack; savedAt: string }>> {
   const db = await getDb();
   for (const key of await db.getAllKeys('packs')) {
@@ -259,6 +384,7 @@ export async function commitPlanChange(
   nextPlan: DatePlan,
   nextAssets?: DatePackAsset[],
   assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
+  aiGuard?: AiCommitGuard,
 ): Promise<DatePack> {
   const db = await getDb();
   const tx = db.transaction(['packsV3', 'device', 'assets'], 'readwrite');
@@ -284,8 +410,48 @@ export async function commitPlanChange(
   };
   validate(pack);
   const existing = (await tx.objectStore('device').get(planId)) ?? defaultDevice(planId);
+  if (aiGuard) {
+    if (row.pack.revision !== aiGuard.baseRevision) {
+      abortReadWrite(tx);
+      throw new Error('revision-conflict');
+    }
+    if (
+      (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !== aiGuard.contextRevision
+    ) {
+      abortReadWrite(tx);
+      throw new Error('context-revision-conflict');
+    }
+    if (
+      existing.pendingRequest?.id !== aiGuard.requestId ||
+      existing.pendingRequest.kind !== aiGuard.kind ||
+      existing.pendingRequest.baseRevision !== aiGuard.baseRevision ||
+      existing.pendingRequest.contextRevision !== aiGuard.contextRevision ||
+      existing.pendingRequest.generatedAt !== aiGuard.generatedAt ||
+      existing.pendingRequest.responseFingerprint !== aiGuard.responseFingerprint ||
+      existing.pendingRequest.answerText !== aiGuard.answerText ||
+      existing.pendingRequest.status !== 'review'
+    ) {
+      abortReadWrite(tx);
+      throw new Error('request-conflict');
+    }
+    if (
+      aiGuard.requestUpdate.id !== aiGuard.requestId ||
+      aiGuard.requestUpdate.planId !== planId ||
+      aiGuard.requestUpdate.kind !== aiGuard.kind ||
+      aiGuard.requestUpdate.baseRevision !== aiGuard.baseRevision ||
+      aiGuard.requestUpdate.contextRevision !== aiGuard.contextRevision ||
+      aiGuard.requestUpdate.generatedAt !== aiGuard.generatedAt ||
+      aiGuard.requestUpdate.responseFingerprint !== aiGuard.responseFingerprint ||
+      aiGuard.requestUpdate.answerText !== aiGuard.answerText ||
+      aiGuard.requestUpdate.status !== 'applied'
+    ) {
+      abortReadWrite(tx);
+      throw new Error('request-conflict');
+    }
+  }
   const device: DeviceState = {
     ...existing,
+    ...(aiGuard ? { pendingRequest: structuredClone(aiGuard.requestUpdate) } : {}),
     undoStack: [
       ...existing.undoStack,
       {
@@ -351,9 +517,10 @@ export async function commitExperienceChange(
   experiences: DatePack['experiences'],
   assets?: DatePackAsset[],
   assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
+  aiGuard?: AiCommitGuard,
 ): Promise<DatePack> {
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'assets'], 'readwrite');
+  const tx = db.transaction(['packsV3', 'assets', 'device'], 'readwrite');
   const row = await tx.objectStore('packsV3').get(planId);
   if (!row) {
     abortReadWrite(tx);
@@ -362,6 +529,47 @@ export async function commitExperienceChange(
   if (row.pack.revision !== expectedRevision) {
     abortReadWrite(tx);
     throw new Error('revision-conflict');
+  }
+  const deviceStore = tx.objectStore('device');
+  const existing = (await deviceStore.get(planId)) ?? defaultDevice(planId);
+  if (aiGuard) {
+    if (row.pack.revision !== aiGuard.baseRevision) {
+      abortReadWrite(tx);
+      throw new Error('revision-conflict');
+    }
+    if (
+      (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !== aiGuard.contextRevision
+    ) {
+      abortReadWrite(tx);
+      throw new Error('context-revision-conflict');
+    }
+    if (
+      existing.pendingRequest?.id !== aiGuard.requestId ||
+      existing.pendingRequest.kind !== aiGuard.kind ||
+      existing.pendingRequest.baseRevision !== aiGuard.baseRevision ||
+      existing.pendingRequest.contextRevision !== aiGuard.contextRevision ||
+      existing.pendingRequest.generatedAt !== aiGuard.generatedAt ||
+      existing.pendingRequest.responseFingerprint !== aiGuard.responseFingerprint ||
+      existing.pendingRequest.answerText !== aiGuard.answerText ||
+      existing.pendingRequest.status !== 'review'
+    ) {
+      abortReadWrite(tx);
+      throw new Error('request-conflict');
+    }
+    if (
+      aiGuard.requestUpdate.id !== aiGuard.requestId ||
+      aiGuard.requestUpdate.planId !== planId ||
+      aiGuard.requestUpdate.kind !== aiGuard.kind ||
+      aiGuard.requestUpdate.baseRevision !== aiGuard.baseRevision ||
+      aiGuard.requestUpdate.contextRevision !== aiGuard.contextRevision ||
+      aiGuard.requestUpdate.generatedAt !== aiGuard.generatedAt ||
+      aiGuard.requestUpdate.responseFingerprint !== aiGuard.responseFingerprint ||
+      aiGuard.requestUpdate.answerText !== aiGuard.answerText ||
+      aiGuard.requestUpdate.status !== 'applied'
+    ) {
+      abortReadWrite(tx);
+      throw new Error('request-conflict');
+    }
   }
   const pack: DatePack = {
     ...row.pack,
@@ -372,6 +580,8 @@ export async function commitExperienceChange(
   };
   validate(pack);
   await tx.objectStore('packsV3').put({ ...row, pack }, planId);
+  if (aiGuard)
+    await deviceStore.put({ ...existing, pendingRequest: aiGuard.requestUpdate }, planId);
   const assetStore = tx.objectStore('assets');
   for (const { asset, blob } of assetWrites) {
     await assetStore.put({
@@ -428,7 +638,16 @@ export async function saveDeviceState(
     abortReadWrite(tx);
     throw new Error('context-revision-conflict');
   }
-  await tx.store.put({ ...value, undoStack: current.undoStack }, value.planId);
+  await tx.store.put(
+    {
+      ...value,
+      contextRevision:
+        value.contextRevision ??
+        Math.max(current.contextRevision ?? 0, value.liveContext?.revision ?? 0),
+      undoStack: current.undoStack,
+    },
+    value.planId,
+  );
   await tx.done;
 }
 
@@ -436,6 +655,7 @@ export async function saveDeviceFields(
   planId: string,
   fields: Pick<Partial<DeviceState>, 'liveContext' | 'personalJourney' | 'pendingRequest'>,
   expectedContextRevision?: number,
+  expectedPendingRequest?: PendingRequestGuard | null,
 ): Promise<DeviceState> {
   const db = await getDb();
   const tx = db.transaction('device', 'readwrite');
@@ -447,7 +667,29 @@ export async function saveDeviceFields(
     abortReadWrite(tx);
     throw new Error('context-revision-conflict');
   }
-  const next = { ...current, ...fields, planId, undoStack: current.undoStack };
+  if (expectedPendingRequest !== undefined) {
+    const actual = current.pendingRequest;
+    if (
+      expectedPendingRequest === null
+        ? actual !== undefined
+        : !actual ||
+          actual.id !== expectedPendingRequest.id ||
+          actual.updatedAt !== expectedPendingRequest.updatedAt ||
+          actual.kind !== expectedPendingRequest.kind ||
+          actual.status !== expectedPendingRequest.status ||
+          actual.baseRevision !== expectedPendingRequest.baseRevision ||
+          actual.contextRevision !== expectedPendingRequest.contextRevision ||
+          actual.generatedAt !== expectedPendingRequest.generatedAt ||
+          actual.answerText !== expectedPendingRequest.answerText ||
+          actual.responseFingerprint !== expectedPendingRequest.responseFingerprint
+    ) {
+      abortReadWrite(tx);
+      throw new Error('request-conflict');
+    }
+  }
+  const contextRevision =
+    (current.contextRevision ?? current.liveContext?.revision ?? 0) + (fields.liveContext ? 1 : 0);
+  const next = { ...current, ...fields, contextRevision, planId, undoStack: current.undoStack };
   await tx.store.put(next, planId);
   await tx.done;
   return next;
@@ -455,7 +697,33 @@ export async function saveDeviceFields(
 
 export async function loadDeviceState(planId: string): Promise<DeviceState> {
   const db = await getDb();
-  return (await db.get('device', planId)) ?? defaultDevice(planId);
+  const tx = db.transaction('device', 'readwrite');
+  const device = (await tx.store.get(planId)) ?? defaultDevice(planId);
+  const rawRequest = device.pendingRequest as
+    | (PendingRequest & { kind?: PendingRequest['kind']; generatedAt?: string })
+    | undefined;
+  const legacyRequest = rawRequest && (!rawRequest.kind || !rawRequest.generatedAt);
+  const normalized = legacyRequest
+    ? {
+        ...rawRequest,
+        kind: rawRequest.kind ?? 'remaining-change',
+        generatedAt:
+          rawRequest.generatedAt ??
+          rawRequest.createdAt ??
+          rawRequest.updatedAt ??
+          new Date().toISOString(),
+        status: 'stale' as const,
+        error: 'This request predates AI v2 and needs a fresh request.',
+      }
+    : rawRequest;
+  const result: DeviceState = {
+    ...device,
+    contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
+    ...(normalized ? { pendingRequest: normalized } : {}),
+  };
+  if (legacyRequest) await tx.store.put(result, planId);
+  await tx.done;
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -591,6 +859,17 @@ export async function saveImportedPack(
 export async function saveRuntime(state: DatePackRuntimeState): Promise<void> {
   const db = await getDb();
   await db.put('runtime', state, state.planId);
+}
+export async function saveRuntimeAndAdvanceContext(runtime: DatePackRuntimeState): Promise<number> {
+  const db = await getDb();
+  const tx = db.transaction(['runtime', 'device'], 'readwrite');
+  const store = tx.objectStore('device');
+  const current = (await store.get(runtime.planId)) ?? defaultDevice(runtime.planId);
+  const contextRevision = (current.contextRevision ?? current.liveContext?.revision ?? 0) + 1;
+  await tx.objectStore('runtime').put(runtime, runtime.planId);
+  await store.put({ ...current, contextRevision }, runtime.planId);
+  await tx.done;
+  return contextRevision;
 }
 export async function loadRuntime(planId: string): Promise<DatePackRuntimeState | undefined> {
   const db = await getDb();

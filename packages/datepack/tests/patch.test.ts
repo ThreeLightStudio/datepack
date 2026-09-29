@@ -26,6 +26,29 @@ function makePlan(): DatePlan {
 }
 
 describe('patch validation', () => {
+  it('creates and links a new searchable place from an AI-inserted event', () => {
+    const plan = makePlan();
+    const result = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        {
+          op: 'insertAfter',
+          target: 'event:sungsimdang',
+          value: { title: 'Tea', start: '16:40', type: 'cafe', place: 'A New Tea House' },
+        },
+      ],
+    });
+    expect(result.canApply).toBe(true);
+    const inserted = result.plan.events.find((event) => event.title === 'Tea');
+    expect(inserted?.placeId).toBeTruthy();
+    expect(result.plan.places?.find((place) => place.id === inserted?.placeId)).toMatchObject({
+      name: 'A New Tea House',
+      mapQuery: 'A New Tea House',
+    });
+    expect(plan.places).toEqual([]);
+  });
+
   it('parses a valid patch', () => {
     const parsed = parsePatch(
       JSON.stringify({

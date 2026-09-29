@@ -218,6 +218,14 @@ export const ko = {
   'ai.toast.applied': '변경 {count}개를 적용했어요. 되돌리기 가능해요.',
   'ai.toast.needCustom': '상황을 한 줄 입력해주세요.',
 
+  'ai.request.stale':
+    '요청을 만든 뒤 계획이나 현재 상황이 바뀌었어요. 최신 내용으로 새 요청을 만들어주세요.',
+  'ai.request.duplicate': '이미 처리한 답안이에요. 새 요청을 만들어 다시 진행해주세요.',
+  'ai.request.mismatch': '다른 요청의 답안이거나 식별 정보가 맞지 않아요.',
+  'ai.request.missing': '요청 식별 정보가 빠진 답안이에요. 최신 요청문을 다시 사용해주세요.',
+  'ai.request.cancelled': '공유를 취소했어요. 요청문을 복사해 직접 붙여넣을 수 있어요.',
+  'ai.share': '요청문 공유',
+  'ai.prompt.ready': '요청문을 저장했어요. 공유하거나 복사해 AI에 붙여넣으세요.',
   // create with ai (first-run / new-date flow)
   'create.btn': 'AI와 논의해서 만들기',
   'create.btn.sub': 'AI 채팅에서 대화하며 계획을 정하고, 결과를 여기에 가져오면 데이트가 돼요.',

@@ -52,4 +52,17 @@ describe('memory text sharing', () => {
     expect(text).toContain('날짜 미상');
     expect(text).toContain('We took the side street.');
   });
+
+  it('shares reviewed AI wording while the original note stays on the record', () => {
+    const reviewed = { ...second, note: 'Original wording', editedNote: 'Reviewed wording' };
+    const text = buildExperienceShareText(
+      [reviewed],
+      new Set([reviewed.id]),
+      new Set([reviewed.id]),
+      'en',
+    );
+    expect(text).toContain('Reviewed wording');
+    expect(text).not.toContain('Original wording');
+    expect(reviewed.note).toBe('Original wording');
+  });
 });

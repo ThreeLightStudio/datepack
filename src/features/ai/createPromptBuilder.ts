@@ -1,4 +1,6 @@
 import type { Locale } from '../../i18n/core';
+import type { AiRequestIdentity } from './exchange';
+import { responseContract } from './exchange';
 
 export type CreatePromptInput = {
   /** Where the date happens — city, neighborhood, venue… */
@@ -9,6 +11,7 @@ export type CreatePromptInput = {
   /** Free-form requests: tastes, budget, transport, party size… */
   notes?: string;
   locale?: Locale;
+  identity?: AiRequestIdentity;
 };
 
 const PLAN_SCHEMA_HINT: Record<Locale, string> = {
@@ -17,7 +20,7 @@ const PLAN_SCHEMA_HINT: Record<Locale, string> = {
   "type": "datepack.plan",
   "version": 1,
   "title": "데이트 이름",
-  "date": "YYYY-MM-DD",
+  "date": "YYYY-MM-DD (optional; omit when undecided)",
   "memo": "한 줄 메모 (선택)",
   "constraints": { "must": ["..."], "prefer": ["..."], "avoid": ["..."] },
   "events": [
@@ -28,13 +31,13 @@ const PLAN_SCHEMA_HINT: Record<Locale, string> = {
 - type은 place / meal / cafe / transport / reservation / activity / note 중 하나입니다. (생략 시 place)
 - start와 end는 HH:mm 형식이며, end는 생략할 수 있습니다.
 - place는 지도에서 실제로 검색되는 정확한 장소명입니다. (생략 가능)
-- id는 작성하지 마세요. 일정은 시간순으로 정렬해주세요.`,
+- 날짜가 미정이면 date를 생략해도 됩니다. id는 작성하지 마세요. 일정은 시간순으로 정렬해주세요.`,
   en: `Plan JSON shape:
 {
   "type": "datepack.plan",
   "version": 1,
   "title": "A name for the date",
-  "date": "YYYY-MM-DD",
+  "date": "YYYY-MM-DD (optional; omit when undecided)",
   "memo": "one-line note (optional)",
   "constraints": { "must": ["..."], "prefer": ["..."], "avoid": ["..."] },
   "events": [
@@ -45,7 +48,7 @@ const PLAN_SCHEMA_HINT: Record<Locale, string> = {
 - type is one of place / meal / cafe / transport / reservation / activity / note (defaults to place).
 - start and end are HH:mm; end may be omitted.
 - place is the exact name that actually shows up on map searches. (optional)
-- Do not include ids. Order the events by time.`,
+- Omit date when undecided. Do not include ids. Order the events by time.`,
 };
 
 function weekdayLabel(date: string, locale: Locale): string {
@@ -69,7 +72,9 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
 
   lines.push(locale === 'ko' ? '조건:' : 'The brief:');
   lines.push(
-    `- ${locale === 'ko' ? '날짜' : 'Date'}: ${input.date} (${weekdayLabel(input.date, locale)})`,
+    input.date
+      ? `- ${locale === 'ko' ? '날짜' : 'Date'}: ${input.date} (${weekdayLabel(input.date, locale)})`
+      : `- ${locale === 'ko' ? '날짜' : 'Date'}: ${locale === 'ko' ? '미정' : 'Undecided'}`,
   );
   lines.push(`- ${locale === 'ko' ? '지역' : 'Area'}: ${input.region}`);
   const timeRange =
@@ -96,8 +101,8 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
   );
   lines.push(
     locale === 'ko'
-      ? '2. 계획이 확정되면 마지막에 아래 형식의 DatePack Plan JSON만 답해주세요. 다른 설명은 붙이지 마세요.'
-      : '2. Once the plan is final, reply with only the DatePack Plan JSON in the shape below — no commentary.',
+      ? '2. 계획이 확정되면 아래 DatePack Response 봉투에 DatePack Plan JSON을 넣어 답해주세요. 대화 중간에는 JSON이 필요하지 않아요.'
+      : '2. Once the plan is final, return the DatePack Plan JSON inside the DatePack Response envelope below. No JSON is needed during discussion.',
   );
   lines.push('');
 
@@ -127,5 +132,22 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
   lines.push('');
 
   lines.push(PLAN_SCHEMA_HINT[locale]);
+  if (input.identity) {
+    lines.push('');
+    lines.push(
+      locale === 'ko'
+        ? '최종 답안은 설명이나 마크다운 없이 아래 DatePack Response 봉투 하나로 반환하세요. result 안에는 위 Plan JSON을 넣으세요. 일정이 아직 정해지지 않았다면 events를 빈 배열로 둘 수 있습니다.'
+        : 'Return one DatePack Response envelope with no commentary or markdown. Put the Plan JSON inside result. If no stops are settled yet, result.events may be an empty array.',
+    );
+    lines.push(
+      responseContract(input.identity, {
+        type: 'datepack.plan',
+        version: 1,
+        title: '...',
+        ...(input.date ? { date: input.date } : {}),
+        events: [],
+      }),
+    );
+  }
   return lines.join('\n');
 }

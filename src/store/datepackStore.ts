@@ -27,7 +27,9 @@ import {
   putAsset,
   saveImportedPack,
   savePack,
+  savePackWithPendingRequest,
   saveRuntime,
+  saveRuntimeAndAdvanceContext,
   setCurrentPackId,
   commitPlanChange,
   commitUndo,
@@ -35,7 +37,9 @@ import {
   commitBaselinePlan,
   loadDeviceState,
   saveDeviceFields,
+  savePendingRequest,
   type PendingRequest,
+  type AiCommitGuard,
   type LiveContext,
   type PersonalJourney,
 } from '../storage/indexedDb';
@@ -56,6 +60,7 @@ export type StoreState = {
   savedPacks: SavedPackSummary[];
   undoStack: UndoEntry[];
   liveContext: LiveContext | null;
+  contextRevision: number;
   personalJourney: PersonalJourney | null;
   pendingRequest: PendingRequest | null;
   toast: { message: string; action?: ToastAction } | null;
@@ -70,6 +75,7 @@ let state: StoreState = {
   savedPacks: [],
   undoStack: [],
   liveContext: null,
+  contextRevision: 0,
   personalJourney: null,
   pendingRequest: null,
   toast: null,
@@ -173,6 +179,7 @@ export async function initStore(): Promise<void> {
         savedPacks: [],
         undoStack: [],
         liveContext: null,
+        contextRevision: 0,
         personalJourney: null,
         pendingRequest: null,
       });
@@ -192,6 +199,7 @@ export async function initStore(): Promise<void> {
       savedPacks: packs,
       undoStack: device.undoStack,
       liveContext: device.liveContext ?? null,
+      contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
       personalJourney: device.personalJourney ?? null,
       pendingRequest: device.pendingRequest ?? null,
     });
@@ -263,7 +271,13 @@ async function commitCurrentPlan(
 }
 
 async function refreshAfterConflict(error: unknown): Promise<void> {
-  if (error instanceof Error && error.message === 'revision-conflict' && state.pack) {
+  if (
+    error instanceof Error &&
+    ['revision-conflict', 'context-revision-conflict', 'request-conflict'].includes(
+      error.message,
+    ) &&
+    state.pack
+  ) {
     const pack = await loadPack(state.pack.plan.id);
     if (pack) {
       const [runtime, device] = await Promise.all([
@@ -274,6 +288,9 @@ async function refreshAfterConflict(error: unknown): Promise<void> {
         pack,
         runtime: runtime ?? emptyRuntime(pack.plan.id),
         undoStack: device.undoStack,
+        liveContext: device.liveContext ?? null,
+        contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
+        pendingRequest: device.pendingRequest ?? null,
       });
     }
   }
@@ -285,8 +302,13 @@ export async function updateLiveContext(context: Omit<LiveContext, 'revision'>):
   const existing = await loadDeviceState(context.planId);
   const revision = (existing.liveContext?.revision ?? 0) + 1;
   const liveContext = { ...context, revision };
-  await saveDeviceFields(context.planId, { liveContext }, existing.liveContext?.revision ?? 0);
-  if (state.pack?.plan.id === context.planId) setState({ liveContext });
+  const device = await saveDeviceFields(
+    context.planId,
+    { liveContext },
+    existing.liveContext?.revision ?? 0,
+  );
+  if (state.pack?.plan.id === context.planId)
+    setState({ liveContext, contextRevision: device.contextRevision ?? 0 });
 }
 
 export async function updatePersonalJourney(
@@ -297,12 +319,111 @@ export async function updatePersonalJourney(
   setState({ personalJourney: personalJourney ?? null });
 }
 
-export async function updatePendingRequest(
-  pendingRequest: PendingRequest | undefined,
-): Promise<void> {
+export async function updatePendingRequest(pendingRequest: PendingRequest): Promise<void> {
   if (!state.pack) return;
-  await saveDeviceFields(state.pack.plan.id, { pendingRequest });
-  setState({ pendingRequest: pendingRequest ?? null });
+  if (pendingRequest && pendingRequest.planId !== state.pack.plan.id)
+    throw new Error('request-plan-mismatch');
+  const expected = state.pendingRequest
+    ? {
+        id: state.pendingRequest.id,
+        kind: state.pendingRequest.kind,
+        status: state.pendingRequest.status,
+        baseRevision: state.pendingRequest.baseRevision,
+        contextRevision: state.pendingRequest.contextRevision,
+        generatedAt: state.pendingRequest.generatedAt,
+        updatedAt: state.pendingRequest.updatedAt,
+        answerText: state.pendingRequest.answerText,
+        responseFingerprint: state.pendingRequest.responseFingerprint,
+      }
+    : null;
+  try {
+    await savePendingRequest(pendingRequest, expected);
+  } catch (error) {
+    await refreshAfterConflict(error);
+    throw error;
+  }
+  setState({ pendingRequest });
+}
+
+/** Commit an approved AI plan using the same validated transaction as direct edits. */
+export async function applyAiPlan(
+  identity: Pick<
+    PendingRequest,
+    'id' | 'planId' | 'baseRevision' | 'contextRevision' | 'generatedAt' | 'kind'
+  >,
+  plan: DatePlan,
+): Promise<boolean> {
+  const current = state.pack;
+  const request = state.pendingRequest;
+  if (
+    !current ||
+    current.plan.id !== identity.planId ||
+    !request ||
+    request.id !== identity.id ||
+    request.kind !== identity.kind ||
+    request.status !== 'review' ||
+    !request.answerText ||
+    !request.responseFingerprint ||
+    request.baseRevision !== identity.baseRevision ||
+    request.contextRevision !== identity.contextRevision ||
+    request.generatedAt !== identity.generatedAt
+  ) {
+    showToast(t('ai.request.stale'));
+    return false;
+  }
+  if (
+    current.revision !== identity.baseRevision ||
+    state.contextRevision !== identity.contextRevision
+  ) {
+    const stale = { ...request, status: 'stale' as const, updatedAt: new Date().toISOString() };
+    try {
+      await updatePendingRequest(stale);
+    } catch {
+      /* Keep the in-memory draft available. */
+    }
+    showToast(t('ai.request.stale'));
+    return false;
+  }
+  const completed: PendingRequest = {
+    ...request,
+    status: 'applied',
+    updatedAt: new Date().toISOString(),
+  };
+  const guard: AiCommitGuard = {
+    requestId: identity.id,
+    kind: identity.kind,
+    baseRevision: identity.baseRevision,
+    contextRevision: identity.contextRevision,
+    generatedAt: identity.generatedAt,
+    responseFingerprint: request.responseFingerprint,
+    answerText: request.answerText,
+    requestUpdate: completed,
+  };
+  try {
+    const saved = await commitPlanChange(
+      identity.planId,
+      identity.baseRevision,
+      t('undo.patch'),
+      plan,
+      undefined,
+      [],
+      guard,
+    );
+    const device = await loadDeviceState(identity.planId);
+    setState({
+      pack: saved,
+      undoStack: device.undoStack,
+      pendingRequest: device.pendingRequest ?? null,
+    });
+    return true;
+  } catch (error) {
+    await refreshAfterConflict(error);
+    if (error instanceof Error && error.message === 'context-revision-conflict')
+      showToast(t('ai.request.stale'));
+    else if (error instanceof Error && error.message === 'request-conflict')
+      showToast(t('ai.request.duplicate'));
+    return false;
+  }
 }
 
 /** Commit experience facts with the pack revision while leaving undo/device state intact. */
@@ -335,6 +456,96 @@ export async function updateExperiences(
   }
 }
 
+/** Save reviewed wording as an additional field; the original note is retained verbatim. */
+export async function applyAiMemoryNote(
+  identity: Pick<
+    PendingRequest,
+    'id' | 'planId' | 'baseRevision' | 'contextRevision' | 'generatedAt' | 'kind'
+  >,
+  experienceId: string,
+  editedText: string,
+): Promise<boolean> {
+  const current = state.pack;
+  const request = state.pendingRequest;
+  const payload = request?.payload as
+    | { experienceId?: unknown; originalText?: unknown }
+    | undefined;
+  if (
+    !current ||
+    identity.kind !== 'memory-edit' ||
+    current.plan.id !== identity.planId ||
+    !request ||
+    request.id !== identity.id ||
+    request.kind !== identity.kind ||
+    request.status !== 'review' ||
+    !request.answerText ||
+    !request.responseFingerprint ||
+    request.baseRevision !== identity.baseRevision ||
+    request.contextRevision !== identity.contextRevision ||
+    request.generatedAt !== identity.generatedAt ||
+    payload?.experienceId !== experienceId ||
+    !editedText.trim()
+  )
+    return false;
+  const experience = current.experiences.find((item) => item.id === experienceId);
+  if (
+    !experience ||
+    experience.note !== payload.originalText ||
+    current.revision !== identity.baseRevision ||
+    state.contextRevision !== identity.contextRevision
+  ) {
+    try {
+      await updatePendingRequest({
+        ...request,
+        status: 'stale',
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      /* retain local draft */
+    }
+    showToast(t('ai.request.stale'));
+    return false;
+  }
+  const completed: PendingRequest = {
+    ...request,
+    status: 'applied',
+    updatedAt: new Date().toISOString(),
+  };
+  const guard: AiCommitGuard = {
+    requestId: identity.id,
+    kind: identity.kind,
+    baseRevision: identity.baseRevision,
+    contextRevision: identity.contextRevision,
+    generatedAt: identity.generatedAt,
+    responseFingerprint: request.responseFingerprint,
+    answerText: request.answerText,
+    requestUpdate: completed,
+  };
+  const experiences = current.experiences.map((item) =>
+    item.id === experienceId ? { ...item, editedNote: editedText.trim() } : item,
+  );
+  try {
+    const saved = await commitExperienceChange(
+      identity.planId,
+      identity.baseRevision,
+      experiences,
+      undefined,
+      [],
+      guard,
+    );
+    const device = await loadDeviceState(identity.planId);
+    setState({ pack: saved, pendingRequest: device.pendingRequest ?? null });
+    return true;
+  } catch (error) {
+    await refreshAfterConflict(error);
+    if (error instanceof Error && error.message === 'context-revision-conflict')
+      showToast(t('ai.request.stale'));
+    else if (error instanceof Error && error.message === 'request-conflict')
+      showToast(t('ai.request.duplicate'));
+    return false;
+  }
+}
+
 /** P3's explicit “refresh baseline” action; first-record capture happens with experience commit. */
 export async function updateBaselinePlan(): Promise<void> {
   if (!state.pack) return;
@@ -357,13 +568,9 @@ export async function updateRuntime(
   mutate(runtime);
   runtime.planId = state.pack.plan.id;
   runtime.updatedAt = new Date().toISOString();
-  setState({ runtime });
-  await saveRuntimeCaught(runtime);
-}
-
-async function saveRuntimeCaught(runtime: DatePackRuntimeState): Promise<void> {
   try {
-    await saveRuntime(runtime);
+    const contextRevision = await saveRuntimeAndAdvanceContext(runtime);
+    setState({ runtime, contextRevision });
   } catch (error) {
     console.error('[datepack] runtime persist failed', error);
     showToast(t('toast.persistFailed'));
@@ -560,8 +767,26 @@ export async function createNewPack(title: string, date: string): Promise<void> 
     savedPacks: await listPacks(),
     undoStack: [],
     liveContext: null,
+    contextRevision: 0,
     personalJourney: null,
     pendingRequest: null,
+  });
+  showToast(t('toast.pack.created'));
+}
+
+export async function createAiDraftPack(pack: DatePack, request: PendingRequest): Promise<void> {
+  await savePackWithPendingRequest(pack, request);
+  const runtime = emptyRuntime(pack.plan.id);
+  setState({
+    status: 'ready',
+    pack,
+    runtime,
+    savedPacks: await listPacks(),
+    undoStack: [],
+    liveContext: null,
+    contextRevision: 0,
+    personalJourney: null,
+    pendingRequest: request,
   });
   showToast(t('toast.pack.created'));
 }
@@ -579,6 +804,7 @@ export async function createPackFromPlan(pack: DatePack): Promise<void> {
     savedPacks: await listPacks(),
     undoStack: [],
     liveContext: null,
+    contextRevision: 0,
     personalJourney: null,
     pendingRequest: null,
   });
@@ -607,6 +833,7 @@ export async function loadDemoPack(): Promise<void> {
     savedPacks: await listPacks(),
     undoStack: [],
     liveContext: null,
+    contextRevision: 0,
     personalJourney: null,
     pendingRequest: null,
   });
@@ -643,6 +870,7 @@ export async function importPackFile(file: File): Promise<void> {
     savedPacks: await listPacks(),
     undoStack: device.undoStack,
     liveContext: device.liveContext ?? null,
+    contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
     personalJourney: device.personalJourney ?? null,
     pendingRequest: device.pendingRequest ?? null,
   });

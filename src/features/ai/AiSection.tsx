@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type {
   DatePackRuntimeState,
   DatePlan,
@@ -8,9 +8,18 @@ import type {
 } from '@datepack/core';
 import { describePatch, parsePatch } from '@datepack/core';
 import { buildAiPrompt, SITUATIONS } from './promptBuilder';
-import { applyPatchWithUndo, showToast, undo, useStore } from '../../store/datepackStore';
+import {
+  applyAiPlan,
+  showToast,
+  undo,
+  updatePendingRequest,
+  useStore,
+} from '../../store/datepackStore';
+import type { PendingRequest } from '../../storage/indexedDb';
 import { CopyIcon, SparkleIcon, UndoIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
+import { computeDayContext } from '../day/dayRuntime';
+import { parseAiResponse, responseFingerprint, type AiRequestIdentity } from './exchange';
 
 type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
 
@@ -54,17 +63,16 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
       case 'remove':
         return format(locale, 'change.remove', { title: change.title });
       case 'insertBefore':
-        return format(locale, 'change.insertBefore', {
-          title: change.title,
-          newTitle: change.newTitle,
-          time: change.newStart,
-        });
-      case 'insertAfter':
-        return format(locale, 'change.insertAfter', {
-          title: change.title,
-          newTitle: change.newTitle,
-          time: change.newStart,
-        });
+      case 'insertAfter': {
+        const inserted = format(
+          locale,
+          change.op === 'insertBefore' ? 'change.insertBefore' : 'change.insertAfter',
+          { title: change.title, newTitle: change.newTitle, time: change.newStart },
+        );
+        return change.newPlace
+          ? `${inserted} · ${locale === 'ko' ? '장소' : 'Place'}: ${change.newPlace}`
+          : inserted;
+      }
       case 'replace':
         return format(locale, 'change.replace', {
           title: change.title,
@@ -79,31 +87,144 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
 
 export function AiSection({ plan, runtime }: Props) {
   const locale = useLocale();
-  const { undoStack } = useStore();
+  const { undoStack, pack, contextRevision, pendingRequest } = useStore();
   const [stage, setStage] = useState<Stage>('idle');
   const [situationId, setSituationId] = useState<string | null>(null);
+  const [scopeKind, setScopeKind] = useState<'next-change' | 'remaining-change'>(
+    'remaining-change',
+  );
   const [customInput, setCustomInput] = useState('');
   const [prompt, setPrompt] = useState('');
   const [patchText, setPatchText] = useState('');
   const [review, setReview] = useState<
-    | {
-        ok: true;
-        changes: PatchChange[];
-        warnings: string[];
-        prepared: PatchOutcome;
-        basePlan: DatePlan;
-      }
+    | { ok: true; changes: PatchChange[]; warnings: string[]; prepared: PatchOutcome }
     | { ok: false; errors: string[] }
     | null
   >(null);
 
   const isCustom = situationId === 'custom';
 
-  function choose(id: string): void {
-    setSituationId(id);
-    if (id !== 'custom') {
-      setPrompt(buildAiPrompt({ plan, runtime, situationId: id, locale }));
+  useEffect(() => {
+    if (
+      !pendingRequest ||
+      (pendingRequest.kind !== 'next-change' && pendingRequest.kind !== 'remaining-change') ||
+      pendingRequest.planId !== plan.id ||
+      ['applied', 'cancelled'].includes(pendingRequest.status)
+    )
+      return;
+    setStage('prompted');
+    setPrompt(pendingRequest.input);
+    setPatchText(pendingRequest.answerText ?? '');
+    setScopeKind(pendingRequest.kind);
+    setReview(null);
+    if (pendingRequest.status === 'review' && pendingRequest.answerText) {
+      window.setTimeout(
+        () =>
+          void checkPatch(pendingRequest.answerText, true).catch(() =>
+            setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] }),
+          ),
+        0,
+      );
+    }
+  }, [pendingRequest?.id, plan.id]);
+
+  const activeRequest =
+    pendingRequest &&
+    pendingRequest.planId === plan.id &&
+    (pendingRequest.kind === 'next-change' || pendingRequest.kind === 'remaining-change') &&
+    !['applied', 'cancelled'].includes(pendingRequest.status)
+      ? pendingRequest
+      : null;
+  const identity: AiRequestIdentity | null = activeRequest
+    ? {
+        requestId: activeRequest.id,
+        packId: activeRequest.planId,
+        baseRevision: activeRequest.baseRevision,
+        contextRevision: activeRequest.contextRevision,
+        generatedAt: activeRequest.generatedAt,
+        kind: activeRequest.kind,
+      }
+    : null;
+
+  function eligibleIds(kind: 'next-change' | 'remaining-change'): string[] {
+    const context = computeDayContext(plan, runtime, new Date());
+    const eligible = context.events.filter(
+      (item) =>
+        item.status === 'upcoming' ||
+        item.status === 'current' ||
+        (item.status === 'unknown-past' && item.includeInRemaining),
+    );
+    return (kind === 'next-change' ? eligible.slice(0, 1) : eligible).map((item) => item.event.id);
+  }
+
+  async function prepareRequest(id: string, custom?: string): Promise<void> {
+    if (!pack || pack.plan.id !== plan.id) return;
+    if (
+      pendingRequest &&
+      pendingRequest.planId === plan.id &&
+      !['applied', 'cancelled', 'stale'].includes(pendingRequest.status)
+    ) {
+      showToast(
+        locale === 'ko'
+          ? '진행 중인 요청을 먼저 마치거나 취소해주세요.'
+          : 'Finish or cancel the current request first.',
+      );
+      return;
+    }
+    const eventIds = eligibleIds(scopeKind);
+    const requestId = crypto.randomUUID();
+    const generatedAt = new Date().toISOString();
+    const requestIdentity: AiRequestIdentity = {
+      requestId,
+      packId: plan.id,
+      baseRevision: pack.revision,
+      contextRevision,
+      generatedAt,
+      kind: scopeKind,
+    };
+    const note = buildAiPrompt({
+      plan,
+      runtime,
+      situationId: id,
+      customInput: custom,
+      locale,
+      identity: requestIdentity,
+      scopeEventIds: eventIds,
+    });
+    const request: PendingRequest = {
+      id: requestId,
+      planId: plan.id,
+      kind: scopeKind,
+      status: 'ready',
+      input: note,
+      baseRevision: requestIdentity.baseRevision,
+      contextRevision: requestIdentity.contextRevision,
+      generatedAt,
+      scopeEventIds: eventIds,
+      createdAt: generatedAt,
+      updatedAt: generatedAt,
+    };
+    try {
+      await updatePendingRequest(request);
+      setSituationId(id);
+      setPrompt(note);
+      setPatchText('');
+      setReview(null);
       setStage('prompted');
+    } catch {
+      showToast(
+        locale === 'ko'
+          ? '요청을 저장하지 못했어요. 다시 시도해주세요.'
+          : 'Could not save the request. Please try again.',
+      );
+    }
+  }
+
+  function choose(id: string): void {
+    if (id !== 'custom') {
+      void prepareRequest(id);
+    } else {
+      setSituationId(id);
     }
   }
 
@@ -114,32 +235,185 @@ export function AiSection({ plan, runtime }: Props) {
       );
       return;
     }
-    setPrompt(buildAiPrompt({ plan, runtime, situationId: 'custom', customInput, locale }));
-    setStage('prompted');
+    void prepareRequest('custom', customInput);
   }
 
   async function copyPrompt(): Promise<void> {
+    let copied = false;
     try {
-      await navigator.clipboard.writeText(prompt);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(prompt);
+        copied = true;
+      }
     } catch {
+      copied = false;
+    }
+    if (!copied) {
       const area = document.createElement('textarea');
       area.value = prompt;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
       document.body.appendChild(area);
       area.select();
-      document.execCommand('copy');
+      copied = document.execCommand('copy');
       area.remove();
     }
+    if (!copied) {
+      showToast(
+        locale === 'ko'
+          ? '복사하지 못했어요. 요청문을 선택해 직접 복사해주세요.'
+          : 'Copy failed. Select the request note and copy it.',
+      );
+      return;
+    }
+    if (activeRequest)
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'waiting',
+        updatedAt: new Date().toISOString(),
+      });
     showToast(locale === 'ko' ? 'AI 요청문을 복사했어요.' : 'Note copied.');
   }
 
-  function checkPatch(): void {
-    const parsed = parsePatch(patchText);
+  async function sharePrompt(): Promise<void> {
+    if (!navigator.share) {
+      await copyPrompt();
+      return;
+    }
+    try {
+      await navigator.share({
+        title: locale === 'ko' ? 'DatePack AI 요청' : 'DatePack AI request',
+        text: prompt,
+      });
+      if (activeRequest)
+        await updatePendingRequest({
+          ...activeRequest,
+          status: 'waiting',
+          updatedAt: new Date().toISOString(),
+        });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        if (activeRequest)
+          await updatePendingRequest({
+            ...activeRequest,
+            status: 'ready',
+            updatedAt: new Date().toISOString(),
+          });
+        showToast(format(locale, 'ai.request.cancelled'));
+      } else
+        showToast(
+          locale === 'ko'
+            ? '공유를 열지 못했어요. 복사해 직접 전달해주세요.'
+            : 'Could not open sharing. Copy the request instead.',
+        );
+    }
+  }
+
+  async function checkPatch(raw = patchText, allowPreviouslyReviewed = false): Promise<void> {
+    if (!identity || !activeRequest || !pack) return;
+    const fingerprint = responseFingerprint(raw);
+    if (
+      !allowPreviouslyReviewed &&
+      activeRequest.responseFingerprint === fingerprint &&
+      activeRequest.answerText === raw
+    ) {
+      setReview({ ok: false, errors: [format(locale, 'ai.request.duplicate')] });
+      return;
+    }
+    if (pack.revision !== identity.baseRevision || contextRevision !== identity.contextRevision) {
+      const message = format(locale, 'ai.request.stale');
+      setReview({ ok: false, errors: [message] });
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'stale',
+        answerText: raw,
+        error: message,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    const currentlyAllowed = new Set(
+      eligibleIds(identity.kind as 'next-change' | 'remaining-change'),
+    );
+    if ((activeRequest.scopeEventIds ?? []).some((eventId) => !currentlyAllowed.has(eventId))) {
+      const message = format(locale, 'ai.request.stale');
+      setReview({ ok: false, errors: [message] });
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'stale',
+        answerText: raw,
+        error: message,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    const envelope = parseAiResponse(raw, identity);
+    if (!envelope.ok) {
+      const key =
+        envelope.reason === 'mismatch'
+          ? 'ai.request.mismatch'
+          : envelope.reason === 'missing-id'
+            ? 'ai.request.missing'
+            : 'ai.review.error';
+      const message = format(locale, key);
+      setReview({ ok: false, errors: [message] });
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'error',
+        answerText: raw,
+        error: message,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    const responsePatch = JSON.stringify(envelope.response.result);
+    const parsed = parsePatch(responsePatch);
     if (!parsed.ok) {
-      setReview({ ok: false, errors: parsed.errors.map((e) => format(locale, e)) });
+      const errors = parsed.errors.map((e) => format(locale, e));
+      setReview({ ok: false, errors });
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'error',
+        answerText: raw,
+        responseFingerprint: fingerprint,
+        error: errors.join('\n'),
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    const allowed = new Set(activeRequest.scopeEventIds ?? []);
+    const outOfScope = parsed.patch.operations.some((operation) => {
+      const target = operation.target.startsWith('event:')
+        ? operation.target.slice(6)
+        : operation.target;
+      return !allowed.has(target);
+    });
+    if (outOfScope) {
+      const message =
+        locale === 'ko'
+          ? '요청 범위 밖의 일정이 포함되어 있어 적용할 수 없어요.'
+          : 'The reply changes a stop outside this request scope.';
+      setReview({ ok: false, errors: [message] });
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'error',
+        answerText: raw,
+        responseFingerprint: fingerprint,
+        error: message,
+        updatedAt: new Date().toISOString(),
+      });
       return;
     }
     const outcome = describePatch(plan, parsed.patch);
     const warnings = [
+      ...(Date.now() - Date.parse(activeRequest.generatedAt) > 60_000
+        ? [
+            locale === 'ko'
+              ? '요청 후 시간이 지났어요. 지금 상황과 장소 운영 여부를 다시 확인해주세요.'
+              : 'Time has passed since this request. Recheck the current situation and venue hours.',
+          ]
+        : []),
       ...parsed.warnings.map((w) => format(locale, w)),
       ...outcome.skipped.map((s) => format(locale, s)),
       // Conflicts in the would-be plan are advisory — apply stays possible.
@@ -150,31 +424,91 @@ export function AiSection({ plan, runtime }: Props) {
         ok: false,
         errors: warnings.length > 0 ? warnings : [format(locale, 'err.patch.nothingApplied')],
       });
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'error',
+        answerText: raw,
+        responseFingerprint: fingerprint,
+        error: warnings.join('\n'),
+        updatedAt: new Date().toISOString(),
+      });
       return;
     }
-    setReview({ ok: true, changes: outcome.applied, warnings, prepared: outcome, basePlan: plan });
+    await updatePendingRequest({
+      ...activeRequest,
+      status: 'review',
+      answerText: raw,
+      responseFingerprint: fingerprint,
+      error: undefined,
+      updatedAt: new Date().toISOString(),
+    });
+    setReview({ ok: true, changes: outcome.applied, warnings, prepared: outcome });
   }
 
   function applyApproved(): void {
-    if (!review?.ok) return;
-    void applyPatchWithUndo(review.prepared, review.basePlan).then((result) => {
-      if (result.applied.length === 0) {
-        setReview({
-          ok: false,
-          errors:
-            result.skipped.length > 0
-              ? result.skipped.map((e) => format(locale, e))
-              : [format(locale, 'err.patch.nothingApplied')],
-        });
+    if (!review?.ok || !identity) return;
+    const currentlyAllowed = new Set(
+      eligibleIds(identity.kind as 'next-change' | 'remaining-change'),
+    );
+    if ((activeRequest?.scopeEventIds ?? []).some((eventId) => !currentlyAllowed.has(eventId))) {
+      setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] });
+      if (activeRequest)
+        void updatePendingRequest({
+          ...activeRequest,
+          status: 'stale',
+          updatedAt: new Date().toISOString(),
+        }).catch(() => undefined);
+      return;
+    }
+    void applyAiPlan(
+      {
+        id: identity.requestId,
+        planId: identity.packId,
+        baseRevision: identity.baseRevision,
+        contextRevision: identity.contextRevision,
+        generatedAt: identity.generatedAt,
+        kind: identity.kind,
+      },
+      review.prepared.plan,
+    ).then((applied) => {
+      if (!applied) {
+        setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] });
         return;
       }
       setReview(null);
       setPatchText('');
-      showToast(format(locale, 'ai.toast.applied', { count: result.applied.length }), {
+      setStage('idle');
+      setPrompt('');
+      showToast(format(locale, 'ai.toast.applied', { count: review.changes.length }), {
         label: locale === 'ko' ? '되돌리기' : 'Undo',
         onClick: () => undo(),
       });
     });
+  }
+
+  async function cancelRequest(): Promise<void> {
+    if (activeRequest)
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'cancelled',
+        updatedAt: new Date().toISOString(),
+      });
+    setStage('idle');
+    setPrompt('');
+    setPatchText('');
+    setReview(null);
+  }
+
+  async function dismissReview(): Promise<void> {
+    if (review?.ok && activeRequest)
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'waiting',
+        responseFingerprint: undefined,
+        error: undefined,
+        updatedAt: new Date().toISOString(),
+      });
+    setReview(null);
   }
 
   const undoAvailable = undoStack.length > 0;
@@ -190,6 +524,28 @@ export function AiSection({ plan, runtime }: Props) {
           ? '지금 상황을 알려주면 AI에게 보낼 요청문이 만들어져요. AI의 답안을 붙여넣으면 검토 후 적용할 수 있어요.'
           : 'Tell the app what happened and it drafts a note for your AI assistant. Paste the reply back — nothing changes until you approve it.'}
       </p>
+
+      <fieldset className="ai-scope" aria-label={locale === 'ko' ? '변경 범위' : 'Change scope'}>
+        <legend className="eyebrow">{locale === 'ko' ? '변경 범위' : 'Change scope'}</legend>
+        <div className="chip-row wrap">
+          <button
+            type="button"
+            className={`chip chip-btn ${scopeKind === 'next-change' ? 'chip-selected' : ''}`}
+            aria-pressed={scopeKind === 'next-change'}
+            onClick={() => setScopeKind('next-change')}
+          >
+            {locale === 'ko' ? '다음 일정' : 'Next stop'}
+          </button>
+          <button
+            type="button"
+            className={`chip chip-btn ${scopeKind === 'remaining-change' ? 'chip-selected' : ''}`}
+            aria-pressed={scopeKind === 'remaining-change'}
+            onClick={() => setScopeKind('remaining-change')}
+          >
+            {locale === 'ko' ? '남은 일정' : 'Remaining schedule'}
+          </button>
+        </div>
+      </fieldset>
 
       <p className="eyebrow">{locale === 'ko' ? '1. 무슨 일이 생겼나요?' : '1. What happened?'}</p>
       <div className="chip-row wrap">
@@ -230,10 +586,27 @@ export function AiSection({ plan, runtime }: Props) {
                 : 'The note — copy it over to your AI assistant'}
             </p>
             <pre>{prompt}</pre>
-            <button type="button" className="btn btn-primary" onClick={() => void copyPrompt()}>
-              <CopyIcon width={16} height={16} />{' '}
-              {locale === 'ko' ? 'AI 요청문 복사' : 'Copy the note'}
-            </button>
+            <div className="action-row">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() =>
+                  void sharePrompt().catch(() => showToast(format(locale, 'ai.request.stale')))
+                }
+              >
+                {format(locale, 'ai.share')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-soft"
+                onClick={() =>
+                  void copyPrompt().catch(() => showToast(format(locale, 'ai.request.stale')))
+                }
+              >
+                <CopyIcon width={16} height={16} />{' '}
+                {locale === 'ko' ? 'AI 요청문 복사' : 'Copy the note'}
+              </button>
+            </div>
           </div>
 
           <div className="divider" />
@@ -247,26 +620,40 @@ export function AiSection({ plan, runtime }: Props) {
           </p>
           <textarea
             className="patch-input"
+            aria-label={locale === 'ko' ? 'AI 답안 붙여넣기' : 'Paste AI reply'}
             value={patchText}
             onChange={(e) => setPatchText(e.target.value)}
             rows={8}
             placeholder={
-              '{\n  "type": "datepack.patch",\n  "version": 1,\n  "operations": [...]\n}'
+              '{\n  "type": "datepack.response",\n  "version": 2,\n  "requestId": "…",\n  "packId": "…",\n  "baseRevision": 0,\n  "contextRevision": 0,\n  "generatedAt": "2026-09-29T10:00:00.000Z",\n  "kind": "remaining-change",\n  "result": { "type": "datepack.patch", "version": 1, "operations": [] }\n}'
             }
           />
           <div className="action-row">
             <button
               type="button"
               className="btn btn-soft"
-              onClick={checkPatch}
+              onClick={() =>
+                void checkPatch().catch(() =>
+                  setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] }),
+                )
+              }
               disabled={!patchText.trim()}
             >
               {locale === 'ko' ? '변경 내용 보기' : 'Preview changes'}
             </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() =>
+                void cancelRequest().catch(() => showToast(format(locale, 'ai.request.stale')))
+              }
+            >
+              {locale === 'ko' ? '요청 취소' : 'Cancel request'}
+            </button>
           </div>
 
           {review?.ok && (
-            <div className="review-card">
+            <div className="review-card" aria-live="polite">
               <p className="review-head">
                 {locale === 'ko'
                   ? `AI가 ${review.changes.length}개의 변경을 제안했어요`
@@ -284,7 +671,13 @@ export function AiSection({ plan, runtime }: Props) {
                 <button type="button" className="btn btn-primary" onClick={applyApproved}>
                   {locale === 'ko' ? '적용' : 'Apply'}
                 </button>
-                <button type="button" className="btn btn-ghost" onClick={() => setReview(null)}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() =>
+                    void dismissReview().catch(() => showToast(format(locale, 'ai.request.stale')))
+                  }
+                >
                   {locale === 'ko' ? '취소' : 'Cancel'}
                 </button>
               </div>
@@ -296,7 +689,7 @@ export function AiSection({ plan, runtime }: Props) {
             </div>
           )}
           {review && !review.ok && (
-            <div className="review-card error">
+            <div className="review-card error" role="alert">
               <p className="review-head">
                 {locale === 'ko' ? 'Patch에 문제가 있어요' : "That reply won't apply"}
               </p>

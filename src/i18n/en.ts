@@ -219,6 +219,15 @@ export const en: Record<MessageKey, string> = {
   'ai.toast.applied': '{count} changes applied — undo is one tap away.',
   'ai.toast.needCustom': 'Describe what happened in a line.',
 
+  'ai.request.stale':
+    'The plan or current situation changed after this request. Start a fresh request from the latest state.',
+  'ai.request.duplicate': 'This reply has already been handled. Start a new request to continue.',
+  'ai.request.mismatch': 'This reply belongs to another request or its identifiers do not match.',
+  'ai.request.missing': 'The reply is missing request identifiers. Use the latest request note.',
+  'ai.request.cancelled':
+    'Sharing was cancelled. You can copy the note and paste it into your AI app.',
+  'ai.share': 'Share request',
+  'ai.prompt.ready': 'Request saved. Share it or copy it into your AI app.',
   // create with ai (first-run / new-date flow)
   'create.btn': 'Plan it with AI',
   'create.btn.sub': 'Work out the plan by chatting with your AI, then bring the result here.',

@@ -115,6 +115,8 @@ export type Experience = {
   occurredOn?: string;
   timing?: { kind: 'exact'; at: LocalPoint } | { kind: 'approximate'; period: string };
   note?: string;
+  /** User-approved wording kept alongside the original record text. */
+  editedNote?: string;
   assetIds?: string[];
   source?: { kind: 'user' | 'legacy'; format?: string; planId?: string; eventId?: string };
 };
@@ -160,6 +162,8 @@ export type DatePackPatchNewEvent = {
   end?: string;
   type?: DateEventType;
   note?: string;
+  /** Searchable place name; DatePack creates and links a local place record. */
+  place?: string;
   placeId?: string;
   travelMinutes?: number;
 };

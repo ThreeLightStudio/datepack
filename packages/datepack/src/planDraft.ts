@@ -25,7 +25,7 @@ export type PlanDraftEvent = {
 
 export type PlanDraft = {
   title: string;
-  date: string; // YYYY-MM-DD
+  date?: string; // YYYY-MM-DD; omitted for an undated plan
   memo?: string;
   constraints?: PlanConstraints;
   events: PlanDraftEvent[];
@@ -39,15 +39,22 @@ export type PlanDraftParse =
  * Parse an AI reply into a PlanDraft. Tolerates markdown code fences and
  * commentary around the JSON object — the reply is pasted as-is from a chat.
  */
-export function parsePlanDraft(raw: string): PlanDraftParse {
+export function parsePlanDraft(
+  raw: string,
+  options: { allowEmpty?: boolean; allowUndated?: boolean } = {},
+): PlanDraftParse {
   const parsed = extractJsonObject(raw);
   if (parsed === undefined) {
     return { ok: false, errors: [{ key: 'err.planDraft.notJson' }], warnings: [] };
   }
-  return validatePlanDraft(parsed);
+  return validatePlanDraft(parsed, options.allowEmpty === true, options.allowUndated === true);
 }
 
-function validatePlanDraft(raw: unknown): PlanDraftParse {
+function validatePlanDraft(
+  raw: unknown,
+  allowEmpty: boolean,
+  allowUndated: boolean,
+): PlanDraftParse {
   const warnings: DatePackIssue[] = [];
   const errors: DatePackIssue[] = [];
 
@@ -64,14 +71,15 @@ function validatePlanDraft(raw: unknown): PlanDraftParse {
   if (typeof obj.title !== 'string' || obj.title.trim().length === 0) {
     errors.push({ key: 'err.planDraft.noTitle' });
   }
-  if (typeof obj.date !== 'string' || !isValidDateISO(obj.date)) {
+  const dateMissing = obj.date === undefined || obj.date === null || obj.date === '';
+  if (dateMissing ? !allowUndated : typeof obj.date !== 'string' || !isValidDateISO(obj.date)) {
     errors.push({ key: 'err.planDraft.badDate' });
   }
   if (!Array.isArray(obj.events)) {
     errors.push({ key: 'err.planDraft.eventsArray' });
     return { ok: false, errors, warnings };
   }
-  if (obj.events.length === 0) {
+  if (obj.events.length === 0 && !allowEmpty) {
     errors.push({ key: 'err.planDraft.noEvents' });
   }
   if (obj.memo !== undefined && obj.memo !== null && typeof obj.memo !== 'string') {
@@ -124,7 +132,7 @@ function validatePlanDraft(raw: unknown): PlanDraftParse {
     warnings,
     draft: {
       title: (obj.title as string).trim(),
-      date: obj.date as string,
+      ...(typeof obj.date === 'string' && obj.date ? { date: obj.date } : {}),
       memo: typeof obj.memo === 'string' && obj.memo.trim() ? obj.memo.trim() : undefined,
       constraints: constraints || undefined,
       events: obj.events.map((event) => eventFromRaw(event as Record<string, unknown>)),

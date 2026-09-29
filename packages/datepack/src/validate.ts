@@ -308,6 +308,8 @@ export function validateDatePack(pack: DatePack): ValidationResult {
     experienceIds.add(experience.id);
     if (!['completed', 'skipped', 'note'].includes(experience.outcome))
       errors.push({ key: 'err.plan.eventId' });
+    if (experience.editedNote !== undefined && typeof experience.editedNote !== 'string')
+      errors.push({ key: 'err.plan.eventId', params: { field: 'experiences.editedNote' } });
     if (
       experience.placeSnapshot !== undefined &&
       (typeof experience.placeSnapshot !== 'object' ||
@@ -410,6 +412,9 @@ export function validatePatch(raw: unknown): PatchValidation {
         !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string)
       ) {
         errors.push({ key: 'err.patch.badType', params: { index, value: String(v.type) } });
+      }
+      if (v.place !== undefined && (typeof v.place !== 'string' || !v.place.trim())) {
+        errors.push({ key: 'err.patch.noValue', params: { index } });
       }
       return;
     }
