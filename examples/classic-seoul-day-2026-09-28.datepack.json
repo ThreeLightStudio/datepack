@@ -1,0 +1,106 @@
+{
+  "format": "datepack",
+  "version": "3.0",
+  "createdAt": "2026-09-28T08:00:00.000Z",
+  "updatedAt": "2026-09-29T13:09:11.856Z",
+  "generator": "datepack-core 0.3.0",
+  "plan": {
+    "id": "plan-classic-seoul-day",
+    "title": "Classic Seoul Day",
+    "date": "2026-09-28",
+    "events": [
+      {
+        "id": "event-coffee-together",
+        "order": 0,
+        "title": "Coffee together",
+        "type": "cafe",
+        "timing": {
+          "kind": "window",
+          "earliestStart": { "dayOffset": 0, "time": "14:00" },
+          "latestStart": { "dayOffset": 0, "time": "15:00" }
+        },
+        "placeId": "place-seoul-station-cafe",
+        "assetIds": ["asset-cafe-photo"],
+        "importance": "core",
+        "estimatedDurationMinutes": 90
+      }
+    ],
+    "places": [
+      {
+        "id": "place-seoul-station-cafe",
+        "name": "Seoul Station Cafe",
+        "mapQuery": "Seoul Station Cafe"
+      }
+    ],
+    "candidates": [
+      {
+        "id": "candidate-bookstore",
+        "title": "Bookstore nearby",
+        "type": "place",
+        "proposedBy": "Either of us"
+      }
+    ],
+    "availableFrom": { "dayOffset": 0, "time": "14:00" },
+    "mustEndBy": { "dayOffset": 0, "time": "17:00" },
+    "meeting": {
+      "placeId": "place-seoul-station-cafe",
+      "locationNote": "Meet by the east exit",
+      "timing": { "kind": "unscheduled", "label": "Around the afternoon" }
+    }
+  },
+  "baselinePlan": {
+    "id": "plan-classic-seoul-day",
+    "title": "Classic Seoul Day",
+    "date": "2026-09-28",
+    "events": [
+      {
+        "id": "event-coffee-together",
+        "order": 0,
+        "title": "Coffee together",
+        "type": "cafe",
+        "timing": {
+          "kind": "window",
+          "earliestStart": { "dayOffset": 0, "time": "14:00" },
+          "latestStart": { "dayOffset": 0, "time": "15:00" }
+        },
+        "placeId": "place-seoul-station-cafe",
+        "assetIds": ["asset-cafe-photo"],
+        "importance": "core",
+        "estimatedDurationMinutes": 90
+      }
+    ],
+    "places": [
+      {
+        "id": "place-seoul-station-cafe",
+        "name": "Seoul Station Cafe",
+        "mapQuery": "Seoul Station Cafe"
+      }
+    ],
+    "candidates": [
+      {
+        "id": "candidate-bookstore",
+        "title": "Bookstore nearby",
+        "type": "place",
+        "proposedBy": "Either of us"
+      }
+    ],
+    "availableFrom": { "dayOffset": 0, "time": "14:00" },
+    "mustEndBy": { "dayOffset": 0, "time": "17:00" },
+    "meeting": {
+      "placeId": "place-seoul-station-cafe",
+      "locationNote": "Meet by the east exit",
+      "timing": { "kind": "unscheduled", "label": "Around the afternoon" }
+    }
+  },
+  "experiences": [],
+  "revision": 0,
+  "assets": [
+    {
+      "id": "asset-cafe-photo",
+      "filename": "cafe.png",
+      "mimeType": "image/png",
+      "createdAt": "2026-09-28T08:10:00.000Z",
+      "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    }
+  ]
+}

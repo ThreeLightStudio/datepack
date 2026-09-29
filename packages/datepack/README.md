@@ -4,7 +4,16 @@ The UI independent library for reading, writing, validating, migrating, and patc
 
 ## Format 3.0
 
-A v3 document keeps `manifest`, `plan`, and `assets`, and adds `baselinePlan`, `experiences`, and a monotonic `revision` field. The package version and file format version are independent; this release is `@datepack/core` 0.3.0 with file format 3.0.
+The in-memory `DatePack` object contains `manifest`, `plan`, `assets`,
+`baselinePlan`, `experiences`, and a monotonic `revision` field. `writeDatePack`
+serializes manifest metadata (`format`, `version`, `createdAt`, `updatedAt`, and
+`generator`) at the JSON document's top level. Each serialized asset entry
+contains its registry fields and, when its blob is available, a `data:` URL in
+`assets[].data`. The package version and file format version are independent;
+this release is `@datepack/core` 0.3.0 with file format 3.0. The checked-in
+[3.0 example](../../examples/classic-seoul-day-2026-09-28.datepack.json) is
+generated with this package's public creation/writer APIs and validated by
+`readDatePack` in the core tests.
 
 Plans may omit `date`. Each event has an explicit `order` and a `timing` union:
 
@@ -50,7 +59,11 @@ const exported = await writeDatePack(result.pack, (assetId) => loadBlob(assetId)
 - `writeDatePack(pack, loadBlob)` validates references, then writes format 3.0 JSON with base64 data URLs. Invalid structure/references throw `DatePackWriteError`. A missing binary blob with a valid registry entry remains nonfatal and its ID is returned in `missingAssetIds`.
 - `parsePatch` / `describePatch` / `applyPatch` remain the v1 patch proposal API. They prepare a complete cloned result before apply and reject protected changes atomically. Existing `start` and `fixed` proposal fields are compatibility inputs; v3 events store `timing` and `protectedFields`.
 
-Runtime progress such as pending/current status, delay, and selected Plan B stays device local and is not exported as a file fact. Storage transactions, undo history, and revision increments on app edits are implemented in the next storage phase; consumers writing changes directly must update `revision` themselves.
+Runtime progress such as pending/current status, delay, and selected Plan B
+stays device local and is not exported as a file fact. The web app's IndexedDB
+layer manages local saves and plan undo; the core package does not own storage
+transactions. Consumers changing a pack directly must update `revision`
+themselves before validating or writing it.
 
 ## Verification
 

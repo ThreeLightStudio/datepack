@@ -38,24 +38,11 @@ opens from your home screen / launcher and works fully offline:
   (or accept the install banner).
 - **Desktop (Chrome / Edge)** — click the **install icon** in the address bar.
 
-```jsonc
-// classic-seoul-day-2026-09-28.datepack.json — one JSON document (format 3.0)
-{
-  "format": "datepack",
-  "version": "3.0",
-  "createdAt": "…", "updatedAt": "…", "generator": "datepack-core 0.3.0",
-  "plan": { /* optional local date; events with timing and order; candidates, places, constraints, meeting */ },
-  "baselinePlan": { /* starting plan snapshot */ },
-  "experiences": [],
-  "revision": 0,
-  "assets": [
-    {
-      "id": "asset-1", "filename": "cafe.jpg", "mimeType": "image/jpeg",
-      "data": "data:image/jpeg;base64,…"   // photo inlined — no sidecar files
-    }
-  ]
-}
-```
+The checked-in [3.0 example file](examples/classic-seoul-day-2026-09-28.datepack.json)
+is generated through `createDatePack` and `writeDatePack`, then read with
+`readDatePack` in the core package tests. `DatePack.manifest` is the in-memory
+API shape; the writer flattens its metadata into the JSON document, and writes
+each asset's bytes as a `data:` URL on the corresponding `assets[]` entry.
 
 DatePack is a web app for planning a date — the itinerary, places, photos and
 Plan B's — and packing all of it into a single portable `.datepack.json` file.
