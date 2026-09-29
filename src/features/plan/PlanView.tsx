@@ -27,10 +27,7 @@ export function PlanView({ plan, runtime }: Props) {
   const [metaOpen, setMetaOpen] = useState(false);
 
   const statusById = new Map(ctx.events.map((v) => [v.event.id, v.status]));
-  const sorted = useMemo(
-    () => [...plan.events].sort((a, b) => (parseTime(a.start) ?? 0) - (parseTime(b.start) ?? 0)),
-    [plan.events],
-  );
+  const sorted = useMemo(() => [...plan.events].sort((a, b) => a.order - b.order), [plan.events]);
 
   // One source of truth per event: started events on today's plan carry their
   // log controls inline — no separate checklist section duplicating them.

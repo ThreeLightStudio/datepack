@@ -56,6 +56,7 @@ export function migrateLegacyDatePack(
               : [
                   {
                     id: `legacy-travel-${input.plan.id}-${e.id}`,
+                    fromPlaceId: i > 0 ? input.plan.events[i - 1]?.placeId : undefined,
                     toPlaceId: e.placeId,
                     note:
                       i === 0
@@ -78,6 +79,7 @@ export function migrateLegacyDatePack(
       eventId: event.id,
       title: event.title,
       outcome: state.status,
+      recordedAt: runtime.updatedAt,
       note:
         state.activePlan === 'B'
           ? `Selected Plan B${event.planB?.title ? `: ${event.planB.title}` : ''}.`

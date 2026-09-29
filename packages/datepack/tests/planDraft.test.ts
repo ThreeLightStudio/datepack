@@ -110,7 +110,7 @@ describe('parsePlanDraft', () => {
 });
 
 describe('buildPlanFromDraft', () => {
-  it('builds a valid DatePack: generated ids, linked places, sorted events', () => {
+  it('builds a valid DatePack: generated ids, linked places, preserved event order', () => {
     const parsed = parsePlanDraft(JSON.stringify(validDraft));
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -120,10 +120,12 @@ describe('buildPlanFromDraft', () => {
 
     expect(plan.id).toMatch(/^plan-/);
     expect(plan.title).toBe('성수 데이트');
-    // events sorted by start: 09:30 카페 → 11:00 브런치 → 13:00 공원
-    expect(plan.events.map((e) => [e.start, e.title])).toEqual([
-      ['09:30', '카페'],
+    // Preserve the draft's explicit array order even when times are inverted.
+    expect(
+      plan.events.map((e) => [e.timing.kind === 'exact' ? e.timing.start.time : '', e.title]),
+    ).toEqual([
       ['11:00', '브런치'],
+      ['09:30', '카페'],
       ['13:00', '공원 산책'],
     ]);
     expect(plan.events.every((e) => e.id.startsWith('event-'))).toBe(true);

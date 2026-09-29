@@ -1,6 +1,6 @@
 import type { DatePackPatch, DatePackPatchNewEvent, DatePlan, DateEvent } from './types';
 import { validatePatch } from './validate';
-import { createEvent, sortEventsByStart } from './create';
+import { createEvent } from './create';
 import { extractJsonObject } from './json';
 import { isValidTime, normalizeTime, parseTime } from './utils/time';
 import type { DatePackIssue } from './i18n/core';
@@ -198,13 +198,12 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
     }
   }
 
-  next.events = sortEventsByStart(next.events);
   next.events.forEach((event, order) => {
     event.order = order;
   });
 
   // Moving another item across a protected event also changes its order.
-  const originalOrder = sortEventsByStart(plan.events).map((event) => event.id);
+  const originalOrder = plan.events.map((event) => event.id);
   const proposedOrder = next.events.map((event) => event.id);
   const originalIds = new Set(originalOrder);
   const changedProtectedOrder = [...protectedIds].some((protectedId) => {

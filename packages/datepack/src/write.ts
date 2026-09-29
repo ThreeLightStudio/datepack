@@ -1,5 +1,17 @@
 import type { DatePack } from './types';
 import { DATEPACK_FORMAT, DATEPACK_FORMAT_VERSION, PACKAGE_VERSION } from './schema';
+import { validateDatePack } from './validate';
+import type { DatePackIssue } from './i18n/core';
+
+export class DatePackWriteError extends Error {
+  readonly issues: DatePackIssue[];
+
+  constructor(issues: DatePackIssue[]) {
+    super(`Invalid DatePack: ${issues.map((issue) => issue.key).join(', ')}`);
+    this.name = 'DatePackWriteError';
+    this.issues = issues;
+  }
+}
 
 export type WriteResult = {
   blob: Blob;
@@ -31,6 +43,8 @@ async function blobToDataUrl(blob: Blob, fallbackMime: string): Promise<string> 
  * browser.
  */
 export async function writeDatePack(pack: DatePack, loadBlob: BlobLoader): Promise<WriteResult> {
+  const validation = validateDatePack(pack);
+  if (!validation.ok) throw new DatePackWriteError(validation.errors);
   const now = new Date().toISOString();
   const missingAssetIds: string[] = [];
 

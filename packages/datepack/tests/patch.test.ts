@@ -277,7 +277,7 @@ describe('patch apply', () => {
     expect(plan).toEqual(snapshot);
   });
 
-  it('blocks indirect reordering across a protected event', () => {
+  it('keeps explicit order when a time change crosses a protected event', () => {
     const plan = makePlan();
     plan.events[1].fixed = true;
     const result = describePatch(plan, {
@@ -285,9 +285,41 @@ describe('patch apply', () => {
       version: 1,
       operations: [{ op: 'move', target: 'event:event-walk', value: { start: '14:00' } }],
     });
-    expect(result.canApply).toBe(false);
-    expect(result.skipped.some((issue) => issue.key === 'err.patch.protectedOrder')).toBe(true);
-    expect(result.plan).toEqual(plan);
+    expect(result.canApply).toBe(true);
+    expect(result.plan.events.map((event) => event.id)).toEqual(
+      plan.events.map((event) => event.id),
+    );
+    expect(result.plan.events.map((event) => event.order)).toEqual([0, 1, 2]);
+    expect(result.newConflicts.some((issue) => issue.key === 'warn.conflict.orderTime')).toBe(true);
+  });
+
+  it('keeps sequential inserts in the order requested around their anchor', () => {
+    const plan = makePlan();
+    const result = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        {
+          op: 'insertBefore',
+          target: 'event:event-walk',
+          value: { title: 'First choice', start: '18:00' },
+        },
+        {
+          op: 'insertBefore',
+          target: 'event:event-walk',
+          value: { title: 'Second choice', start: '08:00' },
+        },
+      ],
+    });
+    expect(result.canApply).toBe(true);
+    expect(result.plan.events.map((event) => event.title)).toEqual([
+      '대전역 도착',
+      '성심당 본점',
+      'First choice',
+      'Second choice',
+      '야외 산책',
+    ]);
+    expect(result.plan.events.map((event) => event.order)).toEqual([0, 1, 2, 3, 4]);
   });
 
   it('reports only newly introduced conflicts in the proposed result', () => {

@@ -71,8 +71,19 @@ export function validatePlan(plan: unknown): ValidationResult {
       errors.push({ key: 'err.plan.endInvalid', params: { index } });
     }
     if (event?.planB !== undefined && event.planB !== null) {
-      if (typeof event.planB.title !== 'string' || event.planB.title.trim().length === 0) {
+      if (
+        typeof event.planB !== 'object' ||
+        typeof event.planB.title !== 'string' ||
+        event.planB.title.trim().length === 0
+      ) {
         errors.push({ key: 'err.plan.planBTitle', params: { index } });
+      }
+      if (
+        event.planB.replacementEventIds !== undefined &&
+        (!Array.isArray(event.planB.replacementEventIds) ||
+          event.planB.replacementEventIds.some((id: unknown) => typeof id !== 'string' || !id))
+      ) {
+        errors.push({ key: 'err.plan.assetIds', params: { index } });
       }
     }
     if (!isLegacyDatePlan(plan)) {
@@ -101,6 +112,11 @@ export function validatePlan(plan: unknown): ValidationResult {
     if (event?.assetIds !== undefined && !Array.isArray(event.assetIds)) {
       errors.push({ key: 'err.plan.assetIds', params: { index } });
     }
+    if (
+      Array.isArray(event?.assetIds) &&
+      event.assetIds.some((id: unknown) => typeof id !== 'string' || !id)
+    )
+      errors.push({ key: 'err.plan.assetIds', params: { index } });
   });
 
   if (p.places !== undefined && !Array.isArray(p.places)) {
@@ -127,12 +143,43 @@ export function validatePlan(plan: unknown): ValidationResult {
     }
     if (p.meeting?.timing !== undefined && !isValidTiming(p.meeting.timing))
       errors.push({ key: 'err.plan.startInvalid', params: { field: 'meeting' } });
+    if (p.meeting !== undefined && (typeof p.meeting !== 'object' || p.meeting === null))
+      errors.push({ key: 'err.plan.eventId', params: { field: 'meeting' } });
+    if (p.meeting?.placeId !== undefined && typeof p.meeting.placeId !== 'string')
+      errors.push({ key: 'err.plan.eventId', params: { field: 'meeting.placeId' } });
+    if (p.sharedTravel !== undefined && !Array.isArray(p.sharedTravel))
+      errors.push({ key: 'err.plan.eventId', params: { field: 'sharedTravel' } });
+    for (const travel of (Array.isArray(p.sharedTravel) ? p.sharedTravel : []) as Array<
+      Record<string, unknown>
+    >) {
+      if (typeof travel !== 'object' || travel === null) {
+        errors.push({ key: 'err.plan.eventId', params: { field: 'sharedTravel.id' } });
+        continue;
+      }
+      if (typeof travel.id !== 'string' || !travel.id)
+        errors.push({ key: 'err.plan.eventId', params: { field: 'sharedTravel.id' } });
+      if (travel.fromPlaceId !== undefined && typeof travel.fromPlaceId !== 'string')
+        errors.push({ key: 'err.plan.eventId' });
+      if (travel.toPlaceId !== undefined && typeof travel.toPlaceId !== 'string')
+        errors.push({ key: 'err.plan.eventId' });
+      if (
+        travel.estimatedMinutes !== undefined &&
+        (typeof travel.estimatedMinutes !== 'number' ||
+          !Number.isFinite(travel.estimatedMinutes) ||
+          travel.estimatedMinutes < 0)
+      )
+        errors.push({ key: 'err.plan.travelInvalid' });
+    }
     if (p.candidates !== undefined && !Array.isArray(p.candidates))
       errors.push({ key: 'err.plan.eventsArray' });
     const candidateIds = new Set<string>();
     for (const candidate of (Array.isArray(p.candidates) ? p.candidates : []) as Array<
       Record<string, unknown>
     >) {
+      if (typeof candidate !== 'object' || candidate === null) {
+        errors.push({ key: 'err.plan.eventId' });
+        continue;
+      }
       if (typeof candidate?.id !== 'string' || !candidate.id || candidateIds.has(candidate.id))
         errors.push({ key: 'err.plan.eventId' });
       else candidateIds.add(candidate.id);
@@ -140,6 +187,37 @@ export function validatePlan(plan: unknown): ValidationResult {
         errors.push({ key: 'err.plan.eventTitle' });
       if (candidate.excluded !== undefined && typeof candidate.excluded !== 'boolean')
         errors.push({ key: 'err.plan.eventId' });
+      if (
+        candidate.assetIds !== undefined &&
+        (!Array.isArray(candidate.assetIds) ||
+          candidate.assetIds.some((id: unknown) => typeof id !== 'string' || !id))
+      )
+        errors.push({ key: 'err.plan.assetIds' });
+      if (candidate.placeId !== undefined && typeof candidate.placeId !== 'string')
+        errors.push({ key: 'err.plan.eventId' });
+    }
+    const places = Array.isArray(p.places) ? (p.places as Array<Record<string, unknown>>) : [];
+    const placeIds = new Set<string>();
+    for (const place of places) {
+      if (
+        typeof place !== 'object' ||
+        place === null ||
+        typeof place.id !== 'string' ||
+        !place.id ||
+        placeIds.has(place.id)
+      ) {
+        errors.push({ key: 'err.plan.eventId', params: { field: 'places.id' } });
+        continue;
+      }
+      placeIds.add(place.id);
+      if (typeof place.name !== 'string' || !place.name.trim())
+        errors.push({ key: 'err.plan.eventTitle', params: { field: 'places.name' } });
+      if (
+        place.assetIds !== undefined &&
+        (!Array.isArray(place.assetIds) ||
+          place.assetIds.some((id: unknown) => typeof id !== 'string' || !id))
+      )
+        errors.push({ key: 'err.plan.assetIds', params: { field: 'places.assetIds' } });
     }
   }
 
@@ -167,31 +245,64 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       errors.push({ key: 'err.plan.manifestVersion' });
     else if (!validatePlan(pack.baselinePlan).ok) errors.push({ key: 'err.read.invalidContent' });
   }
-  // Referenced assets should exist in the pack (missing → warning, not fatal).
-  const assetIds = new Set(pack.assets.map((a) => a.id));
-  const referenced: string[] = [];
-  if (pack.plan.coverAssetId) referenced.push(pack.plan.coverAssetId);
-  for (const id of pack.plan.galleryAssetIds ?? []) referenced.push(id);
-  for (const event of pack.plan.events) for (const id of event.assetIds ?? []) referenced.push(id);
-  for (const place of pack.plan.places ?? [])
-    for (const id of place.assetIds ?? []) referenced.push(id);
-  for (const candidate of pack.plan.candidates ?? [])
-    for (const id of candidate.assetIds ?? []) referenced.push(id);
-  for (const experience of pack.experiences ?? [])
-    for (const id of experience.assetIds ?? []) referenced.push(id);
-  for (const id of referenced) {
-    if (!assetIds.has(id)) warnings.push({ key: 'err.plan.assetMissing', params: { id } });
+  const assetIds = new Set<string>();
+  for (const asset of pack.assets) {
+    if (!asset?.id || assetIds.has(asset.id))
+      errors.push({ key: 'err.plan.dupAssetId', params: { id: asset?.id ?? '' } });
+    else assetIds.add(asset.id);
   }
+  const checkAsset = (id: string, field: string) => {
+    if (!assetIds.has(id)) errors.push({ key: 'err.plan.brokenReference', params: { id, field } });
+  };
+  const checkPlanReferences = (plan: DatePlan, fieldPrefix: string) => {
+    const placeIds = new Set((plan.places ?? []).map((place) => place.id));
+    const eventIds = new Set(plan.events.map((event) => event.id));
+    const checkPlace = (id: string | undefined, field: string) => {
+      if (id && !placeIds.has(id))
+        errors.push({ key: 'err.plan.brokenReference', params: { id, field } });
+    };
+    if (plan.coverAssetId) checkAsset(plan.coverAssetId, `${fieldPrefix}.coverAssetId`);
+    for (const id of plan.galleryAssetIds ?? []) checkAsset(id, `${fieldPrefix}.galleryAssetIds`);
+    for (const place of plan.places ?? []) {
+      for (const id of place.assetIds ?? [])
+        checkAsset(id, `${fieldPrefix}.places.${place.id}.assetIds`);
+    }
+    for (const event of plan.events) {
+      checkPlace(event.placeId, `${fieldPrefix}.events.${event.id}.placeId`);
+      for (const id of event.assetIds ?? [])
+        checkAsset(id, `${fieldPrefix}.events.${event.id}.assetIds`);
+      for (const targetId of event.planB?.replacementEventIds ?? []) {
+        if (!eventIds.has(targetId))
+          errors.push({
+            key: 'err.plan.brokenReference',
+            params: {
+              id: targetId,
+              field: `${fieldPrefix}.events.${event.id}.planB.replacementEventIds`,
+            },
+          });
+      }
+    }
+    for (const candidate of plan.candidates ?? []) {
+      checkPlace(candidate.placeId, `${fieldPrefix}.candidates.${candidate.id}.placeId`);
+      for (const id of candidate.assetIds ?? [])
+        checkAsset(id, `${fieldPrefix}.candidates.${candidate.id}.assetIds`);
+    }
+    if (plan.meeting) checkPlace(plan.meeting.placeId, `${fieldPrefix}.meeting.placeId`);
+    for (const travel of plan.sharedTravel ?? []) {
+      checkPlace(travel.fromPlaceId, `${fieldPrefix}.sharedTravel.${travel.id}.fromPlaceId`);
+      checkPlace(travel.toPlaceId, `${fieldPrefix}.sharedTravel.${travel.id}.toPlaceId`);
+    }
+  };
+  checkPlanReferences(pack.plan, 'plan');
+  if (pack.baselinePlan && validatePlan(pack.baselinePlan).ok)
+    checkPlanReferences(pack.baselinePlan, 'baselinePlan');
 
-  const placeIds = new Set((pack.plan.places ?? []).map((p) => p.id));
-  for (const event of pack.plan.events)
-    if (event.placeId && !placeIds.has(event.placeId))
-      warnings.push({ key: 'err.plan.assetMissing', params: { id: event.placeId } });
-  for (const candidate of pack.plan.candidates ?? [])
-    if (candidate.placeId && !placeIds.has(candidate.placeId))
-      warnings.push({ key: 'err.plan.assetMissing', params: { id: candidate.placeId } });
   const experienceIds = new Set<string>();
   for (const experience of pack.experiences ?? []) {
+    if (typeof experience !== 'object' || experience === null) {
+      errors.push({ key: 'err.read.invalidContent' });
+      continue;
+    }
     if (!experience.id || experienceIds.has(experience.id))
       errors.push({ key: 'err.plan.dupId', params: { id: experience.id } });
     experienceIds.add(experience.id);
@@ -199,6 +310,23 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       errors.push({ key: 'err.plan.eventId' });
     if (experience.occurredOn && !isValidDateISO(experience.occurredOn))
       errors.push({ key: 'err.plan.badDate' });
+    if (
+      typeof experience.recordedAt !== 'string' ||
+      !Number.isFinite(Date.parse(experience.recordedAt)) ||
+      !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(experience.recordedAt)
+    )
+      errors.push({ key: 'err.plan.badDate', params: { field: 'experiences.recordedAt' } });
+    if (experience.timing?.kind === 'exact' && !isValidLocalPoint(experience.timing.at))
+      errors.push({ key: 'err.plan.startInvalid', params: { field: 'experiences.timing.at' } });
+    if (
+      experience.timing?.kind === 'approximate' &&
+      (typeof experience.timing.period !== 'string' || !experience.timing.period.trim())
+    )
+      errors.push({ key: 'err.plan.startInvalid', params: { field: 'experiences.timing.period' } });
+    if (experience.timing && !['exact', 'approximate'].includes(experience.timing.kind))
+      errors.push({ key: 'err.plan.startInvalid', params: { field: 'experiences.timing.kind' } });
+    for (const id of experience.assetIds ?? [])
+      checkAsset(id, `experiences.${experience.id}.assetIds`);
   }
 
   return errors.length > 0 ? fail(errors, warnings) : ok(warnings);

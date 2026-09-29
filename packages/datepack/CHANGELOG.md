@@ -9,6 +9,11 @@
   preserving plan, event, place, photo, and Plan B data. Confirmed runtime
   outcomes can become stable-ID experience facts.
 - Unknown future file versions retain their original bytes on read errors.
+- Explicit event order is preserved when times change; time/order inversions are
+  surfaced as advisory conflicts. Broken plan, asset, and Plan B references block
+  validation and writes, while missing binary photo blobs remain nonfatal.
+- Legacy travel estimates now reference the immediately previous stop's place
+  when known, and migrated experience facts retain their recorded timestamp.
 - The package documentation now describes the v3 public types and APIs.
 
 ## 0.2.0 — 2026-09-27

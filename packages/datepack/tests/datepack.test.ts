@@ -70,6 +70,7 @@ describe('write → read roundtrip', () => {
 
   it('reports missing blobs instead of failing', async () => {
     const { pack } = makePack();
+    expect(validateDatePack(pack).ok).toBe(true);
     const written = await writeDatePack(pack, () => Promise.resolve(null));
     expect(written.missingAssetIds).toEqual(['asset-1']);
     // The file is still valid and readable; the asset registry stays without data.
@@ -142,7 +143,7 @@ describe('write → read roundtrip', () => {
         })),
         places: [],
       },
-      assets: [],
+      assets: pack.assets,
     };
     const file = new Blob([JSON.stringify(doc)], { type: 'application/json' });
     const first = await readDatePack(file);
@@ -154,6 +155,37 @@ describe('write → read roundtrip', () => {
       start: { dayOffset: 0, time: '10:00' },
       end: { dayOffset: 0, time: '11:20' },
     });
+  });
+
+  it('keeps invalid legacy input available when conversion is blocked', async () => {
+    const file = new Blob([
+      JSON.stringify({
+        format: 'datepack',
+        version: '2.0',
+        plan: {
+          id: 'legacy',
+          title: 'Broken reference',
+          date: '2026-09-28',
+          events: [
+            {
+              id: 'event-a',
+              title: 'Cafe',
+              type: 'cafe',
+              start: '10:00',
+              placeId: 'missing-place',
+            },
+          ],
+          places: [],
+        },
+        assets: [],
+      }),
+    ]);
+    const error = await readDatePack(file).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+    expect(error).toBeInstanceOf(DatePackReadError);
+    if (error instanceof DatePackReadError) expect(error.originalFile).toBe(file);
   });
 });
 
@@ -215,13 +247,13 @@ describe('validation', () => {
     expect(result.errors[0]).toMatchObject({ key: 'err.plan.typeRequired', params: { index: 0 } });
   });
 
-  it('warns about missing assets', () => {
+  it('rejects asset references without a registry entry', () => {
     const { pack } = makePack();
     pack.assets = [];
     const result = validateDatePack(pack);
-    expect(result.ok).toBe(true);
-    expect(result.warnings[0]).toMatchObject({
-      key: 'err.plan.assetMissing',
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]).toMatchObject({
+      key: 'err.plan.brokenReference',
       params: { id: 'asset-1' },
     });
   });

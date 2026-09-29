@@ -136,7 +136,10 @@ async function readJsonContainer(
 
   const validation = validateDatePack(pack);
   if (!validation.ok) {
-    throw new DatePackReadError([{ key: 'err.read.invalidContent' }, ...validation.errors]);
+    throw new DatePackReadError(
+      [{ key: 'err.read.invalidContent' }, ...validation.errors],
+      originalFile,
+    );
   }
 
   const warnings = [...manifestResult.warnings, ...validation.warnings];
@@ -259,7 +262,7 @@ async function readLegacyZip(file: Blob): Promise<ReadResult> {
   const pack = migrateLegacyDatePack(legacyPack as LegacyDatePack).pack;
   const validation = validateDatePack(pack);
   if (!validation.ok) {
-    throw new DatePackReadError([{ key: 'err.read.invalidContent' }, ...validation.errors]);
+    throw new DatePackReadError([{ key: 'err.read.invalidContent' }, ...validation.errors], file);
   }
 
   const warnings = [...manifestResult.warnings, ...validation.warnings];

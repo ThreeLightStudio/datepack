@@ -49,6 +49,7 @@ export const ko = {
   'err.plan.eventId': 'events[{index}].id가 필요합니다.',
   'err.plan.eventTitle': 'events[{index}].title이 필요합니다.',
   'err.plan.dupId': 'events[{index}]: 중복된 event id "{id}"',
+  'err.plan.dupAssetId': 'assets: 중복된 asset id "{id}"',
   'err.plan.startInvalid': 'events[{index}].start는 HH:mm 형식이어야 합니다.',
   'err.plan.endInvalid': 'events[{index}].end는 HH:mm 형식이어야 합니다.',
   'err.plan.typeInvalid':
@@ -59,6 +60,7 @@ export const ko = {
   'err.plan.assetIds': 'events[{index}].assetIds는 배열이어야 합니다.',
   'err.plan.placesArray': 'plan.places는 배열이어야 합니다.',
   'err.plan.assetMissing': '에셋 "{id}"를 찾을 수 없습니다. (파일 누락)',
+  'err.plan.brokenReference': '{field}에서 참조한 ID "{id}"가 없습니다.',
   'err.plan.manifestVersion': 'manifest.version이 필요합니다.',
   'err.patch.wrongType': 'type이 "datepack.patch"가 아닙니다. (현재 값: {value})',
   'err.patch.badVersion': '지원하지 않는 patch 버전입니다. (version: {value})',
@@ -87,6 +89,8 @@ export const ko = {
   'warn.conflict.overlap': '"{prev}"과(와) "{next}" 일정이 겹쳐요.',
   'warn.conflict.travel': '"{next}"은(는) 이동 시간 {minutes}분을 고려하면 너무 이르게 시작해요.',
   'warn.conflict.endBeforeStart': '"{title}" 일정의 종료가 시작보다 앞서 있어요.',
+  'warn.conflict.orderTime':
+    '일정에서는 "{next}"가 뒤에 있지만 "{previous}"보다 먼저 시작할 수 있어요.',
 
   // plan draft (AI-authored datepack.plan)
   'err.planDraft.notJson': '계획 JSON을 찾지 못했어요. AI가 답한 내용 전체를 붙여넣어 주세요.',

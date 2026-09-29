@@ -23,6 +23,18 @@ describe('findPlanConflicts', () => {
     expect(findPlanConflicts(plan)).toEqual([]);
   });
 
+  it('reports time/order inversions without sorting the plan', () => {
+    const plan = planFrom([
+      { title: 'Chosen first', start: '14:00' },
+      { title: 'Chosen second', start: '11:00' },
+    ]);
+    expect(plan.events.map((event) => event.title)).toEqual(['Chosen first', 'Chosen second']);
+    expect(findPlanConflicts(plan)).toContainEqual({
+      key: 'warn.conflict.orderTime',
+      params: { previous: 'Chosen first', next: 'Chosen second' },
+    });
+  });
+
   it('detects overlapping neighbors', () => {
     const plan = planFrom([
       { title: 'A', start: '10:00', end: '11:00' },

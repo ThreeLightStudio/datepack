@@ -7,14 +7,39 @@ function startMinute(timing: EventTiming): number | null {
   if (timing.kind === 'window') return localPointMinutes(timing.earliestStart);
   return null;
 }
+function latestStartMinute(timing: EventTiming): number | null {
+  if (timing.kind === 'exact') return localPointMinutes(timing.start);
+  if (timing.kind === 'window') return localPointMinutes(timing.latestStart);
+  return null;
+}
 function endMinute(timing: EventTiming): number | null {
   if (timing.kind !== 'exact' || !timing.end) return null;
   return localPointMinutes(timing.end);
 }
 
-/** Advisory checks for exact scheduled events, including next-day dayOffset values. */
+/** Advisory order/time, overlap, and travel checks, including next-day values. */
 export function findPlanConflicts(plan: DatePlan): DatePackIssue[] {
   const issues: DatePackIssue[] = [];
+  // Array order is authoritative. Report possible inversions without reordering
+  // the plan; time-sorted checks below are only for physical overlaps/travel.
+  const ordered = plan.events
+    .map((event) => ({
+      event,
+      earliest: startMinute(event.timing),
+      latest: latestStartMinute(event.timing),
+    }))
+    .filter((item) => item.earliest !== null && item.latest !== null);
+  for (let i = 1; i < ordered.length; i++) {
+    const previous = ordered[i - 1];
+    const next = ordered[i];
+    if (next.earliest! < previous.latest!) {
+      issues.push({
+        key: 'warn.conflict.orderTime',
+        params: { previous: previous.event.title, next: next.event.title },
+      });
+    }
+  }
+
   const events = [...plan.events].sort((a, b) => {
     const as = startMinute(a.timing),
       bs = startMinute(b.timing);

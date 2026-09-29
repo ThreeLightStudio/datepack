@@ -110,6 +110,7 @@ export type Experience = {
   eventId?: string;
   title: string;
   outcome: 'completed' | 'skipped' | 'note';
+  recordedAt: string;
   occurredOn?: string;
   timing?: { kind: 'exact'; at: LocalPoint } | { kind: 'approximate'; period: string };
   note?: string;

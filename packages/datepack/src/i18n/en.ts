@@ -44,6 +44,7 @@ export const en: Record<DatePackIssueKey, string> = {
   'err.plan.eventId': 'events[{index}].id is required.',
   'err.plan.eventTitle': 'events[{index}].title is required.',
   'err.plan.dupId': 'events[{index}]: duplicate event id "{id}"',
+  'err.plan.dupAssetId': 'assets: duplicate asset id "{id}".',
   'err.plan.startInvalid': 'events[{index}].start must be HH:mm.',
   'err.plan.endInvalid': 'events[{index}].end must be HH:mm.',
   'err.plan.typeInvalid': 'events[{index}].type "{value}" is unknown. Please set a valid type.',
@@ -53,6 +54,7 @@ export const en: Record<DatePackIssueKey, string> = {
   'err.plan.assetIds': 'events[{index}].assetIds must be an array.',
   'err.plan.placesArray': 'plan.places must be an array.',
   'err.plan.assetMissing': 'Asset "{id}" is missing (file not found).',
+  'err.plan.brokenReference': '{field} references missing id "{id}".',
   'err.plan.manifestVersion': 'manifest.version is required.',
   'err.patch.wrongType': 'type is not "datepack.patch" (got: {value}).',
   'err.patch.badVersion': 'Unsupported patch version (version: {value}).',
@@ -81,6 +83,8 @@ export const en: Record<DatePackIssueKey, string> = {
   'warn.conflict.overlap': '"{prev}" and "{next}" overlap.',
   'warn.conflict.travel': '"{next}" starts too early for its {minutes}-min travel time.',
   'warn.conflict.endBeforeStart': '"{title}" ends before it starts.',
+  'warn.conflict.orderTime':
+    '"{next}" may start before "{previous}" even though it appears later in plan order.',
 
   // plan draft (AI-authored datepack.plan)
   'err.planDraft.notJson': "Couldn't find a plan JSON — paste the full reply from your AI.",

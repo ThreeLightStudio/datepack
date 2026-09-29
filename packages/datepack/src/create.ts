@@ -72,16 +72,9 @@ export function createDatePack(input: { title: string; date?: string }): DatePac
   };
 }
 
-/** Sort scheduled events first, by time, then retain explicit order for ties and unscheduled entries. */
+/** @deprecated In v3, event order is explicit and independent of its timing. */
 export function sortEventsByStart(events: DateEvent[]): DateEvent[] {
-  return [...events].sort((a, b) => {
-    const am = timingStartMinutes(a.timing);
-    const bm = timingStartMinutes(b.timing);
-    if (am !== null && bm !== null && am !== bm) return am - bm;
-    if (am !== null && bm === null) return -1;
-    if (am === null && bm !== null) return 1;
-    return a.order - b.order;
-  });
+  return sortEventsByOrder(events);
 }
 
 export function sortEventsByOrder(events: DateEvent[]): DateEvent[] {
