@@ -55,9 +55,10 @@ export type PatchChange =
       title: string;
       fixed?: boolean;
       newTitle: string;
-      newStart: string;
+      newStart?: string;
       newPlace?: string;
-    };
+    }
+  | { op: 'insertFirst'; title: string; newTitle: string; newStart?: string; newPlace?: string };
 
 export type PatchOutcome = {
   plan: DatePlan;
@@ -86,7 +87,8 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
   const skipped: DatePackIssue[] = [];
 
   for (const op of patch.operations) {
-    const targetId = op.target.startsWith('event:') ? op.target.slice(6) : op.target;
+    const target = 'target' in op ? op.target : '';
+    const targetId = target.startsWith('event:') ? target.slice(6) : target;
     // Tolerate the common "event-<id>" id style when the AI writes "event:<id>".
     const index = next.events.findIndex((e) => e.id === targetId || e.id === `event-${targetId}`);
 
@@ -197,6 +199,22 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
         });
         break;
       }
+      case 'insertFirst': {
+        if (next.events.length > 0) {
+          skipped.push({ key: 'err.patch.emptyOnly' });
+          break;
+        }
+        const created = createEventFromPatchValue(op.value, next);
+        next.events.unshift(created);
+        applied.push({
+          op: 'insertFirst',
+          title: created.title,
+          newTitle: created.title,
+          newStart: created.start,
+          ...(op.value.place ? { newPlace: op.value.place.trim() } : {}),
+        });
+        break;
+      }
     }
   }
 
@@ -262,7 +280,7 @@ function createEventFromPatchValue(value: DatePackPatchNewEvent, plan: DatePlan)
   }
   return createEvent({
     title: value.title,
-    start: normalizeTime(value.start),
+    ...(value.start ? { start: normalizeTime(value.start) } : {}),
     end: value.end !== undefined && isValidTime(value.end) ? normalizeTime(value.end) : undefined,
     type: value.type ?? 'place',
     note: value.note,

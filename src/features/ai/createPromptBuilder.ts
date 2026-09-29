@@ -5,7 +5,7 @@ import { responseContract } from './exchange';
 export type CreatePromptInput = {
   /** Where the date happens — city, neighborhood, venue… */
   region: string;
-  date: string; // YYYY-MM-DD
+  date?: string; // YYYY-MM-DD; omit while undecided
   startTime?: string; // HH:mm
   endTime?: string; // HH:mm
   /** Free-form requests: tastes, budget, transport, party size… */
@@ -65,8 +65,8 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
 
   lines.push(
     locale === 'ko'
-      ? '아래 조건으로 하루 데이트 계획을 저와 함께 논의하며 만들어주는 데이트 플래너가 되어주세요.'
-      : "You're my date planner — build a full-day date plan with me, discussing it together.",
+      ? '아래 조건으로 데이트 계획을 저와 함께 논의하며 만들어주는 데이트 플래너가 되어주세요.'
+      : "You're my date planner — help me shape an outing by discussing it together.",
   );
   lines.push('');
 
@@ -101,8 +101,13 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
   );
   lines.push(
     locale === 'ko'
-      ? '2. 계획이 확정되면 아래 DatePack Response 봉투에 DatePack Plan JSON을 넣어 답해주세요. 대화 중간에는 JSON이 필요하지 않아요.'
-      : '2. Once the plan is final, return the DatePack Plan JSON inside the DatePack Response envelope below. No JSON is needed during discussion.',
+      ? '2. 한 곳만 가는 계획이나 반나절 일정도 괜찮아요. 하루를 채우려고 일정을 늘리지 마세요. 방향이 아직 정해지지 않았다면 빈 events 배열의 초안도 만들 수 있어요.'
+      : "2. One stop or a half-day outing is fine; don't pad the plan to fill a full day. If the direction is still undecided, an empty starter plan with events: [] is okay.",
+  );
+  lines.push(
+    locale === 'ko'
+      ? '3. 계획이 확정되면 아래 DatePack Response 봉투에 DatePack Plan JSON을 넣어 답해주세요. 대화 중간에는 JSON이 필요하지 않아요.'
+      : '3. Once we have a plan, return the DatePack Plan JSON inside the DatePack Response envelope below. No JSON is needed during discussion.',
   );
   lines.push('');
 

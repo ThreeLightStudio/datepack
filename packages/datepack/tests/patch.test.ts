@@ -49,6 +49,48 @@ describe('patch validation', () => {
     expect(plan.places).toEqual([]);
   });
 
+  it('parses and previews the first unscheduled stop for an empty plan', () => {
+    const raw = JSON.stringify({
+      type: 'datepack.patch',
+      version: 1,
+      operations: [{ op: 'insertFirst', value: { title: 'Tea', place: 'A Tea House' } }],
+    });
+    const parsed = parsePatch(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const emptyPlan = { ...makePlan(), events: [], places: [] };
+    const preview = describePatch(emptyPlan, parsed.patch);
+    const applied = applyPatch(emptyPlan, parsed.patch);
+    expect(preview.canApply).toBe(true);
+    expect(preview.plan.events).toHaveLength(1);
+    expect(preview.plan.events[0]).toMatchObject({
+      title: 'Tea',
+      order: 0,
+      timing: { kind: 'unscheduled' },
+    });
+    expect(
+      preview.plan.places?.find((place) => place.id === preview.plan.events[0].placeId),
+    ).toMatchObject({ name: 'A Tea House' });
+    expect(applied.plan.events[0]).toMatchObject({ title: 'Tea', timing: { kind: 'unscheduled' } });
+    expect(
+      applied.plan.places?.find((place) => place.id === applied.plan.events[0].placeId),
+    ).toMatchObject({ name: 'A Tea House' });
+    expect(emptyPlan.events).toEqual([]);
+  });
+
+  it('rejects first-stop insertion into a non-empty plan without a partial result', () => {
+    const plan = makePlan();
+    const result = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [{ op: 'insertFirst', value: { title: 'Tea' } }],
+    });
+    expect(result.canApply).toBe(false);
+    expect(result.skipped).toMatchObject([{ key: 'err.patch.emptyOnly' }]);
+    expect(result.plan).toEqual(plan);
+  });
+
   it('parses a valid patch', () => {
     const parsed = parsePatch(
       JSON.stringify({
@@ -58,6 +100,18 @@ describe('patch validation', () => {
       }),
     );
     expect(parsed.ok).toBe(true);
+  });
+
+  it('requires the explicit empty-plan op to omit its target', () => {
+    const parsed = parsePatch(
+      JSON.stringify({
+        type: 'datepack.patch',
+        version: 1,
+        operations: [{ op: 'insertFirst', target: 'event:some-stop', value: { title: 'Tea' } }],
+      }),
+    );
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.errors).toMatchObject([{ key: 'err.patch.noTarget' }]);
   });
 
   it('rejects wrong type/version and bad ops', () => {

@@ -53,4 +53,12 @@ describe('create prompt builder', () => {
     expect(prompt).not.toContain('토요일');
     expect(prompt).not.toContain('브레이크타임');
   });
+
+  it('allows a one-stop, half-day, or empty starter plan in English', () => {
+    const prompt = buildCreatePrompt({ region: 'Seoul', locale: 'en' });
+    expect(prompt).toContain('One stop or a half-day outing is fine');
+    expect(prompt).toContain('empty starter plan with events: [] is okay');
+    expect(prompt).not.toContain('build a full-day date plan');
+    expect(prompt).toContain('Date: Undecided');
+  });
 });

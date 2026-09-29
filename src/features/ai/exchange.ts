@@ -1,4 +1,5 @@
 import { extractJsonObject } from '@datepack/core';
+import type { DatePackPatch } from '@datepack/core';
 
 export type AiRequestKind = 'create' | 'next-change' | 'remaining-change' | 'memory-edit';
 
@@ -76,4 +77,20 @@ export function responseFingerprint(raw: string): string {
   let hash = 2166136261;
   for (let i = 0; i < raw.length; i += 1) hash = Math.imul(hash ^ raw.charCodeAt(i), 16777619);
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/** Every targeted operation must stay within the IDs fixed for this request. */
+export function isPatchWithinScope(
+  patch: DatePackPatch,
+  allowedEventIds: readonly string[],
+  allowFirstInsert: boolean,
+): boolean {
+  const allowed = new Set(allowedEventIds);
+  return patch.operations.every((operation) => {
+    if (operation.op === 'insertFirst') return allowFirstInsert;
+    const target = operation.target.startsWith('event:')
+      ? operation.target.slice('event:'.length)
+      : operation.target;
+    return allowed.has(target);
+  });
 }

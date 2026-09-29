@@ -158,7 +158,7 @@ export type DatePackPatchReplaceValue = Partial<{
 }>;
 export type DatePackPatchNewEvent = {
   title: string;
-  start: string;
+  start?: string;
   end?: string;
   type?: DateEventType;
   note?: string;
@@ -172,7 +172,8 @@ export type DatePackPatchOperation =
   | { op: 'move'; target: string; value: { start?: string; end?: string } }
   | { op: 'remove'; target: string }
   | { op: 'insertBefore'; target: string; value: DatePackPatchNewEvent }
-  | { op: 'insertAfter'; target: string; value: DatePackPatchNewEvent };
+  | { op: 'insertAfter'; target: string; value: DatePackPatchNewEvent }
+  | { op: 'insertFirst'; value: DatePackPatchNewEvent };
 export type DatePackPatch = {
   type: 'datepack.patch';
   version: 1;

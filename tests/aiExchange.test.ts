@@ -3,8 +3,10 @@ import {
   parseAiResponse,
   responseFingerprint,
   responseContract,
+  isPatchWithinScope,
   type AiRequestIdentity,
 } from '../src/features/ai/exchange';
+import type { DatePackPatch } from '@datepack/core';
 
 const identity: AiRequestIdentity = {
   requestId: 'req-1',
@@ -69,5 +71,28 @@ describe('AI v2 response envelope', () => {
     expect(contract).toContain('"contextRevision": 2');
     expect(contract).toContain('"generatedAt": "2026-09-29T10:00:00.000Z"');
     expect(contract).toContain('"kind": "remaining-change"');
+  });
+});
+
+describe('AI patch scope', () => {
+  const firstInsert: DatePackPatch = {
+    type: 'datepack.patch',
+    version: 1,
+    operations: [{ op: 'insertFirst', value: { title: 'Coffee' } }],
+  };
+  const targeted: DatePackPatch = {
+    type: 'datepack.patch',
+    version: 1,
+    operations: [{ op: 'move', target: 'event:stop-1', value: { start: '10:00' } }],
+  };
+
+  it('permits insertFirst only for the captured empty-plan scope', () => {
+    expect(isPatchWithinScope(firstInsert, [], true)).toBe(true);
+    expect(isPatchWithinScope(firstInsert, [], false)).toBe(false);
+  });
+
+  it('keeps targeted operations inside the captured event IDs', () => {
+    expect(isPatchWithinScope(targeted, ['stop-1'], false)).toBe(true);
+    expect(isPatchWithinScope(targeted, [], true)).toBe(false);
   });
 });

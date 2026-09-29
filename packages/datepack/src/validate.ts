@@ -348,7 +348,14 @@ export function validateDatePack(pack: DatePack): ValidationResult {
 // Patch validation
 // ---------------------------------------------------------------------------
 
-const PATCH_OPS = ['replace', 'move', 'remove', 'insertBefore', 'insertAfter'] as const;
+const PATCH_OPS = [
+  'replace',
+  'move',
+  'remove',
+  'insertBefore',
+  'insertAfter',
+  'insertFirst',
+] as const;
 
 export type PatchValidation =
   | { ok: true; patch: DatePackPatch; warnings: DatePackIssue[] }
@@ -386,23 +393,33 @@ export function validatePatch(raw: unknown): PatchValidation {
       });
       return;
     }
-    if (typeof op.target !== 'string' || op.target.length === 0) {
+    const operation = op as unknown as Record<string, unknown>;
+    if (op.op !== 'insertFirst' && (typeof operation.target !== 'string' || !operation.target)) {
+      errors.push({ key: 'err.patch.noTarget', params: { index } });
+    }
+    if (op.op === 'insertFirst' && operation.target !== undefined) {
       errors.push({ key: 'err.patch.noTarget', params: { index } });
     }
     if (op.op === 'remove') return;
 
-    const value = (op as { value?: unknown }).value;
+    const value = operation.value;
     if (typeof value !== 'object' || value === null) {
       errors.push({ key: 'err.patch.noValue', params: { index } });
       return;
     }
     const v = value as Record<string, unknown>;
-    if (op.op === 'insertBefore' || op.op === 'insertAfter') {
+    if (op.op === 'insertBefore' || op.op === 'insertAfter' || op.op === 'insertFirst') {
       if (typeof v.title !== 'string' || v.title.trim().length === 0) {
         errors.push({ key: 'err.patch.needTitle', params: { index } });
       }
-      if (!isValidTime(typeof v.start === 'string' ? v.start : undefined)) {
+      if (
+        op.op !== 'insertFirst' &&
+        !isValidTime(typeof v.start === 'string' ? v.start : undefined)
+      ) {
         errors.push({ key: 'err.patch.needStart', params: { index } });
+      }
+      if (v.start !== undefined && v.start !== null && !isValidTime(v.start as string)) {
+        errors.push({ key: 'err.patch.badTime', params: { index, field: 'start' } });
       }
       if (v.end !== undefined && v.end !== null && !isValidTime(v.end as string)) {
         errors.push({ key: 'err.patch.badTime', params: { index, field: 'end' } });

@@ -55,15 +55,17 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
     { "op": "move", "target": "event:<id>", "value": { "start": "16:10", "end": "17:00" } },
     { "op": "remove", "target": "event:<id>" },
     { "op": "insertBefore", "target": "event:<id>", "value": { "title": "새 일정", "start": "16:40", "type": "cafe" } },
-    { "op": "insertAfter", "target": "event:<id>", "value": { "title": "새 일정", "start": "16:40" } }
+    { "op": "insertAfter", "target": "event:<id>", "value": { "title": "새 일정", "start": "16:40" } },
+    { "op": "insertFirst", "value": { "title": "첫 일정", "start": "10:00" } }
   ]
 }
-- op는 replace / move / remove / insertBefore / insertAfter 중 하나입니다.
+- op는 replace / move / remove / insertBefore / insertAfter / insertFirst 중 하나입니다.
 - target은 위에 적힌 event id 앞에 "event:"를 붙인 문자열입니다. (예: "event:abc123") 위 목록에 없는 id는 절대 사용할 수 없습니다.
+- insertFirst는 일정이 하나도 없는 빈 계획에서만 사용하며 target을 넣지 않습니다. 첫 활동의 시각을 모르면 start를 생략할 수 있습니다.
 - replace의 value로 쓸 수 있는 필드: title, start, end, type(place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed(true|false).
 - start와 end는 24시간 HH:mm 형식입니다. (예: "09:30")
 - travelMinutes는 그 일정 장소까지 가는 이동 시간(분)입니다.
-- 새 일정 insert 시 value에는 title과 start(HH:mm)가 필요합니다. 장소가 새로 생기면 place에 장소 이름도 적으세요.`,
+- insertBefore/insertAfter에는 title과 start(HH:mm)가 필요합니다. insertFirst는 title만으로 추가할 수 있습니다. 장소가 새로 생기면 place에 장소 이름도 적으세요.`,
   en: `Patch JSON shape:
 {
   "type": "datepack.patch",
@@ -73,15 +75,17 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
     { "op": "move", "target": "event:<id>", "value": { "start": "16:10", "end": "17:00" } },
     { "op": "remove", "target": "event:<id>" },
     { "op": "insertBefore", "target": "event:<id>", "value": { "title": "New stop", "start": "16:40", "type": "cafe" } },
-    { "op": "insertAfter", "target": "event:<id>", "value": { "title": "New stop", "start": "16:40" } }
+    { "op": "insertAfter", "target": "event:<id>", "value": { "title": "New stop", "start": "16:40" } },
+    { "op": "insertFirst", "value": { "title": "First stop", "start": "10:00" } }
   ]
 }
-- op is one of replace / move / remove / insertBefore / insertAfter.
+- op is one of replace / move / remove / insertBefore / insertAfter / insertFirst.
 - target is "event:" followed by one of the event ids listed above (e.g. "event:abc123"). Never use an id that is not in the list above.
+- Use insertFirst only when the plan has no stops, and omit target. The first stop's start may be omitted when its time is undecided.
 - Allowed replace value fields: title, start, end, type (place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed (true|false).
 - start and end use 24-hour HH:mm (e.g. "09:30").
 - travelMinutes is the travel time, in minutes, to reach that stop's place.
-- An inserted stop needs a title and a start (HH:mm). Include place with a searchable venue name when adding a place.`,
+- insertBefore/insertAfter need a title and start (HH:mm). insertFirst needs a title; its start may be omitted. Include place with a searchable venue name when adding a place.`,
 };
 
 export function buildAiPrompt(input: {
@@ -193,6 +197,13 @@ export function buildAiPrompt(input: {
   lines.push('');
 
   lines.push(...L.instructions);
+  if (input.plan.events.length === 0) {
+    lines.push(
+      locale === 'ko'
+        ? '현재 계획에는 일정이 없습니다. 첫 활동을 추가할 때 insertFirst 하나만 사용하고 target은 넣지 마세요.'
+        : 'The plan has no stops yet. To add its first stop, use one insertFirst operation with no target.',
+    );
+  }
   lines.push('');
   if (input.identity) {
     lines.push(
@@ -207,6 +218,23 @@ export function buildAiPrompt(input: {
   }
   lines.push(PATCH_SCHEMA_HINT[locale]);
   return lines.join('\n');
+}
+
+/** Select editable events in the plan's explicit order, including unscheduled stops. */
+export function getAiScopeEventIds(
+  plan: DatePlan,
+  runtime: DatePackRuntimeState | null,
+  kind: 'next-change' | 'remaining-change',
+  now: Date = new Date(),
+): string[] {
+  const context = computeDayContext(plan, runtime, now);
+  const eligible = context.events.filter(
+    (item) =>
+      item.status === 'upcoming' ||
+      item.status === 'current' ||
+      (item.status === 'unknown-past' && item.includeInRemaining),
+  );
+  return (kind === 'next-change' ? eligible.slice(0, 1) : eligible).map((item) => item.event.id);
 }
 
 /**
@@ -278,6 +306,7 @@ const koText: PromptText = {
   variableHeader: '현재 변수:',
   instructions: [
     '위 변수를 반영해 남은 일정만 수정해주세요. 완료/건너뜀 처리된 일정은 변경하지 마세요.',
+    '목록의 순서는 계획의 명시적 순서입니다. 시간이 미정인 일정도 포함되며, 다음 일정 범위는 목록의 첫 항목입니다.',
     'target으로는 위에 적힌 id만 사용하세요. id를 절대 지어내지 마세요.',
     '고정 일정과 Must 조건은 유지해주세요. 다만 사용자가 고정 일정 자체의 변경(재예매 등)을 요청하면 그대로 반영하고, 고정 일정이 당겨지거나 늦어지면 나머지 일정도 그에 맞게 재배치하세요.',
     '한 일정의 시간 변경이 다른 일정에 영향을 준다면, 영향받는 모든 후속 일정의 move도 빠짐없이 포함하세요. 일부만 고치고 끝내지 마세요.',
@@ -305,6 +334,7 @@ const enText: PromptText = {
   variableHeader: 'What changed:',
   instructions: [
     'Replan only the stops that are still ahead. Leave completed and skipped stops untouched.',
+    'The list follows the plan’s explicit order, including stops with no time set. The first listed stop is the Next stop scope.',
     'Use only the ids listed above as targets — never invent one.',
     'Keep the locked stops and the Must rules. If the user explicitly asks to change a locked stop itself (e.g. a rebooked train), apply that — and when a locked stop moves earlier or later, reschedule the stops around it to match.',
     'When one stop shifts and others are affected, include a move for every affected later stop — never leave any out.',

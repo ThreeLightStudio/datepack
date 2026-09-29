@@ -7,7 +7,7 @@ import type {
   PatchOutcome,
 } from '@datepack/core';
 import { describePatch, parsePatch } from '@datepack/core';
-import { buildAiPrompt, SITUATIONS } from './promptBuilder';
+import { buildAiPrompt, getAiScopeEventIds, SITUATIONS } from './promptBuilder';
 import {
   applyAiPlan,
   showToast,
@@ -18,8 +18,12 @@ import {
 import type { PendingRequest } from '../../storage/indexedDb';
 import { CopyIcon, SparkleIcon, UndoIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
-import { computeDayContext } from '../day/dayRuntime';
-import { parseAiResponse, responseFingerprint, type AiRequestIdentity } from './exchange';
+import {
+  isPatchWithinScope,
+  parseAiResponse,
+  responseFingerprint,
+  type AiRequestIdentity,
+} from './exchange';
 
 type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
 
@@ -67,8 +71,21 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
         const inserted = format(
           locale,
           change.op === 'insertBefore' ? 'change.insertBefore' : 'change.insertAfter',
-          { title: change.title, newTitle: change.newTitle, time: change.newStart },
+          {
+            title: change.title,
+            newTitle: change.newTitle,
+            time: change.newStart ?? (locale === 'ko' ? '시간 미정' : 'time unset'),
+          },
         );
+        return change.newPlace
+          ? `${inserted} · ${locale === 'ko' ? '장소' : 'Place'}: ${change.newPlace}`
+          : inserted;
+      }
+      case 'insertFirst': {
+        const inserted = format(locale, 'change.insertFirst', {
+          newTitle: change.newTitle,
+          time: change.newStart ?? (locale === 'ko' ? '시간 미정' : 'time unset'),
+        });
         return change.newPlace
           ? `${inserted} · ${locale === 'ko' ? '장소' : 'Place'}: ${change.newPlace}`
           : inserted;
@@ -82,7 +99,9 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
   })();
   // A locked stop changing hands is legal (the user may have rebooked it) but
   // must be impossible to miss in the review list.
-  return change.fixed ? `${label} ${format(locale, 'change.fixedTag')}` : label;
+  return 'fixed' in change && change.fixed
+    ? `${label} ${format(locale, 'change.fixedTag')}`
+    : label;
 }
 
 export function AiSection({ plan, runtime }: Props) {
@@ -147,14 +166,7 @@ export function AiSection({ plan, runtime }: Props) {
     : null;
 
   function eligibleIds(kind: 'next-change' | 'remaining-change'): string[] {
-    const context = computeDayContext(plan, runtime, new Date());
-    const eligible = context.events.filter(
-      (item) =>
-        item.status === 'upcoming' ||
-        item.status === 'current' ||
-        (item.status === 'unknown-past' && item.includeInRemaining),
-    );
-    return (kind === 'next-change' ? eligible.slice(0, 1) : eligible).map((item) => item.event.id);
+    return getAiScopeEventIds(plan, runtime, kind);
   }
 
   async function prepareRequest(id: string, custom?: string): Promise<void> {
@@ -382,14 +394,9 @@ export function AiSection({ plan, runtime }: Props) {
       });
       return;
     }
-    const allowed = new Set(activeRequest.scopeEventIds ?? []);
-    const outOfScope = parsed.patch.operations.some((operation) => {
-      const target = operation.target.startsWith('event:')
-        ? operation.target.slice(6)
-        : operation.target;
-      return !allowed.has(target);
-    });
-    if (outOfScope) {
+    const allowFirstInsert =
+      plan.events.length === 0 && (activeRequest.scopeEventIds?.length ?? 0) === 0;
+    if (!isPatchWithinScope(parsed.patch, activeRequest.scopeEventIds ?? [], allowFirstInsert)) {
       const message =
         locale === 'ko'
           ? '요청 범위 밖의 일정이 포함되어 있어 적용할 수 없어요.'
