@@ -1,5 +1,10 @@
 # DatePack
 
+> Current app version: 0.3.0 (pre-release). Integrated v3 paths and acceptance
+> status are tracked in [release readiness](docs/release-readiness.md). Browser
+> verification used a desktop in-app browser; installed iOS/Android PWA, offline
+> launch, screen readers, and native share sheets still need device verification.
+
 **A local-first date planner where the whole date lives in one file.**
 **한국어 안내는 아래에 있습니다.** (Korean guide below)
 
