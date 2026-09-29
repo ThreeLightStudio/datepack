@@ -67,7 +67,7 @@ interface DatePackDB extends DBSchema {
 }
 
 const DB_NAME = 'datepack';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const CURRENT_PACK_KEY = 'currentPackId';
 let dbPromise: Promise<IDBPDatabase<DatePackDB>> | null = null;
 
@@ -171,7 +171,9 @@ export async function savePack(
         revision: prior.pack.revision + 1,
         manifest: { ...pack.manifest, updatedAt: savedAt },
       }
-    : pack;
+    : pack.plan.events.length > 0 || resetDevice
+      ? { ...pack, baselinePlan: structuredClone(pack.plan) }
+      : pack;
   validate(storedPack);
   await tx.objectStore('packsV3').put({ pack: storedPack, savedAt }, pack.plan.id);
   if (prior && resetDevice)
@@ -267,6 +269,9 @@ export async function commitPlanChange(
   const pack: DatePack = {
     ...row.pack,
     plan: nextPlan,
+    ...(row.pack.plan.events.length === 0 && nextPlan.events.length > 0
+      ? { baselinePlan: structuredClone(nextPlan) }
+      : {}),
     ...(nextAssets ? { assets: nextAssets } : {}),
     revision: row.pack.revision + 1,
     manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
@@ -353,9 +358,6 @@ export async function commitExperienceChange(
   const pack: DatePack = {
     ...row.pack,
     experiences: structuredClone(experiences),
-    ...(row.pack.experiences.length === 0 && experiences.length > 0
-      ? { baselinePlan: structuredClone(row.pack.plan) }
-      : {}),
     revision: row.pack.revision + 1,
     manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
   };
@@ -538,7 +540,9 @@ export async function saveImportedPack(
         revision: prior.pack.revision + 1,
         manifest: { ...pack.manifest, updatedAt: savedAt },
       }
-    : pack;
+    : pack.plan.events.length > 0
+      ? { ...pack, baselinePlan: structuredClone(pack.plan) }
+      : pack;
   validate(storedPack);
   await tx.objectStore('packsV3').put({ pack: storedPack, savedAt }, pack.plan.id);
   await tx

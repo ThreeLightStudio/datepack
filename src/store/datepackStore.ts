@@ -541,12 +541,12 @@ export async function createNewPack(title: string, date: string): Promise<void> 
 /** Create a pack from an AI-authored plan (datepack.plan draft already built). */
 export async function createPackFromPlan(pack: DatePack): Promise<void> {
   const runtime = emptyRuntime(pack.plan.id);
-  await savePack(pack);
+  const savedPack = await savePack(pack);
   await saveRuntime(runtime);
-  await setCurrentPackId(pack.plan.id);
+  await setCurrentPackId(savedPack.plan.id);
   setState({
     status: 'ready',
-    pack,
+    pack: savedPack,
     runtime,
     savedPacks: await listPacks(),
     undoStack: [],
