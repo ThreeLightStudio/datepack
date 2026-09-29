@@ -230,10 +230,10 @@ export async function undo(): Promise<void> {
 export async function updatePlan(
   label: string,
   mutate: (plan: DatePlan) => DatePlan,
-): Promise<void> {
-  if (!state.pack) return;
+): Promise<boolean> {
+  if (!state.pack) return false;
   const plan = mutate(structuredClone(state.pack.plan));
-  await commitCurrentPlan(label, plan);
+  return commitCurrentPlan(label, plan);
 }
 
 async function commitCurrentPlan(
@@ -446,6 +446,16 @@ export async function skipEvent(eventId: string): Promise<void> {
     runtime.events[eventId] = { ...getRuntimeEntry(runtime, eventId), eventId, status: 'skipped' };
   });
   showToast(t('toast.skipped'));
+}
+
+export async function setEventIncludedInRemaining(
+  eventId: string,
+  includeInRemaining: boolean,
+): Promise<void> {
+  await updateRuntime('Update remaining plan', (runtime) => {
+    const entry = getRuntimeEntry(runtime, eventId);
+    runtime.events[eventId] = { ...entry, eventId, includeInRemaining };
+  });
 }
 
 export async function unmarkEvent(eventId: string): Promise<void> {

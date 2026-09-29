@@ -89,6 +89,8 @@ export const ko = {
   'p3.day.actual.unknown': '실제로 방문했는지는 아직 기록되지 않았어요.',
   'p3.day.past.unknown': '지난 예정 시간 · 확인되지 않음',
   'p3.day.past.note': '시간이 지났다는 이유로 완료나 건너뜀으로 바꾸지 않았어요.',
+  'p3.day.includeInRemaining': '남은 계획에 다시 포함',
+  'p3.day.removeFromRemaining': '남은 계획에서 제외',
   'p3.day.adjust': '남은 일정 조정',
   'p3.plan.selected': '선택한 일정',
   'p3.plan.empty': '활동이 없어도 빈 계획으로 저장할 수 있어요.',

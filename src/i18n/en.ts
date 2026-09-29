@@ -89,6 +89,8 @@ export const en: Record<MessageKey, string> = {
   'p3.day.actual.unknown': 'Whether you went is still unconfirmed.',
   'p3.day.past.unknown': 'Past planned times · unconfirmed',
   'p3.day.past.note': 'Elapsed time does not mark a visit or skip.',
+  'p3.day.includeInRemaining': 'Include in remaining plan',
+  'p3.day.removeFromRemaining': 'Remove from remaining plan',
   'p3.day.adjust': 'Adjust plan',
   'p3.plan.selected': 'Selected activities',
   'p3.plan.empty': 'An empty plan is ready to use as-is.',

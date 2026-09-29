@@ -133,6 +133,8 @@ export type EventRuntimeState = {
   status: EventRuntimeStatus;
   delayedByMinutes?: number;
   activePlan?: 'A' | 'B';
+  /** User explicitly asked to keep an elapsed, unconfirmed event in the next plan. */
+  includeInRemaining?: boolean;
 };
 export type DatePackRuntimeState = {
   planId: string;

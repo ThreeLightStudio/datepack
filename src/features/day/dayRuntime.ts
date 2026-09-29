@@ -9,6 +9,7 @@ export type DayEventView = {
   endMinutes: number | null;
   delayedByMinutes: number;
   activePlan: 'A' | 'B';
+  includeInRemaining?: boolean;
 };
 export type DayDeparture = {
   eventId: string;
@@ -57,6 +58,15 @@ function plannedEnd(event: DateEvent): number | null {
     : null;
 }
 
+/** Calendar-day difference from the plan's date to the current local date. */
+function calendarDayDifference(currentDate: string, planDate: string): number {
+  const [currentYear, currentMonth, currentDay] = currentDate.split('-').map(Number);
+  const [planYear, planMonth, planDay] = planDate.split('-').map(Number);
+  const current = Date.UTC(currentYear, currentMonth - 1, currentDay);
+  const planned = Date.UTC(planYear, planMonth - 1, planDay);
+  return Math.round((current - planned) / 86_400_000);
+}
+
 export function computeDayContext(
   plan: DatePlan,
   runtime: DatePackRuntimeState | null,
@@ -64,6 +74,10 @@ export function computeDayContext(
 ): DayContext {
   const isToday = plan.date === todayISO(now);
   const nowMinutes = minutesOfDay(now);
+  const planDayOffset = plan.date ? calendarDayDifference(todayISO(now), plan.date) : null;
+  const withinPlanDays = planDayOffset !== null && planDayOffset >= 0 && planDayOffset <= 1;
+  const elapsedPlanMinutes =
+    planDayOffset === null ? nowMinutes : planDayOffset * 1440 + nowMinutes;
   const views = [...plan.events]
     .sort((a, b) => a.order - b.order)
     .map((event): DayEventView => {
@@ -77,17 +91,18 @@ export function computeDayContext(
         endMinutes: plannedEnd(event),
         delayedByMinutes: state.delayedByMinutes ?? 0,
         activePlan: state.activePlan ?? 'A',
+        includeInRemaining: state.includeInRemaining ?? false,
       };
     });
 
   for (const view of views) {
-    if (view.status !== 'upcoming' || view.startMinutes === null || !isToday) continue;
-    view.status = view.startMinutes < nowMinutes ? 'unknown-past' : 'upcoming';
+    if (view.status !== 'upcoming' || view.startMinutes === null || !withinPlanDays) continue;
+    view.status = view.startMinutes < elapsedPlanMinutes ? 'unknown-past' : 'upcoming';
   }
   // A planned time cannot establish that someone is currently at a place.
   // Only explicit runtime facts can resolve actual status; live context is separate.
   const current = null;
-  const next = isToday
+  const next = withinPlanDays
     ? (views.find((v) => v.status === 'upcoming' && v.startMinutes !== null) ?? null)
     : null;
   const departure =

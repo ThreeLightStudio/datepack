@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
-import { completeEvent } from '../../store/datepackStore';
+import { completeEvent, setEventIncludedInRemaining } from '../../store/datepackStore';
 import { useStore } from '../../store/datepackStore';
 import { CurrentContextSheet } from './CurrentContextSheet';
 import { computeDayContext, timeRangeLabel } from './dayRuntime';
@@ -157,9 +157,26 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
           <p className="hint-text">
             {ko ? format(locale, 'p3.day.past.note') : format(locale, 'p3.day.past.note')}
           </p>
-          <ul>
+          <ul className="unknown-past-list">
             {ctx.overdueUnsettled.map((item) => (
-              <li key={item.event.id}>{item.event.title}</li>
+              <li key={item.event.id}>
+                <span>{item.event.title}</span>
+                <button
+                  type="button"
+                  className="link-btn"
+                  aria-pressed={Boolean(item.includeInRemaining)}
+                  onClick={() =>
+                    void setEventIncludedInRemaining(item.event.id, !item.includeInRemaining)
+                  }
+                >
+                  {format(
+                    locale,
+                    item.includeInRemaining
+                      ? 'p3.day.removeFromRemaining'
+                      : 'p3.day.includeInRemaining',
+                  )}
+                </button>
+              </li>
             ))}
           </ul>
         </section>

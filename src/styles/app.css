@@ -1075,6 +1075,18 @@ div.asset-placeholder,
   padding-left: 20px;
 }
 
+.unknown-past-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-block: var(--sp-1);
+}
+
+.unknown-past-list li > span {
+  overflow-wrap: anywhere;
+}
+
 .day-actions {
   display: flex;
   gap: var(--sp-2);

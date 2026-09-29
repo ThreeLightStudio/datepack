@@ -115,6 +115,42 @@ describe('dayRuntime', () => {
     expect(ctx.next?.startMinutes).toBe(1460);
   });
 
+  it('keeps next-day dawn activities in the date plan after midnight', () => {
+    const p = plan();
+    p.events = [
+      createEvent({
+        id: 'after-midnight',
+        title: 'Late café',
+        order: 0,
+        timing: { kind: 'exact', start: { dayOffset: 1, time: '00:20' } },
+      }),
+    ];
+    const beforeStart = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 0, 5));
+    expect(beforeStart.isToday).toBe(false);
+    expect(beforeStart.next?.event.id).toBe('after-midnight');
+    expect(beforeStart.events[0].status).toBe('upcoming');
+
+    const afterStart = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 0, 21));
+    expect(afterStart.events[0].status).toBe('unknown-past');
+    expect(afterStart.overdueUnsettled.map((view) => view.event.id)).toEqual(['after-midnight']);
+  });
+
+  it('preserves explicit re-inclusion on an elapsed unconfirmed activity', () => {
+    const runtime: DatePackRuntimeState = {
+      ...emptyRuntime('p'),
+      events: {
+        'earlier-second': {
+          eventId: 'earlier-second',
+          status: 'pending',
+          includeInRemaining: true,
+        },
+      },
+    };
+    const ctx = computeDayContext(plan(), runtime, at(14, 0));
+    expect(ctx.overdueUnsettled[0].includeInRemaining).toBe(true);
+    expect(ctx.overdueUnsettled[0].status).toBe('unknown-past');
+  });
+
   it('shows next-day offsets in the plan time label', () => {
     const p = plan();
     p.events = [

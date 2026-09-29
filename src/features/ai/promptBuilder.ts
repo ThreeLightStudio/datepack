@@ -110,7 +110,12 @@ export function buildAiPrompt(input: {
 
   const settled = ctx.events.filter((v) => v.status === 'completed' || v.status === 'skipped');
   // Unknown elapsed items stay out of default replans until the user confirms them.
-  const remaining = ctx.events.filter((v) => v.status === 'upcoming' || v.status === 'current');
+  const remaining = ctx.events.filter(
+    (v) =>
+      v.status === 'upcoming' ||
+      v.status === 'current' ||
+      (v.status === 'unknown-past' && v.includeInRemaining),
+  );
 
   if (settled.length > 0) {
     lines.push(L.settledHeader);
