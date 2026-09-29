@@ -167,15 +167,38 @@ describe('device IndexedDB persistence', () => {
 
     const initialWithEvents = createDatePack({ title: 'Imported plan', date: '2026-09-29' });
     initialWithEvents.plan = { ...initialWithEvents.plan, events: [firstEvent] };
-    await savePack(initialWithEvents);
+    await savePack(initialWithEvents, undefined, false, true);
     expect((await loadPack(initialWithEvents.plan.id))?.baselinePlan).toEqual(
       initialWithEvents.plan,
     );
 
     const importedWithEvents = createDatePack({ title: 'Imported with stops', date: '2026-09-29' });
     importedWithEvents.plan = { ...importedWithEvents.plan, events: [firstEvent] };
+    const importedBaseline = structuredClone(importedWithEvents.baselinePlan);
     const savedImport = await saveImportedPack(importedWithEvents, new Blob(['source']), []);
-    expect(savedImport.baselinePlan).toEqual(importedWithEvents.plan);
+    expect(savedImport.baselinePlan).toEqual(importedBaseline);
+
+    const preserved = createDatePack({ title: 'Current plan', date: '2026-09-29' });
+    preserved.plan = { ...preserved.plan, events: [firstEvent] };
+    preserved.baselinePlan = { ...preserved.plan, title: 'Original plan' };
+    const imported = await saveImportedPack(preserved, new Blob(['v3 source']), []);
+    await closeStorage();
+    const roundTrip = await loadPack(preserved.plan.id);
+    expect(imported.plan).toEqual(preserved.plan);
+    expect(imported.baselinePlan).toEqual(preserved.baselinePlan);
+    expect(roundTrip?.plan).toEqual(preserved.plan);
+    expect(roundTrip?.baselinePlan).toEqual(preserved.baselinePlan);
+
+    const localDraft = createDatePack({ title: 'Current plan', date: '2026-09-29' });
+    localDraft.plan = { ...localDraft.plan, events: [firstEvent] };
+    localDraft.baselinePlan = { ...localDraft.plan, title: 'Established baseline' };
+    const savedDraft = await savePack(localDraft);
+    expect(savedDraft.baselinePlan).toEqual(localDraft.baselinePlan);
+
+    const genericCreate = createDatePack({ title: 'Generic create', date: '2026-09-29' });
+    genericCreate.plan = { ...genericCreate.plan, events: [firstEvent] };
+    const savedGenericCreate = await savePack(genericCreate);
+    expect(savedGenericCreate.baselinePlan).toEqual(genericCreate.baselinePlan);
   });
 
   it('uses create-only semantics and rejects stale explicit import replacement', async () => {

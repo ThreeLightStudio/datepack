@@ -122,6 +122,10 @@ function validate(pack: DatePack): void {
   if (!result.ok)
     throw new Error(`Invalid DatePack: ${result.errors.map((e) => e.key).join(', ')}`);
 }
+function hasUnestablishedBlankBaseline(pack: DatePack): boolean {
+  if (pack.plan.events.length === 0 || pack.baselinePlan.events.length !== 0) return false;
+  return JSON.stringify({ ...pack.plan, events: [] }) === JSON.stringify(pack.baselinePlan);
+}
 function unwrapLegacy(value: unknown): { pack: unknown; savedAt: string } | null {
   if (value && typeof value === 'object' && 'pack' in value) {
     const row = value as { pack: unknown; savedAt?: unknown };
@@ -141,6 +145,7 @@ export async function savePack(
   pack: DatePack,
   expectedRevision?: number,
   resetDevice = false,
+  initializeBlankBaseline = false,
 ): Promise<DatePack> {
   validate(pack);
   const db = await getDb();
@@ -171,7 +176,7 @@ export async function savePack(
         revision: prior.pack.revision + 1,
         manifest: { ...pack.manifest, updatedAt: savedAt },
       }
-    : pack.plan.events.length > 0 || resetDevice
+    : initializeBlankBaseline && hasUnestablishedBlankBaseline(pack)
       ? { ...pack, baselinePlan: structuredClone(pack.plan) }
       : pack;
   validate(storedPack);
@@ -540,9 +545,7 @@ export async function saveImportedPack(
         revision: prior.pack.revision + 1,
         manifest: { ...pack.manifest, updatedAt: savedAt },
       }
-    : pack.plan.events.length > 0
-      ? { ...pack, baselinePlan: structuredClone(pack.plan) }
-      : pack;
+    : pack;
   validate(storedPack);
   await tx.objectStore('packsV3').put({ pack: storedPack, savedAt }, pack.plan.id);
   await tx

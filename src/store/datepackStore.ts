@@ -541,7 +541,7 @@ export async function createNewPack(title: string, date: string): Promise<void> 
 /** Create a pack from an AI-authored plan (datepack.plan draft already built). */
 export async function createPackFromPlan(pack: DatePack): Promise<void> {
   const runtime = emptyRuntime(pack.plan.id);
-  const savedPack = await savePack(pack);
+  const savedPack = await savePack(pack, undefined, false, true);
   await saveRuntime(runtime);
   await setCurrentPackId(savedPack.plan.id);
   setState({
@@ -565,7 +565,7 @@ export async function loadDemoPack(): Promise<void> {
   // The demo content is regenerated in the active UI locale (map queries stay Korean).
   const seed = createSeoulSeed(getLocale());
   const prior = await loadPack(seed.pack.plan.id);
-  const pack = await savePack(seed.pack, prior?.revision, true);
+  const pack = await savePack(seed.pack, prior?.revision, true, true);
   for (const { asset, blob } of seed.blobs) await putAsset(seed.pack.plan.id, asset, blob);
   for (const { asset, blob } of seed.blobs)
     blobCache.set(cacheKey(seed.pack.plan.id, asset.id), blob);
