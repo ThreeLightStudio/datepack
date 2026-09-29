@@ -5,10 +5,15 @@ import {
   closeStorage,
   commitPlanChange,
   commitUndo,
+  commitExperienceChange,
   getAssetBlob,
+  deletePack,
+  listPackAssetBlobs,
+  listPacks,
   loadDeviceState,
   loadPack,
   saveDeviceState,
+  saveImportedPack,
   savePack,
 } from '../src/storage/indexedDb';
 import { openDB } from 'idb';
@@ -91,6 +96,33 @@ describe('device IndexedDB persistence', () => {
     expect(reopened.undoStack).toHaveLength(1);
   });
 
+  it('uses create-only semantics and rejects stale explicit import replacement', async () => {
+    const pack = createDatePack({ title: 'Original', date: '2026-09-29' });
+    const creations = await Promise.allSettled([savePack(pack), savePack(pack)]);
+    expect(creations.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    await expect(savePack(pack)).rejects.toThrow('pack-exists');
+
+    const imported = { ...pack, plan: { ...pack.plan, title: 'Imported' } };
+    const explicitReplacement = { ...pack, plan: { ...pack.plan, title: 'Explicit replacement' } };
+    await commitPlanChange(pack.plan.id, 0, 'Concurrent tab', {
+      ...pack.plan,
+      title: 'Concurrent tab',
+    });
+    await expect(savePack(explicitReplacement, 0)).rejects.toThrow('revision-conflict');
+    await expect(saveImportedPack(imported, new Blob(['source']), [], 0)).rejects.toThrow(
+      'revision-conflict',
+    );
+    expect((await loadPack(pack.plan.id))?.plan.title).toBe('Concurrent tab');
+    expect(await listPackAssetBlobs(pack.plan.id)).toEqual(new Map());
+    const db = await openDB('datepack');
+    expect(await db.getAll('sourceBackups')).toEqual([]);
+    db.close();
+
+    const replaced = await saveImportedPack(imported, new Blob(['source']), [], 1);
+    expect(replaced.revision).toBe(2);
+    expect(replaced.plan.title).toBe('Imported');
+  });
+
   it('migrates old bytes once and preserves the source and experience identity on retry', async () => {
     const old = await openDB('datepack', 2, {
       upgrade(db) {
@@ -154,13 +186,6 @@ describe('device IndexedDB persistence', () => {
 
   it('undo restores only the plan while keeping newer context and runtime facts intact', async () => {
     const pack = createDatePack({ title: 'Test', date: '2026-09-29' });
-    pack.experiences.push({
-      id: 'experience-current',
-      title: 'Coffee',
-      outcome: 'note',
-      recordedAt: '2026-09-29T00:00:00.000Z',
-      note: 'Had coffee after the original plan edit.',
-    });
     await savePack(pack);
     await commitPlanChange(pack.plan.id, 0, 'Rename', { ...pack.plan, title: 'Changed' });
     const device = await loadDeviceState(pack.plan.id);
@@ -175,29 +200,52 @@ describe('device IndexedDB persistence', () => {
       origin: 'Home',
     };
     await saveDeviceState(device);
-    const changed = await loadPack(pack.plan.id);
-    await savePack({
-      ...changed!,
-      experiences: [
-        ...changed!.experiences,
-        {
-          id: 'experience-later',
-          title: 'Dinner',
-          outcome: 'completed',
-          recordedAt: '2026-09-29T01:00:00.000Z',
-        },
-      ],
-    });
-    await commitUndo(pack.plan.id, 1);
+    const latestExperience = {
+      id: 'experience-later',
+      title: 'Dinner',
+      outcome: 'completed' as const,
+      recordedAt: '2026-09-29T01:00:00.000Z',
+    };
+    await commitExperienceChange(pack.plan.id, 1, [latestExperience]);
+    await expect(commitExperienceChange(pack.plan.id, 1, pack.experiences)).rejects.toThrow(
+      'revision-conflict',
+    );
+    expect((await loadPack(pack.plan.id))?.baselinePlan.title).toBe('Changed');
+    await commitUndo(pack.plan.id, 2);
     const restored = await loadPack(pack.plan.id);
     const local = await loadDeviceState(pack.plan.id);
     expect(restored?.plan.title).toBe('Test');
-    expect(restored?.revision).toBe(2);
-    expect(restored?.experiences.map((experience) => experience.id)).toEqual([
-      'experience-current',
-      'experience-later',
-    ]);
+    expect(restored?.revision).toBe(3);
+    expect(restored?.experiences.map((experience) => experience.id)).toEqual(['experience-later']);
+    expect(restored?.baselinePlan.title).toBe('Changed');
     expect(local.liveContext?.revision).toBe(4);
     expect(local.personalJourney?.origin).toBe('Home');
+  });
+
+  it('does not resurrect a deliberately deleted migrated legacy pack', async () => {
+    const old = await openDB('datepack', 2, {
+      upgrade(db) {
+        db.createObjectStore('packs');
+        db.createObjectStore('assets', { keyPath: 'key' }).createIndex('byPack', 'packId');
+        db.createObjectStore('runtime');
+        db.createObjectStore('meta');
+      },
+    });
+    const legacy: LegacyDatePack = {
+      manifest: { format: 'datepack', version: '2.0', entry: 'plan.json' },
+      plan: { id: 'deleted-plan', title: 'To delete', date: '2026-09-29', events: [] },
+      assets: [],
+    };
+    await old.put('packs', { pack: legacy, savedAt: '2026-09-29T00:00:00Z' }, 'deleted-plan');
+    old.close();
+    expect(await loadPack('deleted-plan')).toBeDefined();
+    await deletePack('deleted-plan');
+    await closeStorage();
+    expect(await loadPack('deleted-plan')).toBeUndefined();
+    expect(await listPacks()).toEqual([]);
+    const check = await openDB('datepack');
+    expect(await check.get('packs', 'deleted-plan')).toBeDefined();
+    expect(await check.get('sourceBackups', 'deleted-plan')).toBeDefined();
+    check.close();
   });
 });

@@ -63,6 +63,7 @@ interface DatePackDB extends DBSchema {
   meta: { key: string; value: unknown };
   device: { key: string; value: DeviceState };
   sourceBackups: { key: string; value: { planId: string; source: unknown; savedAt: string } };
+  deletedPacks: { key: string; value: { planId: string; deletedAt: string } };
 }
 
 const DB_NAME = 'datepack';
@@ -93,6 +94,7 @@ function getDb(): Promise<IDBPDatabase<DatePackDB>> {
         if (!db.objectStoreNames.contains('packsV3')) db.createObjectStore('packsV3');
         if (!db.objectStoreNames.contains('device')) db.createObjectStore('device');
         if (!db.objectStoreNames.contains('sourceBackups')) db.createObjectStore('sourceBackups');
+        if (!db.objectStoreNames.contains('deletedPacks')) db.createObjectStore('deletedPacks');
         // v1 used a packs keyPath that cannot be changed in place. Its store
         // and values remain untouched; v3 uses packsV3 as the canonical store.
         void oldVersion;
@@ -135,16 +137,55 @@ function unwrapLegacy(value: unknown): { pack: unknown; savedAt: string } | null
 // Pack reads and atomic revision-checked writes
 // ---------------------------------------------------------------------------
 
-export async function savePack(pack: DatePack): Promise<void> {
+export async function savePack(
+  pack: DatePack,
+  expectedRevision?: number,
+  resetDevice = false,
+): Promise<DatePack> {
   validate(pack);
   const db = await getDb();
-  await db.put('packsV3', { pack, savedAt: new Date().toISOString() }, pack.plan.id);
+  const tx = db.transaction(['packsV3', 'packs', 'deletedPacks', 'device'], 'readwrite');
+  const prior = await tx.objectStore('packsV3').get(pack.plan.id);
+  const deleted = await tx.objectStore('deletedPacks').get(pack.plan.id);
+  const legacy = await tx.objectStore('packs').get(pack.plan.id);
+  if (prior && expectedRevision === undefined) {
+    abortReadWrite(tx);
+    throw new Error('pack-exists');
+  }
+  if (prior && prior.pack.revision !== expectedRevision) {
+    abortReadWrite(tx);
+    throw new Error('revision-conflict');
+  }
+  if (!prior && expectedRevision !== undefined) {
+    abortReadWrite(tx);
+    throw new Error('revision-conflict');
+  }
+  if (!prior && legacy && !deleted) {
+    abortReadWrite(tx);
+    throw new Error('pack-exists');
+  }
+  const savedAt = new Date().toISOString();
+  const storedPack = prior
+    ? {
+        ...pack,
+        revision: prior.pack.revision + 1,
+        manifest: { ...pack.manifest, updatedAt: savedAt },
+      }
+    : pack;
+  validate(storedPack);
+  await tx.objectStore('packsV3').put({ pack: storedPack, savedAt }, pack.plan.id);
+  if (prior && resetDevice)
+    await tx.objectStore('device').put(defaultDevice(pack.plan.id), pack.plan.id);
+  if (deleted) await tx.objectStore('deletedPacks').delete(pack.plan.id);
+  await tx.done;
+  return storedPack;
 }
 
 export async function listPacks(): Promise<Array<{ pack: DatePack; savedAt: string }>> {
   const db = await getDb();
   for (const key of await db.getAllKeys('packs')) {
     if (typeof key !== 'string' || (await db.get('packsV3', key))) continue;
+    if (await db.get('deletedPacks', key)) continue;
     try {
       await loadPack(key);
     } catch (error) {
@@ -156,6 +197,7 @@ export async function listPacks(): Promise<Array<{ pack: DatePack; savedAt: stri
 
 export async function loadPack(packId: string): Promise<DatePack | undefined> {
   const db = await getDb();
+  if (await db.get('deletedPacks', packId)) return undefined;
   const current = await db.get('packsV3', packId);
   if (current) return current.pack;
   const stored = await db.get('packs', packId);
@@ -291,6 +333,66 @@ export async function commitUndo(
   return { pack, label: entry.label };
 }
 
+/** Store experience facts without changing the current plan or its undo history. */
+export async function commitExperienceChange(
+  planId: string,
+  expectedRevision: number,
+  experiences: DatePack['experiences'],
+): Promise<DatePack> {
+  const db = await getDb();
+  const tx = db.transaction('packsV3', 'readwrite');
+  const row = await tx.store.get(planId);
+  if (!row) {
+    abortReadWrite(tx);
+    throw new Error('pack-missing');
+  }
+  if (row.pack.revision !== expectedRevision) {
+    abortReadWrite(tx);
+    throw new Error('revision-conflict');
+  }
+  const pack: DatePack = {
+    ...row.pack,
+    experiences: structuredClone(experiences),
+    ...(row.pack.experiences.length === 0 && experiences.length > 0
+      ? { baselinePlan: structuredClone(row.pack.plan) }
+      : {}),
+    revision: row.pack.revision + 1,
+    manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
+  };
+  validate(pack);
+  await tx.store.put({ ...row, pack }, planId);
+  await tx.done;
+  return pack;
+}
+
+/** Explicitly refresh the portable baseline from the current plan. */
+export async function commitBaselinePlan(
+  planId: string,
+  expectedRevision: number,
+): Promise<DatePack> {
+  const db = await getDb();
+  const tx = db.transaction('packsV3', 'readwrite');
+  const row = await tx.store.get(planId);
+  if (!row) {
+    abortReadWrite(tx);
+    throw new Error('pack-missing');
+  }
+  if (row.pack.revision !== expectedRevision) {
+    abortReadWrite(tx);
+    throw new Error('revision-conflict');
+  }
+  const pack: DatePack = {
+    ...row.pack,
+    baselinePlan: structuredClone(row.pack.plan),
+    revision: row.pack.revision + 1,
+    manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
+  };
+  validate(pack);
+  await tx.store.put({ ...row, pack }, planId);
+  await tx.done;
+  return pack;
+}
+
 export async function saveDeviceState(
   value: DeviceState,
   expectedContextRevision?: number,
@@ -308,6 +410,28 @@ export async function saveDeviceState(
   await tx.store.put({ ...value, undoStack: current.undoStack }, value.planId);
   await tx.done;
 }
+
+export async function saveDeviceFields(
+  planId: string,
+  fields: Pick<Partial<DeviceState>, 'liveContext' | 'personalJourney' | 'pendingRequest'>,
+  expectedContextRevision?: number,
+): Promise<DeviceState> {
+  const db = await getDb();
+  const tx = db.transaction('device', 'readwrite');
+  const current = (await tx.store.get(planId)) ?? defaultDevice(planId);
+  if (
+    expectedContextRevision !== undefined &&
+    (current.liveContext?.revision ?? 0) !== expectedContextRevision
+  ) {
+    abortReadWrite(tx);
+    throw new Error('context-revision-conflict');
+  }
+  const next = { ...current, ...fields, planId, undoStack: current.undoStack };
+  await tx.store.put(next, planId);
+  await tx.done;
+  return next;
+}
+
 export async function loadDeviceState(planId: string): Promise<DeviceState> {
   const db = await getDb();
   return (await db.get('device', planId)) ?? defaultDevice(planId);
@@ -319,12 +443,18 @@ export async function loadDeviceState(planId: string): Promise<DeviceState> {
 
 export async function deletePack(packId: string): Promise<void> {
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'assets', 'runtime', 'device', 'meta'], 'readwrite');
+  const tx = db.transaction(
+    ['packsV3', 'assets', 'runtime', 'device', 'meta', 'deletedPacks'],
+    'readwrite',
+  );
   await tx.objectStore('packsV3').delete(packId);
   const assets = tx.objectStore('assets');
   for (const key of await assets.index('byPack').getAllKeys(packId)) await assets.delete(key);
   await tx.objectStore('runtime').delete(packId);
   await tx.objectStore('device').delete(packId);
+  await tx
+    .objectStore('deletedPacks')
+    .put({ planId: packId, deletedAt: new Date().toISOString() }, packId);
   if ((await tx.objectStore('meta').get(CURRENT_PACK_KEY)) === packId)
     await tx.objectStore('meta').delete(CURRENT_PACK_KEY);
   await tx.done;
@@ -375,12 +505,33 @@ export async function saveImportedPack(
   pack: DatePack,
   source: Blob,
   entries: Array<{ asset: DatePackAsset; blob: Blob }>,
+  expectedRevision?: number,
 ): Promise<DatePack> {
   validate(pack);
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'sourceBackups', 'assets', 'device'], 'readwrite');
+  const tx = db.transaction(
+    ['packsV3', 'sourceBackups', 'assets', 'device', 'packs', 'deletedPacks'],
+    'readwrite',
+  );
   const savedAt = new Date().toISOString();
   const prior = await tx.objectStore('packsV3').get(pack.plan.id);
+  const deleted = await tx.objectStore('deletedPacks').get(pack.plan.id);
+  const legacy = await tx.objectStore('packs').get(pack.plan.id);
+  if (prior && expectedRevision === undefined) {
+    abortReadWrite(tx);
+    throw new Error('pack-exists');
+  }
+  if (
+    (prior && prior.pack.revision !== expectedRevision) ||
+    (!prior && expectedRevision !== undefined)
+  ) {
+    abortReadWrite(tx);
+    throw new Error('revision-conflict');
+  }
+  if (!prior && legacy && !deleted) {
+    abortReadWrite(tx);
+    throw new Error('pack-exists');
+  }
   const storedPack = prior
     ? {
         ...pack,
@@ -392,7 +543,10 @@ export async function saveImportedPack(
   await tx.objectStore('packsV3').put({ pack: storedPack, savedAt }, pack.plan.id);
   await tx
     .objectStore('sourceBackups')
-    .put({ planId: pack.plan.id, source, savedAt }, pack.plan.id);
+    .put(
+      { planId: pack.plan.id, source, savedAt },
+      `${pack.plan.id}:import:${crypto.randomUUID()}`,
+    );
   const store = tx.objectStore('assets');
   for (const key of await store.index('byPack').getAllKeys(pack.plan.id)) await store.delete(key);
   for (const { asset, blob } of entries) {
@@ -409,6 +563,7 @@ export async function saveImportedPack(
       (await tx.objectStore('device').get(pack.plan.id)) ?? defaultDevice(pack.plan.id);
     await tx.objectStore('device').put({ ...device, undoStack: [] }, pack.plan.id);
   }
+  if (deleted) await tx.objectStore('deletedPacks').delete(pack.plan.id);
   await tx.done;
   return storedPack;
 }

@@ -32,9 +32,10 @@ import {
   setCurrentPackId,
   commitPlanChange,
   commitUndo,
+  commitExperienceChange,
+  commitBaselinePlan,
   loadDeviceState,
-  saveDeviceState,
-  type DeviceState,
+  saveDeviceFields,
   type PendingRequest,
   type LiveContext,
   type PersonalJourney,
@@ -285,8 +286,7 @@ export async function updateLiveContext(context: Omit<LiveContext, 'revision'>):
   const existing = await loadDeviceState(context.planId);
   const revision = (existing.liveContext?.revision ?? 0) + 1;
   const liveContext = { ...context, revision };
-  const device: DeviceState = { ...existing, liveContext };
-  await saveDeviceState(device, existing.liveContext?.revision ?? 0);
+  await saveDeviceFields(context.planId, { liveContext }, existing.liveContext?.revision ?? 0);
   if (state.pack?.plan.id === context.planId) setState({ liveContext });
 }
 
@@ -294,9 +294,7 @@ export async function updatePersonalJourney(
   personalJourney: PersonalJourney | undefined,
 ): Promise<void> {
   if (!state.pack) return;
-  const existing = await loadDeviceState(state.pack.plan.id);
-  const device: DeviceState = { ...existing, personalJourney };
-  await saveDeviceState(device);
+  await saveDeviceFields(state.pack.plan.id, { personalJourney });
   setState({ personalJourney: personalJourney ?? null });
 }
 
@@ -304,10 +302,30 @@ export async function updatePendingRequest(
   pendingRequest: PendingRequest | undefined,
 ): Promise<void> {
   if (!state.pack) return;
-  const existing = await loadDeviceState(state.pack.plan.id);
-  const device: DeviceState = { ...existing, pendingRequest };
-  await saveDeviceState(device);
+  await saveDeviceFields(state.pack.plan.id, { pendingRequest });
   setState({ pendingRequest: pendingRequest ?? null });
+}
+
+/** Commit experience facts with the pack revision while leaving undo/device state intact. */
+export async function updateExperiences(experiences: DatePack['experiences']): Promise<void> {
+  if (!state.pack) return;
+  try {
+    const pack = await commitExperienceChange(state.pack.plan.id, state.pack.revision, experiences);
+    setState({ pack });
+  } catch (error) {
+    await refreshAfterConflict(error);
+  }
+}
+
+/** P3's explicit “refresh baseline” action; first-record capture happens with experience commit. */
+export async function updateBaselinePlan(): Promise<void> {
+  if (!state.pack) return;
+  try {
+    const pack = await commitBaselinePlan(state.pack.plan.id, state.pack.revision);
+    setState({ pack });
+  } catch (error) {
+    await refreshAfterConflict(error);
+  }
 }
 
 export async function updateRuntime(
@@ -546,7 +564,8 @@ export async function createPackFromPlan(pack: DatePack): Promise<void> {
 export async function loadDemoPack(): Promise<void> {
   // The demo content is regenerated in the active UI locale (map queries stay Korean).
   const seed = createSeoulSeed(getLocale());
-  await savePack(seed.pack);
+  const prior = await loadPack(seed.pack.plan.id);
+  const pack = await savePack(seed.pack, prior?.revision, true);
   for (const { asset, blob } of seed.blobs) await putAsset(seed.pack.plan.id, asset, blob);
   for (const { asset, blob } of seed.blobs)
     blobCache.set(cacheKey(seed.pack.plan.id, asset.id), blob);
@@ -555,7 +574,7 @@ export async function loadDemoPack(): Promise<void> {
   await setCurrentPackId(seed.pack.plan.id);
   setState({
     status: 'ready',
-    pack: seed.pack,
+    pack,
     runtime,
     savedPacks: await listPacks(),
     undoStack: [],
@@ -569,6 +588,7 @@ export async function loadDemoPack(): Promise<void> {
 export async function importPackFile(file: File): Promise<void> {
   const result = await readDatePack(file);
   const imported = result.pack;
+  const prior = await loadPack(imported.plan.id);
   const pack = await saveImportedPack(
     imported,
     file,
@@ -581,6 +601,7 @@ export async function importPackFile(file: File): Promise<void> {
       };
       return { asset, blob };
     }),
+    prior?.revision,
   );
   for (const [assetId, blob] of result.blobs) blobCache.set(cacheKey(pack.plan.id, assetId), blob);
   const runtime = (await loadRuntime(pack.plan.id)) ?? emptyRuntime(pack.plan.id);
