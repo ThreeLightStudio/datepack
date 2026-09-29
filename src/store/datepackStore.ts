@@ -26,11 +26,18 @@ import {
   loadPack,
   loadRuntime,
   putAsset,
-  removeAssetBlob,
-  replacePackAssets,
+  saveImportedPack,
   savePack,
   saveRuntime,
   setCurrentPackId,
+  commitPlanChange,
+  commitUndo,
+  loadDeviceState,
+  saveDeviceState,
+  type DeviceState,
+  type PendingRequest,
+  type LiveContext,
+  type PersonalJourney,
 } from '../storage/indexedDb';
 import { createSeoulSeed } from '../seed/seoul';
 import { emptyRuntime, getRuntimeEntry } from '../features/day/dayRuntime';
@@ -38,7 +45,7 @@ import { t, getLocale, type I18nIssue } from '../i18n/core';
 
 export type SavedPackSummary = { pack: DatePack; savedAt: string };
 
-export type UndoEntry = { label: string; plan: DatePlan; runtime: DatePackRuntimeState | null };
+export type UndoEntry = { label: string; plan: DatePlan; revision: number };
 
 export type ToastAction = { label: string; onClick: () => void };
 
@@ -48,6 +55,9 @@ export type StoreState = {
   runtime: DatePackRuntimeState | null;
   savedPacks: SavedPackSummary[];
   undoStack: UndoEntry[];
+  liveContext: LiveContext | null;
+  personalJourney: PersonalJourney | null;
+  pendingRequest: PendingRequest | null;
   toast: { message: string; action?: ToastAction } | null;
   /** Fatal init error (e.g. storage failure) surfaced on the empty screen. */
   error: string | null;
@@ -59,6 +69,9 @@ let state: StoreState = {
   runtime: null,
   savedPacks: [],
   undoStack: [],
+  liveContext: null,
+  personalJourney: null,
+  pendingRequest: null,
   toast: null,
   error: null,
 };
@@ -121,16 +134,6 @@ export async function resolveBlob(packId: string, assetId: string): Promise<Blob
 // Persistence — failures surface as a toast instead of vanishing
 // ---------------------------------------------------------------------------
 
-async function persist(pack: DatePack, runtime: DatePackRuntimeState): Promise<void> {
-  try {
-    await savePack(pack);
-    await saveRuntime(runtime);
-  } catch (error) {
-    console.error('[datepack] persist failed', error);
-    showToast(t('toast.persistFailed'));
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
@@ -141,7 +144,7 @@ function isLoadablePack(pack: DatePack | undefined): pack is DatePack {
 
 export async function initStore(): Promise<void> {
   try {
-    const [currentId, packs] = await Promise.all([getCurrentPackId(), listPacks()]);
+    const [currentId, initialPacks] = await Promise.all([getCurrentPackId(), listPacks()]);
 
     // Never trust bytes read back from storage: a corrupt pack falls through
     // to the next saved one, and only a fully valid pack reaches the UI.
@@ -152,7 +155,7 @@ export async function initStore(): Promise<void> {
       else if (candidate) console.error('[datepack] stored pack failed validation', currentId);
     }
     if (!pack) {
-      for (const { pack: candidate } of packs) {
+      for (const { pack: candidate } of initialPacks) {
         if (isLoadablePack(candidate)) {
           pack = candidate;
           break;
@@ -163,12 +166,35 @@ export async function initStore(): Promise<void> {
     if (!pack) {
       // First run (or wiped storage): start empty so planning with the AI is
       // the primary path. The demo pack is opt-in via loadDemoPack().
-      setState({ status: 'empty', pack: null, runtime: null, savedPacks: [], undoStack: [] });
+      setState({
+        status: 'empty',
+        pack: null,
+        runtime: null,
+        savedPacks: [],
+        undoStack: [],
+        liveContext: null,
+        personalJourney: null,
+        pendingRequest: null,
+      });
       return;
     }
 
-    const runtime = (await loadRuntime(pack.plan.id)) ?? emptyRuntime(pack.plan.id);
-    setState({ status: 'ready', pack, runtime, savedPacks: packs, undoStack: [] });
+    const [runtimeValue, device, packs] = await Promise.all([
+      loadRuntime(pack.plan.id),
+      loadDeviceState(pack.plan.id),
+      listPacks(),
+    ]);
+    const runtime = runtimeValue ?? emptyRuntime(pack.plan.id);
+    setState({
+      status: 'ready',
+      pack,
+      runtime,
+      savedPacks: packs,
+      undoStack: device.undoStack,
+      liveContext: device.liveContext ?? null,
+      personalJourney: device.personalJourney ?? null,
+      pendingRequest: device.pendingRequest ?? null,
+    });
   } catch (error) {
     setState({ status: 'empty', error: error instanceof Error ? error.message : String(error) });
   }
@@ -178,29 +204,23 @@ export async function initStore(): Promise<void> {
 // Undo
 // ---------------------------------------------------------------------------
 
-function pushUndo(label: string): void {
-  if (!state.pack) return;
-  const entry = {
-    label,
-    plan: structuredClone(state.pack.plan),
-    runtime: state.runtime ? structuredClone(state.runtime) : null,
-  };
-  setState({ undoStack: [...state.undoStack, entry].slice(-20) });
-}
-
 export function canUndo(): boolean {
   return state.undoStack.length > 0;
 }
 
-export function undo(): void {
-  const stack = [...state.undoStack];
-  const entry = stack.pop();
-  if (!entry || !state.pack) return;
-  const pack: DatePack = { ...state.pack, plan: entry.plan };
-  const runtime = entry.runtime ?? emptyRuntime(pack.plan.id);
-  setState({ pack, runtime, undoStack: stack });
-  void persist(pack, runtime);
-  showToast(t('toast.undo', { label: entry.label }));
+export async function undo(): Promise<void> {
+  if (!state.pack) return;
+  try {
+    const { pack, label } = await commitUndo(state.pack.plan.id, state.pack.revision);
+    const [runtime, device] = await Promise.all([
+      loadRuntime(pack.plan.id),
+      loadDeviceState(pack.plan.id),
+    ]);
+    setState({ pack, runtime: runtime ?? emptyRuntime(pack.plan.id), undoStack: device.undoStack });
+    showToast(t('toast.undo', { label }));
+  } catch (error) {
+    await refreshAfterConflict(error);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -212,16 +232,82 @@ export async function updatePlan(
   mutate: (plan: DatePlan) => DatePlan,
 ): Promise<void> {
   if (!state.pack) return;
-  pushUndo(label);
   const plan = mutate(structuredClone(state.pack.plan));
-  const pack: DatePack = {
-    ...state.pack,
-    plan,
-    manifest: { ...state.pack.manifest, updatedAt: new Date().toISOString() },
-  };
-  const runtime = state.runtime ?? emptyRuntime(plan.id);
-  setState({ pack, runtime });
-  await persist(pack, runtime);
+  await commitCurrentPlan(label, plan);
+}
+
+async function commitCurrentPlan(
+  label: string,
+  plan: DatePlan,
+  assets?: DatePackAsset[],
+  assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
+): Promise<boolean> {
+  if (!state.pack) return false;
+  const prior = state.pack;
+  try {
+    const pack = await commitPlanChange(
+      prior.plan.id,
+      prior.revision,
+      label,
+      plan,
+      assets,
+      assetWrites,
+    );
+    const device = await loadDeviceState(plan.id);
+    setState({ pack, undoStack: device.undoStack });
+    return true;
+  } catch (error) {
+    await refreshAfterConflict(error);
+    return false;
+  }
+}
+
+async function refreshAfterConflict(error: unknown): Promise<void> {
+  if (error instanceof Error && error.message === 'revision-conflict' && state.pack) {
+    const pack = await loadPack(state.pack.plan.id);
+    if (pack) {
+      const [runtime, device] = await Promise.all([
+        loadRuntime(pack.plan.id),
+        loadDeviceState(pack.plan.id),
+      ]);
+      setState({
+        pack,
+        runtime: runtime ?? emptyRuntime(pack.plan.id),
+        undoStack: device.undoStack,
+      });
+    }
+  }
+  console.error('[datepack] atomic plan change failed', error);
+  showToast(t('toast.persistFailed'));
+}
+
+export async function updateLiveContext(context: Omit<LiveContext, 'revision'>): Promise<void> {
+  const existing = await loadDeviceState(context.planId);
+  const revision = (existing.liveContext?.revision ?? 0) + 1;
+  const liveContext = { ...context, revision };
+  const device: DeviceState = { ...existing, liveContext };
+  await saveDeviceState(device, existing.liveContext?.revision ?? 0);
+  if (state.pack?.plan.id === context.planId) setState({ liveContext });
+}
+
+export async function updatePersonalJourney(
+  personalJourney: PersonalJourney | undefined,
+): Promise<void> {
+  if (!state.pack) return;
+  const existing = await loadDeviceState(state.pack.plan.id);
+  const device: DeviceState = { ...existing, personalJourney };
+  await saveDeviceState(device);
+  setState({ personalJourney: personalJourney ?? null });
+}
+
+export async function updatePendingRequest(
+  pendingRequest: PendingRequest | undefined,
+): Promise<void> {
+  if (!state.pack) return;
+  const existing = await loadDeviceState(state.pack.plan.id);
+  const device: DeviceState = { ...existing, pendingRequest };
+  await saveDeviceState(device);
+  setState({ pendingRequest: pendingRequest ?? null });
 }
 
 export async function updateRuntime(
@@ -229,7 +315,6 @@ export async function updateRuntime(
   mutate: (runtime: DatePackRuntimeState) => void,
 ): Promise<void> {
   if (!state.pack) return;
-  pushUndo(label);
   const runtime: DatePackRuntimeState = structuredClone(
     state.runtime ?? emptyRuntime(state.pack.plan.id),
   );
@@ -261,7 +346,6 @@ export async function addEventAssets(
   const created = await createAssetsFromFiles(files);
   if (created.length === 0) return;
 
-  pushUndo(t('undo.photo'));
   const pack: DatePack = structuredClone(state.pack);
   const registered: Array<{ asset: DatePackAsset; blob: Blob }> = [];
   for (const item of created) {
@@ -276,25 +360,11 @@ export async function addEventAssets(
     if (event) event.assetIds = [...(event.assetIds ?? []), ...registered.map((r) => r.asset.id)];
   }
 
-  const runtime = state.runtime ?? emptyRuntime(plan.id);
   // Persist blobs before rendering: AssetImage resolves the blob once on mount
   // (cache, then IndexedDB) and never retries — a miss would freeze the
   // placeholder in place until the next reload.
-  const stored = await Promise.all(
-    registered.map(async ({ asset, blob }) => {
-      blobCache.set(cacheKey(plan.id, asset.id), blob);
-      try {
-        await putAsset(plan.id, asset, blob);
-        return true;
-      } catch (error) {
-        console.error('[datepack] asset persist failed', error);
-        return false;
-      }
-    }),
-  );
-  setState({ pack, runtime });
-  await persist(pack, runtime);
-  if (stored.some((ok) => !ok)) showToast(t('toast.persistFailed'));
+  if (!(await commitCurrentPlan(t('undo.photo'), plan, pack.assets, registered))) return;
+  for (const { asset, blob } of registered) blobCache.set(cacheKey(plan.id, asset.id), blob);
   showToast(t('toast.photos.added'));
 }
 
@@ -303,28 +373,23 @@ export async function setCoverFromFiles(files: FileList | File[]): Promise<void>
   const first = (await createAssetsFromFiles(files))[0];
   if (!first) return;
 
-  pushUndo(t('undo.cover'));
   const pack: DatePack = structuredClone(state.pack);
   const asset = registerAsset(pack, first.asset);
   pack.plan.coverAssetId = asset.id;
-  const runtime = state.runtime ?? emptyRuntime(pack.plan.id);
   // Same ordering rule as addEventAssets: blob must be resolvable before the
   // cover image renders, or the placeholder sticks until a reload.
+  if (
+    !(await commitCurrentPlan(t('undo.cover'), pack.plan, pack.assets, [
+      { asset, blob: first.blob },
+    ]))
+  )
+    return;
   blobCache.set(cacheKey(pack.plan.id, asset.id), first.blob);
-  try {
-    await putAsset(pack.plan.id, asset, first.blob);
-  } catch (error) {
-    console.error('[datepack] asset persist failed', error);
-    showToast(t('toast.persistFailed'));
-  }
-  setState({ pack, runtime });
-  await persist(pack, runtime);
   showToast(t('toast.cover.changed'));
 }
 
 export async function removeAsset(assetId: string): Promise<void> {
   if (!state.pack) return;
-  pushUndo(t('undo.photoRemove'));
   const pack: DatePack = structuredClone(state.pack);
   pack.assets = pack.assets.filter((a) => a.id !== assetId);
   const plan = pack.plan;
@@ -333,15 +398,8 @@ export async function removeAsset(assetId: string): Promise<void> {
   for (const event of plan.events) {
     event.assetIds = event.assetIds?.filter((id) => id !== assetId);
   }
-  const runtime = state.runtime ?? emptyRuntime(plan.id);
-  setState({ pack, runtime });
-  await persist(pack, runtime);
-  blobCache.delete(cacheKey(plan.id, assetId));
-  try {
-    await removeAssetBlob(plan.id, assetId);
-  } catch (error) {
-    console.error('[datepack] asset removal failed', error);
-  }
+  if (!(await commitCurrentPlan(t('undo.photoRemove'), plan, pack.assets))) return;
+  // Keep the binary while an undo entry may still restore its asset registry.
   showToast(t('toast.photo.removed'));
 }
 
@@ -429,16 +487,10 @@ export async function applyPatchWithUndo(
       ],
     };
   }
-  pushUndo(t('undo.patch'));
   const plan = outcome.plan;
-  const pack: DatePack = {
-    ...state.pack,
-    plan,
-    manifest: { ...state.pack.manifest, updatedAt: new Date().toISOString() },
-  };
-  const runtime = state.runtime ?? emptyRuntime(plan.id);
-  setState({ pack, runtime });
-  await persist(pack, runtime);
+  if (!(await commitCurrentPlan(t('undo.patch'), plan))) {
+    return { applied: [], skipped: [{ key: 'err.patch.stale' }] };
+  }
   return { applied: outcome.applied, skipped: outcome.skipped };
 }
 
@@ -455,7 +507,16 @@ export async function createNewPack(title: string, date: string): Promise<void> 
   await savePack(pack);
   await saveRuntime(runtime);
   await setCurrentPackId(pack.plan.id);
-  setState({ status: 'ready', pack, runtime, savedPacks: await listPacks(), undoStack: [] });
+  setState({
+    status: 'ready',
+    pack,
+    runtime,
+    savedPacks: await listPacks(),
+    undoStack: [],
+    liveContext: null,
+    personalJourney: null,
+    pendingRequest: null,
+  });
   showToast(t('toast.pack.created'));
 }
 
@@ -465,7 +526,16 @@ export async function createPackFromPlan(pack: DatePack): Promise<void> {
   await savePack(pack);
   await saveRuntime(runtime);
   await setCurrentPackId(pack.plan.id);
-  setState({ status: 'ready', pack, runtime, savedPacks: await listPacks(), undoStack: [] });
+  setState({
+    status: 'ready',
+    pack,
+    runtime,
+    savedPacks: await listPacks(),
+    undoStack: [],
+    liveContext: null,
+    personalJourney: null,
+    pendingRequest: null,
+  });
   showToast(t('toast.pack.created'), {
     label: t('create.toast.download'),
     onClick: () => void exportCurrentPack(),
@@ -489,18 +559,21 @@ export async function loadDemoPack(): Promise<void> {
     runtime,
     savedPacks: await listPacks(),
     undoStack: [],
+    liveContext: null,
+    personalJourney: null,
+    pendingRequest: null,
   });
   showToast(t('toast.pack.imported', { title: seed.pack.plan.title, warn: '' }));
 }
 
 export async function importPackFile(file: File): Promise<void> {
   const result = await readDatePack(file);
-  const pack = result.pack;
-  await savePack(pack);
-  await replacePackAssets(
-    pack.plan.id,
+  const imported = result.pack;
+  const pack = await saveImportedPack(
+    imported,
+    file,
     [...result.blobs.entries()].map(([assetId, blob]) => {
-      const asset = pack.assets.find((a) => a.id === assetId) ?? {
+      const asset = imported.assets.find((a) => a.id === assetId) ?? {
         id: assetId,
         filename: assetId,
         mimeType: blob.type,
@@ -512,8 +585,18 @@ export async function importPackFile(file: File): Promise<void> {
   for (const [assetId, blob] of result.blobs) blobCache.set(cacheKey(pack.plan.id, assetId), blob);
   const runtime = (await loadRuntime(pack.plan.id)) ?? emptyRuntime(pack.plan.id);
   await saveRuntime(runtime);
+  const device = await loadDeviceState(pack.plan.id);
   await setCurrentPackId(pack.plan.id);
-  setState({ status: 'ready', pack, runtime, savedPacks: await listPacks(), undoStack: [] });
+  setState({
+    status: 'ready',
+    pack,
+    runtime,
+    savedPacks: await listPacks(),
+    undoStack: device.undoStack,
+    liveContext: device.liveContext ?? null,
+    personalJourney: device.personalJourney ?? null,
+    pendingRequest: device.pendingRequest ?? null,
+  });
   const warnNote = result.warnings.length > 0 ? ` (${t(result.warnings[0])})` : '';
   showToast(t('toast.pack.imported', { title: pack.plan.title, warn: warnNote }));
 }
