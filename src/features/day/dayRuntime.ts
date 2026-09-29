@@ -18,6 +18,7 @@ export type DayDeparture = {
 };
 export type DayContext = {
   isToday: boolean;
+  isWithinPlanDays: boolean;
   events: DayEventView[];
   current: DayEventView | null;
   next: DayEventView | null;
@@ -120,6 +121,7 @@ export function computeDayContext(
 
   return {
     isToday,
+    isWithinPlanDays: withinPlanDays,
     events: views,
     current,
     next,
@@ -133,6 +135,28 @@ export function computeDayContext(
     allSettled:
       views.length > 0 && views.every((v) => v.status === 'completed' || v.status === 'skipped'),
   };
+}
+
+/** Keep explicit choices ahead of inferred order while retaining manual order for the rest. */
+export function getRemainingPlanEvents(
+  context: DayContext,
+  preferredEventId?: string,
+): DayEventView[] {
+  const eligible = context.events.filter(
+    (view) =>
+      view.status !== 'completed' &&
+      view.status !== 'skipped' &&
+      (view.status !== 'unknown-past' ||
+        view.includeInRemaining ||
+        view.event.id === preferredEventId),
+  );
+  const next =
+    eligible.find((view) => view.event.id === preferredEventId) ??
+    eligible.find((view) => view.status === 'unknown-past' && view.includeInRemaining) ??
+    eligible.find((view) => view.event.id === context.next?.event.id) ??
+    eligible.find((view) => view.event.timing.kind === 'unscheduled') ??
+    (!context.isWithinPlanDays ? eligible[0] : undefined);
+  return next ? [next, ...eligible.filter((view) => view.event.id !== next.event.id)] : eligible;
 }
 
 export function timeRangeLabel(view: DayEventView, locale: 'ko' | 'en' = 'en'): string {

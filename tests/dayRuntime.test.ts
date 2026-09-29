@@ -4,6 +4,7 @@ import { createEvent } from '@datepack/core';
 import {
   computeDayContext,
   emptyRuntime,
+  getRemainingPlanEvents,
   getRuntimeEntry,
   timeRangeLabel,
 } from '../src/features/day/dayRuntime';
@@ -127,6 +128,7 @@ describe('dayRuntime', () => {
     ];
     const beforeStart = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 0, 5));
     expect(beforeStart.isToday).toBe(false);
+    expect(beforeStart.isWithinPlanDays).toBe(true);
     expect(beforeStart.next?.event.id).toBe('after-midnight');
     expect(beforeStart.events[0].status).toBe('upcoming');
 
@@ -149,6 +151,34 @@ describe('dayRuntime', () => {
     const ctx = computeDayContext(plan(), runtime, at(14, 0));
     expect(ctx.overdueUnsettled[0].includeInRemaining).toBe(true);
     expect(ctx.overdueUnsettled[0].status).toBe('unknown-past');
+    expect(getRemainingPlanEvents(ctx).map((view) => view.event.id)).toEqual([
+      'earlier-second',
+      'later-first',
+      'loose',
+    ]);
+  });
+
+  it('puts the user-chosen next place first in the remaining order', () => {
+    const ctx = computeDayContext(plan(), emptyRuntime('p'), at(10, 0));
+    expect(getRemainingPlanEvents(ctx, 'loose').map((view) => view.event.id)).toEqual([
+      'loose',
+      'later-first',
+      'earlier-second',
+    ]);
+  });
+
+  it('ignores a completed or skipped live-context destination', () => {
+    const runtime: DatePackRuntimeState = {
+      ...emptyRuntime('p'),
+      events: {
+        'later-first': { eventId: 'later-first', status: 'completed' },
+        loose: { eventId: 'loose', status: 'skipped' },
+      },
+    };
+    const ctx = computeDayContext(plan(), runtime, at(10, 0));
+    expect(getRemainingPlanEvents(ctx, 'later-first').map((view) => view.event.id)).toEqual([
+      'earlier-second',
+    ]);
   });
 
   it('shows next-day offsets in the plan time label', () => {

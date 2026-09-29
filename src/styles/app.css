@@ -236,6 +236,12 @@ img {
   background: var(--color-primary-light);
 }
 
+.date-chip.active {
+  color: var(--color-primary-deep);
+  border-color: var(--color-primary-light);
+  background: var(--color-primary-light);
+}
+
 /* ------------------------------------------------------------------ cards */
 
 .card {
@@ -1085,6 +1091,35 @@ div.asset-placeholder,
 
 .unknown-past-list li > span {
   overflow-wrap: anywhere;
+}
+
+.remaining-plan {
+  margin-top: var(--sp-5);
+}
+
+.remaining-plan ol {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remaining-plan li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.remaining-plan li > div {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
 }
 
 .day-actions {

@@ -3,7 +3,7 @@ import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { completeEvent, setEventIncludedInRemaining } from '../../store/datepackStore';
 import { useStore } from '../../store/datepackStore';
 import { CurrentContextSheet } from './CurrentContextSheet';
-import { computeDayContext, timeRangeLabel } from './dayRuntime';
+import { computeDayContext, getRemainingPlanEvents, timeRangeLabel } from './dayRuntime';
 import { format, formatDate, useLocale } from '../../i18n';
 import { useNow } from '../../hooks/useNow';
 import { CheckIcon, MapIcon } from '../../components/icons';
@@ -23,36 +23,20 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
   const ctx = useMemo(() => computeDayContext(plan, runtime, now), [plan, runtime, now]);
   const [contextOpen, setContextOpen] = useState(false);
   const current = ctx.current;
-  const selectedNext =
-    store.liveContext?.planId === plan.id
-      ? plan.events.find((event) => event.id === store.liveContext?.nextPlaceId)
-      : null;
-  const ordered = [...plan.events].sort((a, b) => a.order - b.order);
-  const first =
-    ctx.next?.event ??
-    ordered.find(
-      (event) =>
-        event.timing.kind === 'unscheduled' &&
-        !['completed', 'skipped'].includes(runtime?.events[event.id]?.status ?? 'pending'),
-    ) ??
-    (!ctx.isToday
-      ? ordered.find(
-          (event) =>
-            !['completed', 'skipped'].includes(runtime?.events[event.id]?.status ?? 'pending'),
-        )
-      : null);
-  const visibleCurrent =
-    current ??
-    (first
-      ? {
-          event: first,
-          status: 'upcoming' as const,
-          startMinutes: null,
-          endMinutes: null,
-          delayedByMinutes: 0,
-          activePlan: 'A' as const,
-        }
-      : null);
+  const contextPlan = store.liveContext?.planId === plan.id ? store.liveContext : null;
+  const requestedNextId = contextPlan?.nextPlaceId;
+  const requestedNext = ctx.events.find((view) => view.event.id === requestedNextId);
+  const preferredNextId =
+    requestedNext && requestedNext.status !== 'completed' && requestedNext.status !== 'skipped'
+      ? requestedNext.event.id
+      : undefined;
+  const selectedNext = preferredNextId ? requestedNext?.event : undefined;
+  const remainingPlan = getRemainingPlanEvents(ctx, preferredNextId);
+  const visibleCurrent = current ?? remainingPlan[0] ?? null;
+  const isChosenNext = Boolean(visibleCurrent && preferredNextId === visibleCurrent.event.id);
+  const isReincludedNext = Boolean(
+    visibleCurrent?.status === 'unknown-past' && visibleCurrent.includeInRemaining,
+  );
   const plannedPlace = visibleCurrent?.event.placeId
     ? plan.places?.find((place) => place.id === visibleCurrent.event.placeId)
     : undefined;
@@ -64,8 +48,18 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
           {plan.date ? formatDate(locale, plan.date) : ko ? '날짜 미정' : 'Date not set'}
         </p>
         <h1 className="plan-title">{plan.title}</h1>
-        <span className={`date-chip${ctx.isToday ? ' today' : ''}`}>
-          {ctx.isToday ? (ko ? '오늘' : 'Today') : ko ? '예정' : 'Planned'}
+        <span
+          className={`date-chip${ctx.isToday ? ' today' : ctx.isWithinPlanDays ? ' active' : ''}`}
+        >
+          {ctx.isToday
+            ? ko
+              ? '오늘'
+              : 'Today'
+            : ctx.isWithinPlanDays
+              ? format(locale, 'p3.day.inProgress')
+              : ko
+                ? '예정'
+                : 'Planned'}
         </span>
       </header>
       <section className="context-card" aria-labelledby="context-heading">
@@ -81,7 +75,11 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
                   (ko ? '상황을 기록했어요' : 'Situation saved')}
               </strong>
               <p className="sub-line">
-                {[store.liveContext.activity, store.liveContext.nextPlace ?? selectedNext?.title]
+                {[
+                  contextPlan?.activity,
+                  selectedNext?.title ??
+                    (contextPlan?.nextPlaceId ? undefined : contextPlan?.nextPlace),
+                ]
                   .filter(Boolean)
                   .join(' · ')}
               </p>
@@ -107,7 +105,17 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
         <section className="card now-card planned-card">
           <div className="card-body">
             <span className="pill pill-soft">
-              {current ? (ko ? '예정된 시간대' : 'Planned time') : ko ? '다음 일정' : 'Up next'}
+              {isChosenNext
+                ? format(locale, 'p3.day.chosenNext')
+                : isReincludedNext
+                  ? format(locale, 'p3.day.reincludedNext')
+                  : current
+                    ? ko
+                      ? '예정된 시간대'
+                      : 'Planned time'
+                    : ko
+                      ? '다음 일정'
+                      : 'Up next'}
             </span>
             <h2 className="now-title">{visibleCurrent.event.title}</h2>
             <p className="meta-line">{timeRangeLabel(visibleCurrent, locale)}</p>
@@ -116,9 +124,11 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
                 ? ko
                   ? format(locale, 'p3.day.actual.unknown')
                   : format(locale, 'p3.day.actual.unknown')
-                : ko
-                  ? '일정이 비어 있어도 괜찮아요.'
-                  : 'It’s okay to leave the rest open.'}
+                : isReincludedNext
+                  ? format(locale, 'p3.day.actual.unknown')
+                  : ko
+                    ? '일정이 비어 있어도 괜찮아요.'
+                    : 'It’s okay to leave the rest open.'}
             </p>
             <div className="card-actions">
               {mapUrl && (
@@ -179,6 +189,28 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
               </li>
             ))}
           </ul>
+        </section>
+      )}
+      {remainingPlan.length > 0 && (
+        <section className="remaining-plan" aria-labelledby="remaining-plan-heading">
+          <h2 id="remaining-plan-heading" className="section-title">
+            {format(locale, 'p3.day.remaining')}
+          </h2>
+          <ol>
+            {remainingPlan.map((item) => (
+              <li key={item.event.id}>
+                <div>
+                  <strong>{item.event.title}</strong>
+                  <span className="sub-line">{timeRangeLabel(item, locale)}</span>
+                </div>
+                {preferredNextId === item.event.id ? (
+                  <span className="pill pill-soft">{format(locale, 'p3.day.chosenNext')}</span>
+                ) : item.status === 'unknown-past' && item.includeInRemaining ? (
+                  <span className="pill pill-soft">{format(locale, 'p3.day.reincludedNext')}</span>
+                ) : null}
+              </li>
+            ))}
+          </ol>
         </section>
       )}
       {store.personalJourney?.planId === plan.id && (
