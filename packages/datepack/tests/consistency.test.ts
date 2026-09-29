@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findPlanConflicts } from '../src/consistency';
+import { findIntroducedPlanConflicts, findPlanConflicts } from '../src/consistency';
 import { createEvent } from '../src/create';
 import { format } from '../src/i18n/core';
 import type { DatePlan } from '../src/types';
@@ -63,5 +63,20 @@ describe('findPlanConflicts', () => {
     expect(format('en', { key: 'warn.conflict.overlap', params: { prev: 'A', next: 'B' } })).toBe(
       '"A" and "B" overlap.',
     );
+  });
+
+  it('returns conflicts introduced beyond those already in the baseline', () => {
+    const baseline = planFrom([
+      { title: 'A', start: '10:00', end: '11:00' },
+      { title: 'B', start: '10:30', end: '12:00' },
+    ]);
+    const proposed = planFrom([
+      { title: 'A', start: '10:00', end: '11:00' },
+      { title: 'B', start: '10:30', end: '12:00' },
+      { title: 'C', start: '11:30', end: '12:30' },
+    ]);
+    expect(findIntroducedPlanConflicts(baseline, proposed)).toEqual([
+      { key: 'warn.conflict.overlap', params: { prev: 'B', next: 'C' } },
+    ]);
   });
 });

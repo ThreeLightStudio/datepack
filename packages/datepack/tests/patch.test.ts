@@ -218,6 +218,105 @@ describe('patch apply', () => {
     expect(preview.skipped).toHaveLength(1);
     expect(plan.events[1].start).toBe('15:30');
   });
+
+  it('prepares a cloned complete result for sequential operations', () => {
+    const plan = makePlan();
+    const preview = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        { op: 'move', target: 'event:event-walk', value: { start: '18:00' } },
+        {
+          op: 'insertAfter',
+          target: 'event:event-walk',
+          value: { title: '저녁 식사', start: '18:30', type: 'meal' },
+        },
+      ],
+    });
+    const applied = applyPatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        { op: 'move', target: 'event:event-walk', value: { start: '18:00' } },
+        {
+          op: 'insertAfter',
+          target: 'event:event-walk',
+          value: { title: '저녁 식사', start: '18:30', type: 'meal' },
+        },
+      ],
+    });
+    expect(preview.canApply).toBe(true);
+    expect(preview.plan.events.map((event) => event.title)).toContain('저녁 식사');
+    expect(preview.plan.events.find((event) => event.id === 'event-walk')?.start).toBe('18:00');
+    expect(preview.plan.events.map(({ id: _id, ...event }) => event)).toEqual(
+      applied.plan.events.map(({ id: _id, ...event }) => event),
+    );
+    expect(plan.events.find((event) => event.id === 'event-walk')?.start).toBe('17:00');
+  });
+
+  it.each([
+    ['move', [{ op: 'move', target: 'event:event-walk', value: { start: '18:00' } }]],
+    ['remove', [{ op: 'remove', target: 'event:event-walk' }]],
+    ['unlock', [{ op: 'replace', target: 'event:event-walk', value: { fixed: false } }]],
+    ['edit', [{ op: 'replace', target: 'event:event-walk', value: { title: '다른 일정' } }]],
+  ] as const)('blocks a protected event %s and preserves the full plan', (_name, operations) => {
+    const plan = makePlan();
+    plan.events[2].fixed = true;
+    const snapshot = structuredClone(plan);
+    const result = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        { op: 'replace', target: 'event:event-station', value: { title: '변경된 역' } },
+        ...operations,
+      ],
+    });
+    expect(result.canApply).toBe(false);
+    expect(result.skipped.some((issue) => issue.key === 'err.patch.protected')).toBe(true);
+    expect(result.plan).toEqual(snapshot);
+    expect(plan).toEqual(snapshot);
+  });
+
+  it('blocks indirect reordering across a protected event', () => {
+    const plan = makePlan();
+    plan.events[1].fixed = true;
+    const result = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [{ op: 'move', target: 'event:event-walk', value: { start: '14:00' } }],
+    });
+    expect(result.canApply).toBe(false);
+    expect(result.skipped.some((issue) => issue.key === 'err.patch.protectedOrder')).toBe(true);
+    expect(result.plan).toEqual(plan);
+  });
+
+  it('reports only newly introduced conflicts in the proposed result', () => {
+    const plan = makePlan();
+    const result = describePatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [{ op: 'move', target: 'event:event-walk', value: { start: '16:00' } }],
+    });
+    expect(result.canApply).toBe(true);
+    expect(result.newConflicts.some((issue) => issue.key === 'warn.conflict.overlap')).toBe(true);
+  });
+
+  it('does not apply valid operations when another operation has no target', () => {
+    const plan = makePlan();
+    const snapshot = structuredClone(plan);
+    const result = applyPatch(plan, {
+      type: 'datepack.patch',
+      version: 1,
+      operations: [
+        { op: 'move', target: 'event:event-walk', value: { start: '18:00' } },
+        { op: 'remove', target: 'event:missing' },
+      ],
+    });
+    expect(result.canApply).toBe(false);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.plan).toEqual(snapshot);
+    expect(plan).toEqual(snapshot);
+  });
 });
 
 describe('patch target tolerance', () => {
@@ -270,8 +369,9 @@ describe('patch reply tolerance', () => {
     expect(move.to).toBe('09:30'); // the preview shows the canonical form too
   });
 
-  it('skips unmatched targets and applies the rest, stored in time order', () => {
+  it('rejects unmatched targets without applying the rest', () => {
     const plan = makePlan();
+    const snapshot = structuredClone(plan);
     const result = applyPatch(plan, {
       type: 'datepack.patch',
       version: 1,
@@ -285,18 +385,13 @@ describe('patch reply tolerance', () => {
         },
       ],
     });
+    expect(result.canApply).toBe(false);
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0]).toMatchObject({ key: 'err.patch.unknownTarget' });
-    expect(result.applied).toHaveLength(2);
-    expect(result.plan.events.map((e) => e.title)).toEqual([
-      '대전역 도착',
-      '야외 산책',
-      '아이스크림',
-      '성심당 본점',
-    ]);
+    expect(result.plan).toEqual(snapshot);
   });
 
-  it('flags locked stops in the preview so approval stays informed', () => {
+  it('rejects protected stops in the preview so approval cannot bypass the lock', () => {
     const plan = makePlan();
     plan.events[2].fixed = true; // 야외 산책
     const preview = describePatch(plan, {
@@ -304,9 +399,10 @@ describe('patch reply tolerance', () => {
       version: 1,
       operations: [{ op: 'move', target: 'event:event-walk', value: { start: '16:40' } }],
     });
-    expect(preview.applied[0]).toMatchObject({ op: 'move', fixed: true });
-    expect(format('ko', 'change.fixedTag')).toBe('(고정 일정)');
-    expect(format('en', 'change.fixedTag')).toBe('(locked)');
+    expect(preview.canApply).toBe(false);
+    expect(preview.skipped[0]).toMatchObject({ key: 'err.patch.protected' });
+    expect(format('ko', preview.skipped[0])).toContain('보호된 일정');
+    expect(format('en', preview.skipped[0])).toContain('protected stop');
   });
 
   it('rejects an insert whose end is not a valid time', () => {

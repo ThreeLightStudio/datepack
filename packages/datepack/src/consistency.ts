@@ -45,3 +45,23 @@ export function findPlanConflicts(plan: DatePlan): DatePackIssue[] {
   }
   return issues;
 }
+
+/** Return conflict instances present in the proposal but absent from its baseline. */
+export function findIntroducedPlanConflicts(
+  baseline: DatePlan,
+  proposed: DatePlan,
+): DatePackIssue[] {
+  const existingCounts = new Map<string, number>();
+  for (const issue of findPlanConflicts(baseline)) {
+    const signature = JSON.stringify([issue.key, issue.params ?? {}]);
+    existingCounts.set(signature, (existingCounts.get(signature) ?? 0) + 1);
+  }
+
+  return findPlanConflicts(proposed).filter((issue) => {
+    const signature = JSON.stringify([issue.key, issue.params ?? {}]);
+    const remaining = existingCounts.get(signature) ?? 0;
+    if (remaining === 0) return true;
+    existingCounts.set(signature, remaining - 1);
+    return false;
+  });
+}

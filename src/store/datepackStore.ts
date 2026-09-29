@@ -2,13 +2,12 @@ import { useSyncExternalStore } from 'react';
 import type {
   DatePack,
   DatePackAsset,
-  DatePackPatch,
   DatePackRuntimeState,
   DatePlan,
   PatchChange,
+  PatchOutcome,
 } from '@datepack/core';
 import {
-  applyPatch,
   createAssetsFromFiles,
   createDatePack,
   downloadBlob,
@@ -417,12 +416,19 @@ export async function switchToPlanA(eventId: string): Promise<void> {
 
 export type PatchApplyResult = { applied: PatchChange[]; skipped: I18nIssue[] };
 
-export async function applyPatchWithUndo(patch: DatePackPatch): Promise<PatchApplyResult> {
+export async function applyPatchWithUndo(
+  outcome: PatchOutcome,
+  basePlan: DatePlan,
+): Promise<PatchApplyResult> {
   if (!state.pack) return { applied: [], skipped: [] };
-  const outcome = applyPatch(state.pack.plan, patch);
-  // Unmatched targets were already surfaced as warnings in the review step —
-  // apply whatever matched instead of throwing the whole patch away.
-  if (outcome.applied.length === 0) return { applied: [], skipped: outcome.skipped };
+  if (!outcome.canApply || state.pack.plan !== basePlan) {
+    return {
+      applied: [],
+      skipped: [
+        { key: state.pack.plan === basePlan ? 'err.patch.nothingApplied' : 'err.patch.stale' },
+      ],
+    };
+  }
   pushUndo(t('undo.patch'));
   const plan = outcome.plan;
   const pack: DatePack = {

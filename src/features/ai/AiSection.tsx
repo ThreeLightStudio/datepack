@@ -4,8 +4,9 @@ import type {
   DatePlan,
   PatchChange,
   PatchChangeDetail,
+  PatchOutcome,
 } from '@datepack/core';
-import { describePatch, findPlanConflicts, parsePatch } from '@datepack/core';
+import { describePatch, parsePatch } from '@datepack/core';
 import { buildAiPrompt, SITUATIONS } from './promptBuilder';
 import { applyPatchWithUndo, showToast, undo, useStore } from '../../store/datepackStore';
 import { CopyIcon, SparkleIcon, UndoIcon } from '../../components/icons';
@@ -85,7 +86,13 @@ export function AiSection({ plan, runtime }: Props) {
   const [prompt, setPrompt] = useState('');
   const [patchText, setPatchText] = useState('');
   const [review, setReview] = useState<
-    | { ok: true; changes: PatchChange[]; warnings: string[]; patchJson: string }
+    | {
+        ok: true;
+        changes: PatchChange[];
+        warnings: string[];
+        prepared: PatchOutcome;
+        basePlan: DatePlan;
+      }
     | { ok: false; errors: string[] }
     | null
   >(null);
@@ -136,26 +143,21 @@ export function AiSection({ plan, runtime }: Props) {
       ...parsed.warnings.map((w) => format(locale, w)),
       ...outcome.skipped.map((s) => format(locale, s)),
       // Conflicts in the would-be plan are advisory — apply stays possible.
-      ...findPlanConflicts(outcome.plan).map((c) => format(locale, c)),
+      ...outcome.newConflicts.map((c) => format(locale, c)),
     ];
-    if (outcome.applied.length === 0) {
+    if (!outcome.canApply) {
       setReview({
         ok: false,
         errors: warnings.length > 0 ? warnings : [format(locale, 'err.patch.nothingApplied')],
       });
       return;
     }
-    setReview({ ok: true, changes: outcome.applied, warnings, patchJson: patchText });
+    setReview({ ok: true, changes: outcome.applied, warnings, prepared: outcome, basePlan: plan });
   }
 
   function applyApproved(): void {
     if (!review?.ok) return;
-    const parsed = parsePatch(review.patchJson);
-    if (!parsed.ok) {
-      setReview({ ok: false, errors: parsed.errors.map((e) => format(locale, e)) });
-      return;
-    }
-    void applyPatchWithUndo(parsed.patch).then((result) => {
+    void applyPatchWithUndo(review.prepared, review.basePlan).then((result) => {
       if (result.applied.length === 0) {
         setReview({
           ok: false,

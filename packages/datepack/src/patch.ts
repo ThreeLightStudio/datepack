@@ -4,6 +4,7 @@ import { createEvent, sortEventsByStart } from './create';
 import { extractJsonObject } from './json';
 import { isValidTime, normalizeTime } from './utils/time';
 import type { DatePackIssue } from './i18n/core';
+import { findIntroducedPlanConflicts, findPlanConflicts } from './consistency';
 
 export type PatchParseResult =
   | { ok: true; patch: DatePackPatch; warnings: DatePackIssue[] }
@@ -59,27 +60,25 @@ export type PatchChange =
 
 export type PatchOutcome = {
   plan: DatePlan;
+  /** Complete prepared plan; false means the original plan was preserved. */
+  canApply: boolean;
+  conflicts: DatePackIssue[];
+  newConflicts: DatePackIssue[];
   /** Human-renderable list of what changed — the UI localizes these. */
   applied: PatchChange[];
   /**
-   * Operations that matched nothing (unknown target/anchor). They are skipped
-   * rather than fatal so one bad target can't discard the rest of the patch.
+   * Operations that could not safely apply. Any skipped operation blocks the
+   * whole patch so a partial proposal can never be committed.
    */
   skipped: DatePackIssue[];
 };
 
-/** Preview what a patch would change, without mutating anything. */
+/** Prepare a complete patch result on a clone, without mutating the input. */
 export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcome {
-  return applyPatch(plan, patch, { dryRun: true });
-}
-
-/** Apply a validated patch to a plan. Returns a new plan; the input is not mutated. */
-export function applyPatch(
-  plan: DatePlan,
-  patch: DatePackPatch,
-  options: { dryRun?: boolean } = {},
-): PatchOutcome {
-  const next: DatePlan = options.dryRun ? plan : structuredClone(plan);
+  const next: DatePlan = structuredClone(plan);
+  const protectedIds = new Set(
+    plan.events.filter((event) => event.fixed === true).map((e) => e.id),
+  );
   const applied: PatchChange[] = [];
   const skipped: DatePackIssue[] = [];
 
@@ -96,13 +95,18 @@ export function applyPatch(
           break;
         }
         const { value } = op;
+        const protectedFields = Object.keys(value).some((key) => key !== 'fixed');
+        if (protectedIds.has(event.id) && (protectedFields || value.fixed === false)) {
+          skipped.push({ key: 'err.patch.protected', params: { title: event.title } });
+          break;
+        }
         const record = event as unknown as Record<string, unknown>;
         const details: PatchChangeDetail[] = [];
         for (const [key, newValue] of Object.entries(value)) {
           if (newValue === undefined || newValue === null) continue;
           details.push(detailFor(key, record[key], displayValue(key, newValue)));
         }
-        if (!options.dryRun) Object.assign(event, sanitizeReplaceValue(value));
+        Object.assign(event, sanitizeReplaceValue(value));
         if (details.length > 0)
           applied.push({
             op: 'replace',
@@ -119,6 +123,10 @@ export function applyPatch(
           skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
+        if (protectedIds.has(event.id)) {
+          skipped.push({ key: 'err.patch.protected', params: { title: event.title } });
+          break;
+        }
         const start = isValidTime(op.value.start) ? normalizeTime(op.value.start) : op.value.start;
         const end = isValidTime(op.value.end) ? normalizeTime(op.value.end) : op.value.end;
         const change: PatchChange = {
@@ -131,10 +139,8 @@ export function applyPatch(
           fromEnd: end !== undefined ? event.end : undefined,
           toEnd: end !== undefined ? end || undefined : undefined,
         };
-        if (!options.dryRun) {
-          if (start) event.start = start;
-          if (end !== undefined) event.end = end || undefined;
-        }
+        if (start) event.start = start;
+        if (end !== undefined) event.end = end || undefined;
         applied.push(change);
         break;
       }
@@ -144,7 +150,11 @@ export function applyPatch(
           skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
-        if (!options.dryRun) next.events.splice(index, 1);
+        if (protectedIds.has(event.id)) {
+          skipped.push({ key: 'err.patch.protected', params: { title: event.title } });
+          break;
+        }
+        next.events.splice(index, 1);
         applied.push({
           op: 'remove',
           target: event.id,
@@ -161,9 +171,7 @@ export function applyPatch(
           break;
         }
         const created = createEventFromPatchValue(op.value);
-        if (!options.dryRun) {
-          next.events.splice(op.op === 'insertBefore' ? index : index + 1, 0, created);
-        }
+        next.events.splice(op.op === 'insertBefore' ? index : index + 1, 0, created);
         applied.push({
           op: op.op,
           target: event.id,
@@ -176,11 +184,48 @@ export function applyPatch(
     }
   }
 
-  // Ops anchor to array positions, so the array stays put while they run;
-  // canonical time order is restored once the whole patch has landed.
-  if (!options.dryRun) next.events = sortEventsByStart(next.events);
+  next.events = sortEventsByStart(next.events);
 
-  return { plan: next, applied, skipped };
+  // Moving another item across a protected event also changes its order.
+  const originalOrder = sortEventsByStart(plan.events).map((event) => event.id);
+  const proposedOrder = next.events.map((event) => event.id);
+  const originalIds = new Set(originalOrder);
+  const changedProtectedOrder = [...protectedIds].some((protectedId) => {
+    for (const otherId of originalIds) {
+      if (otherId === protectedId || !proposedOrder.includes(otherId)) continue;
+      if (
+        originalOrder.indexOf(protectedId) < originalOrder.indexOf(otherId) !==
+        proposedOrder.indexOf(protectedId) < proposedOrder.indexOf(otherId)
+      )
+        return true;
+    }
+    return false;
+  });
+  if (changedProtectedOrder) skipped.push({ key: 'err.patch.protectedOrder' });
+
+  const canApply = skipped.length === 0 && applied.length > 0;
+  if (!canApply) {
+    return {
+      plan: structuredClone(plan),
+      applied,
+      skipped,
+      canApply,
+      conflicts: [],
+      newConflicts: [],
+    };
+  }
+  const conflicts = findPlanConflicts(next);
+  const newConflicts = findIntroducedPlanConflicts(plan, next);
+  return { plan: next, applied, skipped, canApply, conflicts, newConflicts };
+}
+
+/** Applying returns the same prepared clone as preview. */
+export function applyPatch(
+  plan: DatePlan,
+  patch: DatePackPatch,
+  _options: { dryRun?: boolean } = {},
+): PatchOutcome {
+  return describePatch(plan, patch);
 }
 
 function createEventFromPatchValue(value: DatePackPatchNewEvent): DateEvent {

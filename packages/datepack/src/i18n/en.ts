@@ -72,6 +72,9 @@ export const en: Record<DatePackIssueKey, string> = {
   'err.patch.notJson': 'Could not read the patch.',
   'err.patch.unknownTarget': 'No such stop: {target} — skipped this change.',
   'err.patch.noAnchor': "Can't find the anchor stop: {target} — skipped this change.",
+  'err.patch.protected': 'The protected stop "{title}" cannot be changed by an AI patch.',
+  'err.patch.protectedOrder': 'This patch changes the order of a protected stop.',
+  'err.patch.stale': 'The plan changed after this preview. Review the patch again.',
   'err.patch.nothingApplied': 'No changes could be applied.',
 
   // plan-level consistency warnings (advisory — shown in the AI review card)

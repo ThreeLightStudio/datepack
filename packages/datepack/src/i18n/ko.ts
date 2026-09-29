@@ -78,6 +78,9 @@ export const ko = {
   'err.patch.notJson': 'Patch JSON을 읽을 수 없습니다.',
   'err.patch.unknownTarget': '"{target}" 일정을 찾을 수 없어 이 변경은 건너뛰었어요.',
   'err.patch.noAnchor': '기준 일정 "{target}"을(를) 찾을 수 없어 이 변경은 건너뛰었어요.',
+  'err.patch.protected': '보호된 일정 "{title}"은(는) AI 변경안으로 수정할 수 없어요.',
+  'err.patch.protectedOrder': '이 변경안은 보호된 일정의 순서를 바꿔요.',
+  'err.patch.stale': '미리보기 이후 계획이 바뀌었어요. 변경안을 다시 검토해주세요.',
   'err.patch.nothingApplied': '적용할 수 있는 변경이 없어요.',
 
   // plan-level consistency warnings (advisory — shown in the AI review card)
