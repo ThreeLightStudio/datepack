@@ -1,25 +1,51 @@
-import type { DateEvent, DatePack, DatePlan, Place } from './types';
+import type { DateEvent, DatePack, DatePlan, EventTiming, Place } from './types';
 import { DATE_EVENT_TYPES } from './types';
 import { makeManifest } from './schema';
 import { createId } from './utils/id';
-import { parseTime } from './utils/time';
+import { timingStartMinutes } from './utils/time';
 
 export function createEvent(
-  partial: Partial<DateEvent> & Pick<DateEvent, 'title' | 'start'>,
+  partial: Partial<DateEvent> & Pick<DateEvent, 'title'> & { timing?: EventTiming },
 ): DateEvent {
   const type = partial.type ?? 'place';
   return {
     id: partial.id ?? createId('event'),
-    start: partial.start,
-    end: partial.end,
+    order: partial.order ?? 0,
     title: partial.title,
     type: (DATE_EVENT_TYPES as readonly string[]).includes(type) ? type : 'place',
-    placeId: partial.placeId,
-    note: partial.note,
-    assetIds: partial.assetIds,
-    travelMinutes: partial.travelMinutes,
-    fixed: partial.fixed,
-    planB: partial.planB,
+    timing:
+      partial.timing ??
+      (partial.start
+        ? {
+            kind: 'exact',
+            start: { dayOffset: 0, time: partial.start },
+            ...(partial.end ? { end: { dayOffset: 0, time: partial.end } } : {}),
+          }
+        : { kind: 'unscheduled' }),
+    ...(partial.placeId !== undefined ? { placeId: partial.placeId } : {}),
+    ...(partial.note !== undefined ? { note: partial.note } : {}),
+    ...(partial.assetIds !== undefined ? { assetIds: partial.assetIds } : {}),
+    ...(partial.importance !== undefined ? { importance: partial.importance } : {}),
+    ...((partial.protectedFields ??
+    (partial.fixed ? ['time', 'place', 'content', 'delete', 'order'] : undefined))
+      ? {
+          protectedFields: partial.protectedFields ?? [
+            'time',
+            'place',
+            'content',
+            'delete',
+            'order',
+          ],
+        }
+      : {}),
+    ...(partial.estimatedDurationMinutes !== undefined
+      ? { estimatedDurationMinutes: partial.estimatedDurationMinutes }
+      : {}),
+    ...(partial.planB !== undefined ? { planB: partial.planB } : {}),
+    ...(partial.start !== undefined ? { start: partial.start } : {}),
+    ...(partial.end !== undefined ? { end: partial.end } : {}),
+    ...(partial.fixed !== undefined ? { fixed: partial.fixed } : {}),
+    ...(partial.travelMinutes !== undefined ? { travelMinutes: partial.travelMinutes } : {}),
   };
 }
 
@@ -27,18 +53,37 @@ export function createPlace(name: string, mapQuery?: string): Place {
   return { id: createId('place'), name, mapQuery: mapQuery ?? name };
 }
 
-export function createDatePack(input: { title: string; date: string }): DatePack {
+export function createDatePack(input: { title: string; date?: string }): DatePack {
   const plan: DatePlan = {
     id: createId('plan'),
     title: input.title,
     date: input.date,
     events: [],
     places: [],
+    candidates: [],
   };
-  return { manifest: makeManifest(), plan, assets: [] };
+  return {
+    manifest: makeManifest(),
+    plan,
+    baselinePlan: structuredClone(plan),
+    experiences: [],
+    revision: 0,
+    assets: [],
+  };
 }
 
-/** Sort events by start time (stable). */
+/** Sort scheduled events first, by time, then retain explicit order for ties and unscheduled entries. */
 export function sortEventsByStart(events: DateEvent[]): DateEvent[] {
-  return [...events].sort((a, b) => (parseTime(a.start) ?? 0) - (parseTime(b.start) ?? 0));
+  return [...events].sort((a, b) => {
+    const am = timingStartMinutes(a.timing);
+    const bm = timingStartMinutes(b.timing);
+    if (am !== null && bm !== null && am !== bm) return am - bm;
+    if (am !== null && bm === null) return -1;
+    if (am === null && bm !== null) return 1;
+    return a.order - b.order;
+  });
+}
+
+export function sortEventsByOrder(events: DateEvent[]): DateEvent[] {
+  return [...events].sort((a, b) => a.order - b.order);
 }

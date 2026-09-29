@@ -243,7 +243,11 @@ export function createSeoulSeed(locale: Locale): {
     date,
     memo: copy.memo,
     constraints: copy.constraints,
-    events,
+    events: events.map((event, order) => ({
+      ...event,
+      order,
+      protectedFields: event.fixed ? ['time', 'place', 'content', 'delete', 'order'] : [],
+    })),
     places,
   };
 
@@ -270,13 +274,16 @@ export function createSeoulSeed(locale: Locale): {
   const pack: DatePack = {
     manifest: {
       format: 'datepack',
-      version: '1.0',
+      version: '3.0',
       entry: 'plan.json',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       generator: 'datepack-web seed',
     },
     plan,
+    baselinePlan: structuredClone(plan),
+    experiences: [],
+    revision: 0,
     assets: [coverAsset, cafeAsset],
   };
 

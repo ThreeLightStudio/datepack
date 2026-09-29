@@ -1,9 +1,10 @@
 const TIME_RE = /^(\d{1,2}):(\d{2})$/;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+import type { EventTiming, LocalPoint } from '../types';
 
 /** "HH:mm" → minutes since midnight, or null when invalid. */
 export function parseTime(value: string | undefined | null): number | null {
-  if (!value) return null;
+  if (typeof value !== 'string' || !value) return null;
   const match = TIME_RE.exec(value.trim());
   if (!match) return null;
   const h = Number(match[1]);
@@ -44,7 +45,7 @@ export function floorTo5(minutes: number): number {
 }
 
 export function isValidDateISO(value: string): boolean {
-  if (!DATE_RE.test(value)) return false;
+  if (typeof value !== 'string' || !DATE_RE.test(value)) return false;
   const [y, m, d] = value.split('-').map(Number);
   const date = new Date(y, m - 1, d);
   return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
@@ -60,4 +61,63 @@ export function todayISO(now: Date = new Date()): string {
 
 export function nowLabel(now: Date = new Date()): string {
   return formatTime(minutesOfDay(now));
+}
+
+/** Absolute minute position within a plan; null for non-exact timings. */
+export function localPointMinutes(point: LocalPoint): number | null {
+  const minute = parseTime(point?.time);
+  if (minute === null || (point?.dayOffset !== 0 && point?.dayOffset !== 1)) return null;
+  return point.dayOffset * 1440 + minute;
+}
+
+export function timingStartMinutes(timing: EventTiming | undefined): number | null {
+  if (!timing) return null;
+  if (timing.kind === 'exact') return localPointMinutes(timing.start);
+  if (timing.kind === 'window') return localPointMinutes(timing.earliestStart);
+  return null;
+}
+
+/** Sort key for exact/window time, while leaving unscheduled events unordered by time. */
+export function compareTiming(a: EventTiming, b: EventTiming): number {
+  return (
+    (timingStartMinutes(a) ?? Number.MAX_SAFE_INTEGER) -
+    (timingStartMinutes(b) ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+export function isValidLocalPoint(value: unknown): value is LocalPoint {
+  if (typeof value !== 'object' || value === null) return false;
+  const point = value as Partial<LocalPoint>;
+  return (point.dayOffset === 0 || point.dayOffset === 1) && isValidTime(point.time);
+}
+
+export function isValidTiming(value: unknown): value is EventTiming {
+  if (typeof value !== 'object' || value === null) return false;
+  const timing = value as Record<string, unknown>;
+  if (timing.kind === 'unscheduled')
+    return timing.label === undefined || typeof timing.label === 'string';
+  if (timing.kind === 'exact') {
+    if (!isValidLocalPoint(timing.start)) return false;
+    if (timing.end !== undefined && !isValidLocalPoint(timing.end)) return false;
+    return (
+      timing.end === undefined ||
+      (localPointMinutes(timing.end as LocalPoint)! >=
+        localPointMinutes(timing.start as LocalPoint)! &&
+        localPointMinutes(timing.end as LocalPoint)! -
+          localPointMinutes(timing.start as LocalPoint)! <=
+          1440)
+    );
+  }
+  if (timing.kind === 'window') {
+    if (!isValidLocalPoint(timing.earliestStart) || !isValidLocalPoint(timing.latestStart))
+      return false;
+    return (
+      localPointMinutes(timing.latestStart as LocalPoint)! >=
+        localPointMinutes(timing.earliestStart as LocalPoint)! &&
+      localPointMinutes(timing.latestStart as LocalPoint)! -
+        localPointMinutes(timing.earliestStart as LocalPoint)! <=
+        1440
+    );
+  }
+  return false;
 }

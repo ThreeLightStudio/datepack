@@ -22,7 +22,7 @@ function textToLines(text: string): string[] {
 export function PlanMetaSheet({ plan, onClose }: Props) {
   const locale = useLocale();
   const [title, setTitle] = useState(plan.title);
-  const [date, setDate] = useState(plan.date);
+  const [date, setDate] = useState(plan.date ?? '');
   const [memo, setMemo] = useState(plan.memo ?? '');
   const [must, setMust] = useState(linesToText(plan.constraints?.must));
   const [prefer, setPrefer] = useState(linesToText(plan.constraints?.prefer));
@@ -71,7 +71,7 @@ export function PlanMetaSheet({ plan, onClose }: Props) {
       setError(L.errName);
       return;
     }
-    if (!isValidDateISO(date)) {
+    if (date && !isValidDateISO(date)) {
       setError(L.errDate);
       return;
     }
@@ -82,7 +82,7 @@ export function PlanMetaSheet({ plan, onClose }: Props) {
     };
     updatePlan(locale === 'ko' ? '데이트 정보 수정' : 'Date details', (draft) => {
       draft.title = title.trim();
-      draft.date = date;
+      draft.date = date || undefined;
       draft.memo = memo.trim() || undefined;
       draft.constraints = constraints;
       return draft;

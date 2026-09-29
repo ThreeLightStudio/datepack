@@ -2,7 +2,7 @@ import type { DatePackPatch, DatePackPatchNewEvent, DatePlan, DateEvent } from '
 import { validatePatch } from './validate';
 import { createEvent, sortEventsByStart } from './create';
 import { extractJsonObject } from './json';
-import { isValidTime, normalizeTime } from './utils/time';
+import { isValidTime, normalizeTime, parseTime } from './utils/time';
 import type { DatePackIssue } from './i18n/core';
 import { findIntroducedPlanConflicts, findPlanConflicts } from './consistency';
 
@@ -77,7 +77,9 @@ export type PatchOutcome = {
 export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcome {
   const next: DatePlan = structuredClone(plan);
   const protectedIds = new Set(
-    plan.events.filter((event) => event.fixed === true).map((e) => e.id),
+    plan.events
+      .filter((event) => event.fixed || event.protectedFields?.includes('order'))
+      .map((e) => e.id),
   );
   const applied: PatchChange[] = [];
   const skipped: DatePackIssue[] = [];
@@ -95,8 +97,13 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           break;
         }
         const { value } = op;
-        const protectedFields = Object.keys(value).some((key) => key !== 'fixed');
-        if (protectedIds.has(event.id) && (protectedFields || value.fixed === false)) {
+        const protectedFields = Object.keys(value).some(
+          (key) => key !== 'fixed' && isFieldProtected(event, key),
+        );
+        if (
+          protectedFields ||
+          (value.fixed === false && (event.fixed || (event.protectedFields?.length ?? 0) > 0))
+        ) {
           skipped.push({ key: 'err.patch.protected', params: { title: event.title } });
           break;
         }
@@ -107,6 +114,9 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           details.push(detailFor(key, record[key], displayValue(key, newValue)));
         }
         Object.assign(event, sanitizeReplaceValue(value));
+        if (value.fixed === true)
+          event.protectedFields = ['time', 'place', 'content', 'delete', 'order'];
+        syncTimingFromAliases(event, value.end !== undefined);
         if (details.length > 0)
           applied.push({
             op: 'replace',
@@ -123,7 +133,7 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
-        if (protectedIds.has(event.id)) {
+        if (isFieldProtected(event, 'start')) {
           skipped.push({ key: 'err.patch.protected', params: { title: event.title } });
           break;
         }
@@ -141,6 +151,7 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
         };
         if (start) event.start = start;
         if (end !== undefined) event.end = end || undefined;
+        syncTimingFromAliases(event, op.value.end !== undefined);
         applied.push(change);
         break;
       }
@@ -150,7 +161,10 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
-        if (protectedIds.has(event.id)) {
+        if (
+          (event.fixed && !event.protectedFields?.length) ||
+          event.protectedFields?.includes('delete')
+        ) {
           skipped.push({ key: 'err.patch.protected', params: { title: event.title } });
           break;
         }
@@ -177,7 +191,7 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           target: event.id,
           title: event.title,
           newTitle: created.title,
-          newStart: created.start,
+          newStart: created.start ?? '',
         });
         break;
       }
@@ -185,6 +199,9 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
   }
 
   next.events = sortEventsByStart(next.events);
+  next.events.forEach((event, order) => {
+    event.order = order;
+  });
 
   // Moving another item across a protected event also changes its order.
   const originalOrder = sortEventsByStart(plan.events).map((event) => event.id);
@@ -267,6 +284,32 @@ function detailFor(key: string, oldValue: unknown, newValue: unknown): PatchChan
     default:
       return { field: 'other', from: undefined, to: String(newValue) };
   }
+}
+
+function isFieldProtected(event: DateEvent, key: string): boolean {
+  if (event.fixed && !event.protectedFields?.length) return true;
+  const field = key === 'start' || key === 'end' ? 'time' : key === 'placeId' ? 'place' : 'content';
+  return event.protectedFields?.includes(field) ?? false;
+}
+
+function syncTimingFromAliases(event: DateEvent, changedEnd = false): void {
+  if (!event.start || !isValidTime(event.start)) return;
+  const previous = event.timing.kind === 'exact' ? event.timing : undefined;
+  const startOffset = previous?.start.dayOffset ?? 0;
+  const endOffset = previous?.end?.dayOffset ?? startOffset;
+  const endTime = event.end && isValidTime(event.end) ? normalizeTime(event.end) : undefined;
+  const safeEndOffset =
+    changedEnd &&
+    endTime &&
+    endOffset === startOffset &&
+    (parseTime(endTime) ?? 0) < (parseTime(event.start) ?? 0)
+      ? (Math.min(1, startOffset + 1) as 0 | 1)
+      : endOffset;
+  event.timing = {
+    kind: 'exact',
+    start: { dayOffset: startOffset, time: normalizeTime(event.start) },
+    ...(endTime ? { end: { dayOffset: safeEndOffset, time: endTime } } : {}),
+  };
 }
 
 function sanitizeReplaceValue(value: Record<string, unknown>): Partial<DateEvent> {

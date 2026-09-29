@@ -34,12 +34,15 @@ opens from your home screen / launcher and works fully offline:
 - **Desktop (Chrome / Edge)** — click the **install icon** in the address bar.
 
 ```jsonc
-// classic-seoul-day-2026-09-28.datepack.json — one JSON document (format 2.0)
+// classic-seoul-day-2026-09-28.datepack.json — one JSON document (format 3.0)
 {
   "format": "datepack",
-  "version": "2.0",
-  "createdAt": "…", "updatedAt": "…", "generator": "datepack-core 0.2.0",
-  "plan":    { /* the itinerary: events, places, constraints, Plan B's */ },
+  "version": "3.0",
+  "createdAt": "…", "updatedAt": "…", "generator": "datepack-core 0.3.0",
+  "plan": { /* optional local date; events with timing and order; candidates, places, constraints, meeting */ },
+  "baselinePlan": { /* starting plan snapshot */ },
+  "experiences": [],
+  "revision": 0,
   "assets": [
     {
       "id": "asset-1", "filename": "cafe.jpg", "mimeType": "image/jpeg",
@@ -67,8 +70,7 @@ phone, get back to each other.
   editable timeline, and a details surface for photos, files and replanning.
 - **The `.datepack.json` format.** One plain JSON document with the plan and the
   photos inlined as base64 data URLs, so it previews and opens anywhere. Versioned
-  `major.minor` (currently `2.0`): newer _minor_ versions stay readable with a
-  warning, a new _major_ is a clean break. Legacy v1.0 `.datepack` ZIP files are
+  `major.minor` (currently `3.0`): 1.0 ZIP, 2.0 JSON, and 3.0 JSON are supported. Unknown future versions are kept as original bytes so they can be saved without conversion. Legacy v1.0 `.datepack` ZIP files are
   still readable. See `packages/datepack/src/schema.ts` for the reader policy.
 - **Plan B per stop.** Each stop can carry a fallback plan ("if the line is out
   the door, skip it and swing back at 15:30") and switching is one tap and
@@ -189,8 +191,8 @@ DatePack은 데이터를 서버에 보내지 않습니다. 사용자가 AI 요�
   출발해요" 같은 사람다운 출발 권장 포함), 손대기 쉬운 전체 타임라인, 사진과 파일을
   모아두는 더보기.
 - **`.datepack.json` 포맷.** 계획과 사진(base64 data URL)이 하나의 평범한 JSON 문서로
-  담겨 어디서든 미리보기하고 열 수 있어요. 버전은 `major.minor`(현재 `2.0`)로 관리하고,
-  같은 major의 더 새로운 minor는 경고 후 읽을 수 있어요. 구버전(v1.0) `.datepack` ZIP
+  담겨 어디서든 미리보기하고 열 수 있어요. 버전은 `major.minor`(현재 `3.0`)로 관리하고,
+  지원 형식은 1.0 ZIP, 2.0 JSON, 3.0 JSON이에요. 아직 모르는 미래 버전은 변환하지 않고 원본 바이트를 보존해요. 구버전(v1.0) `.datepack` ZIP
   파일도 계속 읽을 수 있어요. 정책은 `packages/datepack/src/schema.ts` 참고.
 - **일정마다 Plan B.** "줄이 너무 길면 건너뛰고 15:30에 재방문" 같은 대체 계획을
   일정마다 붙일 수 있고, 전환도 한 번의 탭, 언제든 되돌리기 가능.

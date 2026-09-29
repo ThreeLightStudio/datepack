@@ -98,7 +98,14 @@ export function buildAiPrompt(input: {
 
   const lines: string[] = [];
   lines.push(L.currentTime(nowLabel(now)));
-  if (!isToday) lines.push(L.notToday(input.plan.date));
+  if (!isToday)
+    lines.push(
+      input.plan.date
+        ? L.notToday(input.plan.date)
+        : locale === 'ko'
+          ? '계획 날짜 미정'
+          : 'Plan date undecided',
+    );
   lines.push('');
 
   const settled = ctx.events.filter((v) => v.status === 'completed' || v.status === 'skipped');

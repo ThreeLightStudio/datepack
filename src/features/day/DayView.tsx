@@ -32,12 +32,18 @@ export function DayView({ plan, runtime, onOpenAi, onOpenPlan }: Props) {
     ? (plan.events.find((e) => e.id === planBSheetFor) ?? null)
     : null;
 
-  const daysAway = daysUntil(plan.date, now);
+  const daysAway = plan.date ? daysUntil(plan.date, now) : null;
 
   return (
     <div className="view day-view">
       <header className="view-head">
-        <p className="eyebrow">{formatDate(locale, plan.date)}</p>
+        <p className="eyebrow">
+          {plan.date
+            ? formatDate(locale, plan.date)
+            : locale === 'ko'
+              ? '날짜 미정'
+              : 'Date undecided'}
+        </p>
         <h1 className="plan-title">{plan.title}</h1>
         <span className={`date-chip ${ctx.isToday ? 'today' : ''}`}>
           {ctx.isToday

@@ -173,7 +173,11 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
               <p className="review-head">
                 {format(locale, 'create.review.head', {
                   title: review.pack.plan.title,
-                  date: formatDate(locale, review.pack.plan.date),
+                  date: review.pack.plan.date
+                    ? formatDate(locale, review.pack.plan.date)
+                    : locale === 'ko'
+                      ? '날짜 미정'
+                      : 'Date undecided',
                 })}
               </p>
               <p className="hint-text">

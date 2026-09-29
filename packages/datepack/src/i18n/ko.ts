@@ -38,7 +38,7 @@ export const ko = {
   'err.read.invalidContent': 'DatePack 내용에 문제가 있어요:',
   'err.read.formatWrong': 'DatePack 포맷이 아닙니다. (format: {value})',
   'err.read.unsupportedVersion':
-    '지원하지 않는 포맷 버전입니다 (v{value}). 이 앱은 1.x(구 ZIP)와 2.x(JSON)만 읽을 수 있어요.',
+    '지원하지 않는 포맷 버전입니다 (v{value}). 이 앱은 1.0 ZIP, 2.0 JSON, 3.0 JSON을 읽을 수 있으며 원본 파일은 보존됩니다.',
   'err.read.badVersion': '읽을 수 없는 포맷 버전입니다: {value}',
   'err.read.newerVersion':
     '이 DatePack은 더 새로운 호환 포맷(v{value})으로 만들어졌어요. 일부 필드는 무시될 수 있습니다.',

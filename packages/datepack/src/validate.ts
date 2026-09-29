@@ -1,6 +1,13 @@
 import type { DateEvent, DatePack, DatePackPatch, DatePlan } from './types';
 import { DATE_EVENT_TYPES } from './types';
-import { isValidTime, isValidDateISO } from './utils/time';
+import {
+  isValidTime,
+  isValidDateISO,
+  isValidTiming,
+  isValidLocalPoint,
+  localPointMinutes,
+} from './utils/time';
+import { isLegacyDatePlan, isV3DatePlan } from './migration';
 import type { DatePackIssue } from './i18n/core';
 
 export type ValidationResult = { ok: boolean; errors: DatePackIssue[]; warnings: DatePackIssue[] };
@@ -17,13 +24,14 @@ export function validatePlan(plan: unknown): ValidationResult {
   if (typeof plan !== 'object' || plan === null) {
     return fail([{ key: 'err.read.badPlan' }]);
   }
-  const p = plan as Partial<DatePlan>;
+  const p = plan as Partial<DatePlan> & { events?: Array<Record<string, unknown>>; date?: unknown };
+  const legacy = !isV3DatePlan(plan) && isLegacyDatePlan(plan);
   const errors: DatePackIssue[] = [];
 
   if (typeof p.id !== 'string' || p.id.length === 0) errors.push({ key: 'err.plan.noId' });
   if (typeof p.title !== 'string' || p.title.trim().length === 0)
     errors.push({ key: 'err.plan.noTitle' });
-  if (typeof p.date !== 'string' || !isValidDateISO(p.date))
+  if (p.date !== undefined && (typeof p.date !== 'string' || !isValidDateISO(p.date)))
     errors.push({ key: 'err.plan.badDate' });
   if (!Array.isArray(p.events)) {
     errors.push({ key: 'err.plan.eventsArray' });
@@ -39,7 +47,10 @@ export function validatePlan(plan: unknown): ValidationResult {
     } else {
       seenIds.add(event.id);
     }
-    if (!isValidTime(event?.start)) {
+    if (legacy) {
+      if (typeof event.start !== 'string' || !isValidTime(event.start))
+        errors.push({ key: 'err.plan.startInvalid', params: { index } });
+    } else if (!isValidTiming(event?.timing)) {
       errors.push({ key: 'err.plan.startInvalid', params: { index } });
     }
     if (typeof event?.title !== 'string' || event.title.trim().length === 0) {
@@ -51,7 +62,12 @@ export function validatePlan(plan: unknown): ValidationResult {
     } else if (!(DATE_EVENT_TYPES as readonly string[]).includes(event.type)) {
       errors.push({ key: 'err.plan.typeInvalid', params: { index, value: String(event.type) } });
     }
-    if (event?.end !== undefined && event.end !== null && !isValidTime(event.end)) {
+    if (
+      legacy &&
+      event?.end !== undefined &&
+      event.end !== null &&
+      (typeof event.end !== 'string' || !isValidTime(event.end))
+    ) {
       errors.push({ key: 'err.plan.endInvalid', params: { index } });
     }
     if (event?.planB !== undefined && event.planB !== null) {
@@ -59,14 +75,28 @@ export function validatePlan(plan: unknown): ValidationResult {
         errors.push({ key: 'err.plan.planBTitle', params: { index } });
       }
     }
-    if (event?.travelMinutes !== undefined && event.travelMinutes !== null) {
+    if (!isLegacyDatePlan(plan)) {
+      if (!Number.isInteger(event.order) || (event.order as number) < 0)
+        errors.push({ key: 'err.plan.eventId', params: { index } });
       if (
-        typeof event.travelMinutes !== 'number' ||
-        !Number.isFinite(event.travelMinutes) ||
-        event.travelMinutes < 0
-      ) {
+        event.importance !== undefined &&
+        !['core', 'normal', 'optional'].includes(String(event.importance))
+      )
+        errors.push({ key: 'err.plan.eventId', params: { index } });
+      if (
+        event.estimatedDurationMinutes !== undefined &&
+        (!Number.isFinite(event.estimatedDurationMinutes) ||
+          (event.estimatedDurationMinutes as number) < 0)
+      )
         errors.push({ key: 'err.plan.travelInvalid', params: { index } });
-      }
+      if (
+        event.protectedFields !== undefined &&
+        (!Array.isArray(event.protectedFields) ||
+          event.protectedFields.some(
+            (f) => !['time', 'place', 'content', 'delete', 'order'].includes(String(f)),
+          ))
+      )
+        errors.push({ key: 'err.plan.eventId', params: { index } });
     }
     if (event?.assetIds !== undefined && !Array.isArray(event.assetIds)) {
       errors.push({ key: 'err.plan.assetIds', params: { index } });
@@ -75,6 +105,42 @@ export function validatePlan(plan: unknown): ValidationResult {
 
   if (p.places !== undefined && !Array.isArray(p.places)) {
     errors.push({ key: 'err.plan.placesArray' });
+  }
+
+  if (!legacy) {
+    const checkPoint = (point: unknown, field: string) => {
+      if (point !== undefined && !isValidLocalPoint(point))
+        errors.push({ key: 'err.plan.badDate', params: { field } });
+    };
+    checkPoint(p.availableFrom, 'availableFrom');
+    checkPoint(p.mustEndBy, 'mustEndBy');
+    if (
+      p.availableFrom &&
+      p.mustEndBy &&
+      isValidLocalPoint(p.availableFrom) &&
+      isValidLocalPoint(p.mustEndBy)
+    ) {
+      const from = localPointMinutes(p.availableFrom)!;
+      const end = localPointMinutes(p.mustEndBy)!;
+      if (end < from || end - from > 1440)
+        errors.push({ key: 'err.plan.badDate', params: { field: 'availability' } });
+    }
+    if (p.meeting?.timing !== undefined && !isValidTiming(p.meeting.timing))
+      errors.push({ key: 'err.plan.startInvalid', params: { field: 'meeting' } });
+    if (p.candidates !== undefined && !Array.isArray(p.candidates))
+      errors.push({ key: 'err.plan.eventsArray' });
+    const candidateIds = new Set<string>();
+    for (const candidate of (Array.isArray(p.candidates) ? p.candidates : []) as Array<
+      Record<string, unknown>
+    >) {
+      if (typeof candidate?.id !== 'string' || !candidate.id || candidateIds.has(candidate.id))
+        errors.push({ key: 'err.plan.eventId' });
+      else candidateIds.add(candidate.id);
+      if (typeof candidate.title !== 'string' || !candidate.title.trim())
+        errors.push({ key: 'err.plan.eventTitle' });
+      if (candidate.excluded !== undefined && typeof candidate.excluded !== 'boolean')
+        errors.push({ key: 'err.plan.eventId' });
+    }
   }
 
   return errors.length > 0 ? fail(errors) : ok();
@@ -86,18 +152,53 @@ export function validateDatePack(pack: DatePack): ValidationResult {
 
   const warnings: DatePackIssue[] = [];
   const errors: DatePackIssue[] = [];
-  if (typeof pack.manifest?.version !== 'string') {
+  if (pack.manifest?.version !== '3.0') {
     errors.push({ key: 'err.plan.manifestVersion' });
   }
 
+  // v3 metadata is validated as part of the portable file contract.
+  if (pack.manifest.version === '3.0') {
+    if (
+      !pack.baselinePlan ||
+      !Array.isArray(pack.experiences) ||
+      !Number.isSafeInteger(pack.revision) ||
+      pack.revision < 0
+    )
+      errors.push({ key: 'err.plan.manifestVersion' });
+    else if (!validatePlan(pack.baselinePlan).ok) errors.push({ key: 'err.read.invalidContent' });
+  }
   // Referenced assets should exist in the pack (missing → warning, not fatal).
   const assetIds = new Set(pack.assets.map((a) => a.id));
   const referenced: string[] = [];
   if (pack.plan.coverAssetId) referenced.push(pack.plan.coverAssetId);
   for (const id of pack.plan.galleryAssetIds ?? []) referenced.push(id);
   for (const event of pack.plan.events) for (const id of event.assetIds ?? []) referenced.push(id);
+  for (const place of pack.plan.places ?? [])
+    for (const id of place.assetIds ?? []) referenced.push(id);
+  for (const candidate of pack.plan.candidates ?? [])
+    for (const id of candidate.assetIds ?? []) referenced.push(id);
+  for (const experience of pack.experiences ?? [])
+    for (const id of experience.assetIds ?? []) referenced.push(id);
   for (const id of referenced) {
     if (!assetIds.has(id)) warnings.push({ key: 'err.plan.assetMissing', params: { id } });
+  }
+
+  const placeIds = new Set((pack.plan.places ?? []).map((p) => p.id));
+  for (const event of pack.plan.events)
+    if (event.placeId && !placeIds.has(event.placeId))
+      warnings.push({ key: 'err.plan.assetMissing', params: { id: event.placeId } });
+  for (const candidate of pack.plan.candidates ?? [])
+    if (candidate.placeId && !placeIds.has(candidate.placeId))
+      warnings.push({ key: 'err.plan.assetMissing', params: { id: candidate.placeId } });
+  const experienceIds = new Set<string>();
+  for (const experience of pack.experiences ?? []) {
+    if (!experience.id || experienceIds.has(experience.id))
+      errors.push({ key: 'err.plan.dupId', params: { id: experience.id } });
+    experienceIds.add(experience.id);
+    if (!['completed', 'skipped', 'note'].includes(experience.outcome))
+      errors.push({ key: 'err.plan.eventId' });
+    if (experience.occurredOn && !isValidDateISO(experience.occurredOn))
+      errors.push({ key: 'err.plan.badDate' });
   }
 
   return errors.length > 0 ? fail(errors, warnings) : ok(warnings);

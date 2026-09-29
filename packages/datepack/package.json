@@ -1,6 +1,6 @@
 {
   "name": "@datepack/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DatePack file format library — read, write, validate and patch portable .datepack.json documents.",
   "license": "MIT",
   "author": "ThreeLight",

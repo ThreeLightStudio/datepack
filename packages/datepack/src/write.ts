@@ -26,8 +26,7 @@ async function blobToDataUrl(blob: Blob, fallbackMime: string): Promise<string> 
 }
 
 /**
- * Build the .datepack.json file (format 2.0) — one JSON document:
- * { format, version, createdAt, updatedAt, generator, plan, assets }
+ * Build the .datepack.json file (format 3.0) — one portable JSON document.
  * Each asset carries its image inline as a base64 data URL. Runs fully in the
  * browser.
  */
@@ -58,12 +57,26 @@ export async function writeDatePack(pack: DatePack, loadBlob: BlobLoader): Promi
     createdAt: pack.manifest.createdAt ?? now,
     updatedAt: now,
     generator: pack.manifest.generator ?? `datepack-web ${PACKAGE_VERSION}`,
-    plan: pack.plan,
+    plan: serializablePlan(pack.plan),
+    baselinePlan: serializablePlan(pack.baselinePlan),
+    experiences: pack.experiences,
+    revision: pack.revision,
     assets,
   };
 
   const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
   return { blob, filename: exportFilename(pack), missingAssetIds };
+}
+
+/** Drop in-memory v1/v2 compatibility aliases before they reach a v3 file. */
+function serializablePlan(plan: DatePack['plan']): DatePack['plan'] {
+  return {
+    ...plan,
+    events: plan.events.map((event) => {
+      const { start: _start, end: _end, fixed: _fixed, travelMinutes: _travel, ...v3Event } = event;
+      return v3Event;
+    }),
+  };
 }
 
 /** "classic-seoul-day-2026-09-28.datepack.json" style name; falls back to "datepack-<date>". */
@@ -77,7 +90,7 @@ export function exportFilename(pack: { plan: Pick<DatePack['plan'], 'title' | 'd
     .slice(0, 3)
     .join('-');
   const slug = asciiWords || 'datepack';
-  return `${slug}-${pack.plan.date}.datepack.json`;
+  return `${slug}-${pack.plan.date ?? 'undated'}.datepack.json`;
 }
 
 /** Trigger a browser download for a generated blob. */

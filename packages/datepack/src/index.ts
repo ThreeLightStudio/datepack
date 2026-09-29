@@ -9,6 +9,7 @@ export * from './create';
 export * from './validate';
 export * from './read';
 export * from './write';
+export * from './migration';
 export * from './patch';
 export * from './planDraft';
 export * from './consistency';

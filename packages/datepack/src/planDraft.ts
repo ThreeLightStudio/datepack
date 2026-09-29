@@ -182,6 +182,7 @@ export function buildPlanFromDraft(draft: PlanDraft): DatePack {
       placeId = place.id;
     }
     return createEvent({
+      order: 0,
       title: event.title,
       start: event.start,
       end: event.end,
@@ -197,8 +198,15 @@ export function buildPlanFromDraft(draft: PlanDraft): DatePack {
     date: draft.date,
     memo: draft.memo,
     constraints: draft.constraints,
-    events: sortEventsByStart(events),
+    events: sortEventsByStart(events).map((event, order) => ({ ...event, order })),
     places: [...places.values()],
   };
-  return { manifest: makeManifest(), plan, assets: [] };
+  return {
+    manifest: makeManifest(),
+    plan,
+    baselinePlan: structuredClone(plan),
+    experiences: [],
+    revision: 0,
+    assets: [],
+  };
 }

@@ -210,7 +210,12 @@ export function DetailsView({ plan, runtime }: Props) {
                   >
                     <span className="pack-title">{pack.plan.title}</span>
                     <span className="pack-meta">
-                      {formatDate(locale, pack.plan.date)} ·{' '}
+                      {pack.plan.date
+                        ? formatDate(locale, pack.plan.date)
+                        : ko
+                          ? '날짜 미정'
+                          : 'Date undecided'}{' '}
+                      ·{' '}
                       {ko
                         ? `일정 ${pack.plan.events.length}개`
                         : `${pack.plan.events.length} stops`}{' '}

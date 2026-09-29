@@ -39,7 +39,13 @@ export function PlanView({ plan, runtime }: Props) {
   return (
     <div className="view plan-view">
       <header className="view-head">
-        <p className="eyebrow">{formatDate(locale, plan.date)}</p>
+        <p className="eyebrow">
+          {plan.date
+            ? formatDate(locale, plan.date)
+            : locale === 'ko'
+              ? '날짜 미정'
+              : 'Date undecided'}
+        </p>
         <div className="title-row">
           <h1 className="plan-title">{plan.title}</h1>
           <button

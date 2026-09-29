@@ -33,7 +33,7 @@ export const en: Record<DatePackIssueKey, string> = {
   'err.read.invalidContent': 'Problems found inside this DatePack:',
   'err.read.formatWrong': 'Not a DatePack (format: {value}).',
   'err.read.unsupportedVersion':
-    'Unsupported format version (v{value}) — this reader understands 1.x (ZIP) and 2.x (JSON) only.',
+    'Unsupported format version (v{value}) — this reader supports 1.0 ZIP, 2.0 JSON, and 3.0 JSON. The original file is preserved.',
   'err.read.badVersion': 'Unreadable format version: {value}',
   'err.read.newerVersion':
     'Made with a newer compatible format (v{value}) — some fields may be ignored.',

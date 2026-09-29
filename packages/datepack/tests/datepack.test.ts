@@ -53,9 +53,12 @@ describe('write → read roundtrip', () => {
 
     const read = await readDatePack(written.blob);
     expect(read.warnings).toHaveLength(0);
-    expect(read.pack.plan).toEqual(pack.plan);
+    expect(read.pack.plan.events.map((event) => event.timing)).toEqual(
+      pack.plan.events.map((event) => event.timing),
+    );
+    expect(read.pack.plan.title).toBe(pack.plan.title);
     expect(read.pack.manifest.format).toBe('datepack');
-    expect(read.pack.manifest.version).toBe('2.0');
+    expect(read.pack.manifest.version).toBe('3.0');
     expect(read.pack.assets).toHaveLength(1);
     expect(read.pack.assets[0]).toMatchObject({ id: 'asset-1', mimeType: 'image/png' });
 
@@ -85,30 +88,72 @@ describe('write → read roundtrip', () => {
     await expect(readDatePack(written.blob)).resolves.toBeDefined();
   });
 
-  it('rejects major version 3 with a clear error', async () => {
+  it('preserves unknown future versions without interpreting them', async () => {
     const fakeV3 = new Blob(
-      [JSON.stringify({ format: 'datepack', version: '3.0', plan: makePack().pack.plan })],
+      [JSON.stringify({ format: 'datepack', version: '4.0', plan: makePack().pack.plan })],
       { type: 'application/json' },
     );
-    await expect(readDatePack(fakeV3)).rejects.toThrow(/3\.0|지원하지 않는/);
+    const error = await readDatePack(fakeV3).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+    expect(error).toBeInstanceOf(DatePackReadError);
+    if (error instanceof DatePackReadError) expect(error.originalFile).toBe(fakeV3);
   });
 
-  it('warns on newer minor versions but still reads', async () => {
+  it('preserves newer minor versions of known majors', async () => {
     const { pack } = makePack();
-    const doc = { format: 'datepack', version: '1.3', plan: pack.plan, assets: [] };
-    const read = await readDatePack(new Blob([JSON.stringify(doc)], { type: 'application/json' }));
-    expect(read.pack.manifest.version).toBe('1.3');
-    expect(read.warnings.some((w) => w.params?.value === '1.3')).toBe(true);
+    const doc = { format: 'datepack', version: '2.1', plan: pack.plan, assets: [] };
+    const future = new Blob([JSON.stringify(doc)], { type: 'application/json' });
+    const error = await readDatePack(future).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+    expect(error).toBeInstanceOf(DatePackReadError);
+    if (error instanceof DatePackReadError) expect(error.originalFile).toBe(future);
   });
 
   it('still reads legacy v1.0 ZIP packs', async () => {
     const read = await readDatePack(await legacyZip());
-    expect(read.pack.manifest.version).toBe('1.0');
+    expect(read.pack.manifest.version).toBe('3.0');
     expect(read.pack.plan.title).toBe('테스트 데이트');
     expect(read.pack.assets).toHaveLength(1);
     const restored = read.blobs.get('asset-1');
     expect(restored).toBeDefined();
     expect(restored!.type).toBe('image/png');
+  });
+
+  it('converts legacy v2 JSON to a stable v3 shape', async () => {
+    const { pack } = makePack();
+    const doc = {
+      format: 'datepack',
+      version: '2.0',
+      plan: {
+        id: pack.plan.id,
+        title: pack.plan.title,
+        date: pack.plan.date,
+        events: pack.plan.events.map((event) => ({
+          id: event.id,
+          title: event.title,
+          type: event.type,
+          start: event.start,
+          end: event.end,
+          assetIds: event.assetIds,
+        })),
+        places: [],
+      },
+      assets: [],
+    };
+    const file = new Blob([JSON.stringify(doc)], { type: 'application/json' });
+    const first = await readDatePack(file);
+    const second = await readDatePack(file);
+    expect(first.pack).toEqual(second.pack);
+    expect(first.pack.manifest.version).toBe('3.0');
+    expect(first.pack.plan.events[0].timing).toEqual({
+      kind: 'exact',
+      start: { dayOffset: 0, time: '10:00' },
+      end: { dayOffset: 0, time: '11:20' },
+    });
   });
 });
 
@@ -117,7 +162,16 @@ async function legacyZip(): Promise<Blob> {
   const { pack, blob } = makePack();
   const zip = new JSZip();
   zip.file('manifest.json', JSON.stringify({ ...pack.manifest, version: '1.0' }));
-  zip.file('plan.json', JSON.stringify(pack.plan));
+  const { events, ...plan } = pack.plan;
+  zip.file(
+    'plan.json',
+    JSON.stringify({
+      ...plan,
+      events: events.map(
+        ({ timing: _timing, order: _order, protectedFields: _protection, ...event }) => event,
+      ),
+    }),
+  );
   zip.file('assets.json', JSON.stringify(pack.assets));
   zip.file('assets/cafe.png', await blob.arrayBuffer());
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });

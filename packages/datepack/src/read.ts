@@ -1,19 +1,23 @@
 import JSZip from 'jszip';
-import type { DatePack, DatePackAsset } from './types';
-import { parseManifest, DATEPACK_FORMAT } from './schema';
-import { validateDatePack } from './validate';
+import type { DatePack, DatePackAsset, LegacyDatePack } from './types';
+import { parseManifest, DATEPACK_FORMAT, parseFormatVersion } from './schema';
+import { validateDatePack, validatePlan } from './validate';
 import { ASSETS_DIR, mimeFromFilename } from './assets';
 import { localizeIssues, type DatePackIssue } from './i18n/core';
+import { isLegacyDatePlan, isV3DatePlan, migrateLegacyDatePack } from './migration';
 
 export class DatePackReadError extends Error {
   /** Structured, localizable issues — the UI renders these per locale. */
   readonly issues: DatePackIssue[];
+  /** Original bytes remain available for unsupported future formats and safe re-export. */
+  readonly originalFile?: Blob;
 
-  constructor(issues: DatePackIssue[]) {
+  constructor(issues: DatePackIssue[], originalFile?: Blob) {
     // message stays a readable Korean fallback for logs/console; the UI uses `issues`.
     super(localizeIssues('ko', issues).join(' '));
     this.name = 'DatePackReadError';
     this.issues = issues;
+    this.originalFile = originalFile;
   }
 }
 
@@ -49,7 +53,7 @@ export async function readDatePack(file: Blob): Promise<ReadResult> {
     doc = null;
   }
   if (isRecord(doc)) {
-    if (doc.format === DATEPACK_FORMAT) return readJsonContainer(doc);
+    if (doc.format === DATEPACK_FORMAT) return readJsonContainer(doc, file);
     // Valid JSON but not a DatePack — clearer than falling through to the ZIP error.
     throw new DatePackReadError([
       { key: 'err.read.formatWrong', params: { value: String(doc.format ?? 'json') } },
@@ -58,18 +62,19 @@ export async function readDatePack(file: Blob): Promise<ReadResult> {
   return readLegacyZip(file);
 }
 
-async function readJsonContainer(doc: Record<string, unknown>): Promise<ReadResult> {
+async function readJsonContainer(
+  doc: Record<string, unknown>,
+  originalFile: Blob,
+): Promise<ReadResult> {
+  const version = parseFormatVersion(doc.version);
+  if (isUnsupportedFutureVersion(version)) throw unsupportedVersionError(version!, originalFile);
   const manifestResult = parseManifest(doc);
   if (!manifestResult.ok) throw new DatePackReadError(manifestResult.errors);
 
   const planRaw = doc.plan;
   if (!isRecord(planRaw)) throw new DatePackReadError([{ key: 'err.read.noEntry' }]);
 
-  const pack: DatePack = {
-    manifest: manifestResult.manifest,
-    plan: planRaw as unknown as DatePack['plan'],
-    assets: [],
-  };
+  const assetList: DatePackAsset[] = [];
 
   const blobs = new Map<string, Blob>();
   if (Array.isArray(doc.assets)) {
@@ -83,7 +88,7 @@ async function readJsonContainer(doc: Record<string, unknown>): Promise<ReadResu
         mimeType: typeof raw.mimeType === 'string' ? raw.mimeType : 'application/octet-stream',
         ...(typeof raw.createdAt === 'string' ? { createdAt: raw.createdAt } : {}),
       };
-      pack.assets.push(asset);
+      assetList.push(asset);
       const data = typeof raw.data === 'string' ? raw.data : '';
       if (!data.startsWith('data:')) continue; // exported without image data
       try {
@@ -94,6 +99,41 @@ async function readJsonContainer(doc: Record<string, unknown>): Promise<ReadResu
     }
   }
 
+  let pack: DatePack;
+  if (
+    version?.major === 3 &&
+    isV3DatePlan(planRaw) &&
+    isV3DatePlan(doc.baselinePlan) &&
+    Array.isArray(doc.experiences) &&
+    typeof doc.revision === 'number' &&
+    Number.isSafeInteger(doc.revision) &&
+    doc.revision >= 0
+  ) {
+    pack = {
+      manifest: manifestResult.manifest,
+      plan: withCompatibilityAliases(planRaw),
+      baselinePlan: withCompatibilityAliases(doc.baselinePlan),
+      experiences: doc.experiences as DatePack['experiences'],
+      revision: doc.revision,
+      assets: assetList,
+    };
+  } else if ((version?.major === 1 || version?.major === 2) && isLegacyDatePlan(planRaw)) {
+    const legacyValidation = validatePlan(planRaw);
+    if (!legacyValidation.ok)
+      throw new DatePackReadError(
+        [{ key: 'err.read.invalidContent' }, ...legacyValidation.errors],
+        originalFile,
+      );
+    const migrated = migrateLegacyDatePack({
+      manifest: manifestResult.manifest,
+      plan: planRaw,
+      assets: assetList,
+    } as LegacyDatePack);
+    pack = migrated.pack;
+  } else {
+    throw new DatePackReadError([{ key: 'err.read.invalidContent' }], originalFile);
+  }
+
   const validation = validateDatePack(pack);
   if (!validation.ok) {
     throw new DatePackReadError([{ key: 'err.read.invalidContent' }, ...validation.errors]);
@@ -101,6 +141,36 @@ async function readJsonContainer(doc: Record<string, unknown>): Promise<ReadResu
 
   const warnings = [...manifestResult.warnings, ...validation.warnings];
   return { pack, blobs, warnings };
+}
+
+function withCompatibilityAliases(plan: DatePack['plan']): DatePack['plan'] {
+  const travelByPlace = new Map(
+    (plan.sharedTravel ?? [])
+      .filter((t) => t.toPlaceId)
+      .map((t) => [t.toPlaceId!, t.estimatedMinutes]),
+  );
+  return {
+    ...plan,
+    events: plan.events.map((event) => ({
+      ...event,
+      ...(event.timing.kind === 'exact'
+        ? {
+            start: event.timing.start.time,
+            ...(event.timing.end ? { end: event.timing.end.time } : {}),
+          }
+        : {}),
+      ...(hasFullProtection(event) ? { fixed: true } : {}),
+      ...(event.placeId && travelByPlace.get(event.placeId) !== undefined
+        ? { travelMinutes: travelByPlace.get(event.placeId) }
+        : {}),
+    })),
+  };
+}
+
+function hasFullProtection(event: DatePack['plan']['events'][number]): boolean {
+  return ['time', 'place', 'content', 'delete', 'order'].every((field) =>
+    event.protectedFields?.includes(field as NonNullable<typeof event.protectedFields>[number]),
+  );
 }
 
 async function readLegacyZip(file: Blob): Promise<ReadResult> {
@@ -119,6 +189,12 @@ async function readLegacyZip(file: Blob): Promise<ReadResult> {
   } catch {
     throw new DatePackReadError([{ key: 'err.read.badManifest' }]);
   }
+  const legacyVersion =
+    isRecord(manifestRaw) && typeof manifestRaw.version !== 'undefined'
+      ? parseFormatVersion(manifestRaw.version)
+      : null;
+  if (isUnsupportedFutureVersion(legacyVersion))
+    throw unsupportedVersionError(legacyVersion!, file);
   const manifestResult = parseManifest(manifestRaw);
   if (!manifestResult.ok) throw new DatePackReadError(manifestResult.errors);
 
@@ -131,17 +207,17 @@ async function readLegacyZip(file: Blob): Promise<ReadResult> {
     throw new DatePackReadError([{ key: 'err.read.badPlan' }]);
   }
 
-  const pack: DatePack = {
+  const legacyPack = {
     manifest: manifestResult.manifest,
     plan: planRaw as DatePack['plan'],
-    assets: [],
+    assets: [] as DatePackAsset[],
   };
 
   const assetsIndexFile = zip.file('assets.json');
   if (assetsIndexFile) {
     try {
       const list = JSON.parse(await assetsIndexFile.async('string')) as DatePackAsset[];
-      if (Array.isArray(list)) pack.assets = list;
+      if (Array.isArray(list)) legacyPack.assets = list;
     } catch {
       throw new DatePackReadError([{ key: 'err.read.badAssets' }]);
     }
@@ -158,12 +234,12 @@ async function readLegacyZip(file: Blob): Promise<ReadResult> {
   });
   for (const [path, zipEntry] of assetEntries) {
     const bytes = await zipEntry.async('uint8array');
-    const declared = pack.assets.find((a) => a.path === path);
+    const declared = legacyPack.assets.find((a) => a.path === path);
     const mime = declared?.mimeType ?? mimeFromFilename(path);
     const assetId = declared?.id ?? path.slice(ASSETS_DIR.length);
     blobs.set(assetId, new Blob([bytes as unknown as BlobPart], { type: mime }));
     if (!declared) {
-      pack.assets.push({
+      legacyPack.assets.push({
         id: assetId,
         filename: path.slice(ASSETS_DIR.length),
         mimeType: mime,
@@ -172,6 +248,15 @@ async function readLegacyZip(file: Blob): Promise<ReadResult> {
     }
   }
 
+  if (!isLegacyDatePlan(legacyPack.plan))
+    throw new DatePackReadError([{ key: 'err.read.invalidContent' }]);
+  const legacyValidation = validatePlan(legacyPack.plan);
+  if (!legacyValidation.ok)
+    throw new DatePackReadError(
+      [{ key: 'err.read.invalidContent' }, ...legacyValidation.errors],
+      file,
+    );
+  const pack = migrateLegacyDatePack(legacyPack as LegacyDatePack).pack;
   const validation = validateDatePack(pack);
   if (!validation.ok) {
     throw new DatePackReadError([{ key: 'err.read.invalidContent' }, ...validation.errors]);
@@ -179,4 +264,20 @@ async function readLegacyZip(file: Blob): Promise<ReadResult> {
 
   const warnings = [...manifestResult.warnings, ...validation.warnings];
   return { pack, blobs, warnings };
+}
+
+function isUnsupportedFutureVersion(version: ReturnType<typeof parseFormatVersion>): boolean {
+  return (
+    !!version && (version.major > 3 || ([1, 2, 3].includes(version.major) && version.minor > 0))
+  );
+}
+
+function unsupportedVersionError(
+  version: NonNullable<ReturnType<typeof parseFormatVersion>>,
+  file: Blob,
+): DatePackReadError {
+  return new DatePackReadError(
+    [{ key: 'err.read.unsupportedVersion', params: { value: version.raw } }],
+    file,
+  );
 }
