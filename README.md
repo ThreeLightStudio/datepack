@@ -3,10 +3,26 @@
 **A local-first date planner where the whole date lives in one file.**
 **한국어 안내는 아래에 있습니다.** (Korean guide below)
 
+## Product principle
+
+DatePack's first job during a date is to reduce the time and attention spent
+replanning, so people can focus on being together. Plans may be loose, change
+while the app is closed, or need just the next stop changed. The app should ask
+only for information needed to make the next decision, preserve what already
+happened, and adjust only the part of the day the user chooses.
+
+The open-source app must remain useful without a paid AI service or a DatePack
+account. When a new suggestion calls for AI, the user chooses their own AI
+assistant and explicitly shares the request. The proposed planning, day-of-use, and reflection flow is
+documented in [Product flow](docs/product-flow.md); it is a design direction,
+not a description of every feature in the current beta.
+
 ## Try it
 
-**Open <https://threelightstudio.github.io/datepack/> — no account, and nothing
-ever leaves your device.**
+**Open <https://threelightstudio.github.io/datepack/> — no account, and no
+automatic uploads.** DatePack does not send your data to a server. If you choose
+to share an AI request with another app, that request is sent through the app
+you select.
 
 You can use it right in the browser, but installing it as an app is nicer — it
 opens from your home screen / launcher and works fully offline:
@@ -140,9 +156,24 @@ DatePack은 웹에서 동작하는 데이트 플래너입니다. 일정, 장소,
 가장 중요한 질문 하나만 답합니다 — _지금 어디쯤이고, 다음은 어디인가._
 3초만 보고 폰을 다시 주머니에 넣을 수 있도록.
 
+## 제품 원칙
+
+DatePack이 데이트 중 가장 먼저 줄여야 할 것은 **계획을 다시 짜는 데 드는 시간과
+인지 부담**입니다. 사람들은 그 시간에 앱보다 서로에게 집중할 수 있어야 합니다.
+계획이 느슨하거나, 앱을 보지 않는 사이 바뀌거나, 다음 한 곳만 바꾸고 싶을 수
+있습니다. 앱은 다음 결정을 내리는 데 필요한 정보만 묻고, 이미 지나간 일은
+보존하며, 사용자가 선택한 범위만 조정해야 합니다.
+
+오픈소스 앱의 핵심 흐름은 유료 AI 서비스나 DatePack 계정 없이도 쓸 수 있어야
+합니다. 새로운 제안에 AI가 필요하면 사용자가 자신의 AI 앱을 선택해 요청을
+직접 공유합니다. [계획부터 추억까지의 제품 흐름](docs/product-flow.md)은 현재 베타에 모두
+구현된 기능이 아니라 앞으로의 설계 방향입니다.
+
 ## 앱으로 사용하기
 
-**<https://threelightstudio.github.io/datepack/> 에서 바로 쓸 수 있어요. 계정도, 서버도 없고 모든 데이터는 기기에만 저장됩니다.**
+**<https://threelightstudio.github.io/datepack/> 에서 바로 쓸 수 있어요. 계정도, 자동 업로드도 없습니다.**
+DatePack은 데이터를 서버에 보내지 않습니다. 사용자가 AI 요청을 다른 앱에
+공유하기로 선택하면, 그 요청은 선택한 앱을 통해 전달됩니다.
 
 브라우저에서 바로 써도 되지만, 앱으로 설치하면 홈 화면에서 열리고 오프라인에서도 동작해요.
 
