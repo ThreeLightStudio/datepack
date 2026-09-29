@@ -308,6 +308,16 @@ export function validateDatePack(pack: DatePack): ValidationResult {
     experienceIds.add(experience.id);
     if (!['completed', 'skipped', 'note'].includes(experience.outcome))
       errors.push({ key: 'err.plan.eventId' });
+    if (
+      experience.placeSnapshot !== undefined &&
+      (typeof experience.placeSnapshot !== 'object' ||
+        experience.placeSnapshot === null ||
+        typeof experience.placeSnapshot.name !== 'string' ||
+        !experience.placeSnapshot.name.trim() ||
+        (experience.placeSnapshot.mapQuery !== undefined &&
+          typeof experience.placeSnapshot.mapQuery !== 'string'))
+    )
+      errors.push({ key: 'err.plan.eventId', params: { field: 'experiences.placeSnapshot' } });
     if (experience.occurredOn && !isValidDateISO(experience.occurredOn))
       errors.push({ key: 'err.plan.badDate' });
     if (

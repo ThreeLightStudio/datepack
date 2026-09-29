@@ -349,10 +349,12 @@ export async function commitExperienceChange(
   planId: string,
   expectedRevision: number,
   experiences: DatePack['experiences'],
+  assets?: DatePackAsset[],
+  assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
 ): Promise<DatePack> {
   const db = await getDb();
-  const tx = db.transaction('packsV3', 'readwrite');
-  const row = await tx.store.get(planId);
+  const tx = db.transaction(['packsV3', 'assets'], 'readwrite');
+  const row = await tx.objectStore('packsV3').get(planId);
   if (!row) {
     abortReadWrite(tx);
     throw new Error('pack-missing');
@@ -364,11 +366,22 @@ export async function commitExperienceChange(
   const pack: DatePack = {
     ...row.pack,
     experiences: structuredClone(experiences),
+    ...(assets ? { assets: structuredClone(assets) } : {}),
     revision: row.pack.revision + 1,
     manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
   };
   validate(pack);
-  await tx.store.put({ ...row, pack }, planId);
+  await tx.objectStore('packsV3').put({ ...row, pack }, planId);
+  const assetStore = tx.objectStore('assets');
+  for (const { asset, blob } of assetWrites) {
+    await assetStore.put({
+      key: assetKey(planId, asset.id),
+      packId: planId,
+      assetId: asset.id,
+      blob,
+      filename: asset.filename,
+    });
+  }
   await tx.done;
   return pack;
 }

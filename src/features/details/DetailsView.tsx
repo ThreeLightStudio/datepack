@@ -19,6 +19,7 @@ import { CreateWithAiSheet } from '../ai/CreateWithAiSheet';
 import { PlanMetaSheet } from '../editor/PlanMetaSheet';
 import { formatDate, format, setLocale, useLocale, LOCALES } from '../../i18n';
 import { showImportError } from '../../app/App';
+import { MemoriesSection } from '../memories/MemoriesSection';
 
 type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
 
@@ -109,6 +110,8 @@ export function DetailsView({ plan, runtime }: Props) {
         />
         {plan.memo && <p className="sub-line">{plan.memo}</p>}
       </section>
+
+      <MemoriesSection key={plan.id} />
 
       <AiSection plan={plan} runtime={runtime} />
 

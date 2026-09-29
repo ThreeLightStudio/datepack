@@ -32,6 +32,41 @@ beforeEach(clearDatabase);
 afterEach(closeStorage);
 
 describe('device IndexedDB persistence', () => {
+  it('saves a memory and its image blob atomically across a storage restart', async () => {
+    const pack = createDatePack({ title: 'Later memories', date: '2026-09-25' });
+    await savePack(pack);
+    const asset = { id: 'memory-photo', filename: 'memory.jpg', mimeType: 'image/jpeg' };
+    const blob = new Blob(['image bytes'], { type: 'image/jpeg' });
+    const experience = {
+      id: 'memory-1',
+      title: 'A place we found',
+      outcome: 'note' as const,
+      recordedAt: '2026-09-29T00:10:00.000Z',
+      occurredOn: '2026-09-25',
+      assetIds: [asset.id],
+    };
+
+    await commitExperienceChange(pack.plan.id, 0, [experience], [asset], [{ asset, blob }]);
+    const rejectedAsset = { id: 'stale-photo', filename: 'stale.jpg', mimeType: 'image/jpeg' };
+    await expect(
+      commitExperienceChange(
+        pack.plan.id,
+        0,
+        [...pack.experiences, { ...experience, id: 'stale-memory', assetIds: [rejectedAsset.id] }],
+        [...pack.assets, rejectedAsset],
+        [{ asset: rejectedAsset, blob }],
+      ),
+    ).rejects.toThrow('revision-conflict');
+    expect(await getAssetBlob(pack.plan.id, rejectedAsset.id)).toBeUndefined();
+    await closeStorage();
+
+    expect((await loadPack(pack.plan.id))?.experiences).toEqual([experience]);
+    expect(await getAssetBlob(pack.plan.id, asset.id)).toMatchObject({
+      type: 'image/jpeg',
+      size: blob.size,
+    });
+  });
+
   it('commits plan and undo atomically and rejects a concurrent stale revision', async () => {
     const initial = createDatePack({ title: 'Test', date: '2026-09-29' });
     await savePack(initial);

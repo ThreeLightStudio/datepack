@@ -306,13 +306,32 @@ export async function updatePendingRequest(
 }
 
 /** Commit experience facts with the pack revision while leaving undo/device state intact. */
-export async function updateExperiences(experiences: DatePack['experiences']): Promise<void> {
-  if (!state.pack) return;
+export async function updateExperiences(
+  experiences: DatePack['experiences'],
+  assets?: DatePackAsset[],
+  assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
+  expectedRevision?: number,
+): Promise<boolean> {
+  if (!state.pack) return false;
+  if (expectedRevision !== undefined && state.pack.revision !== expectedRevision) {
+    await refreshAfterConflict(new Error('revision-conflict'));
+    return false;
+  }
   try {
-    const pack = await commitExperienceChange(state.pack.plan.id, state.pack.revision, experiences);
+    const pack = await commitExperienceChange(
+      state.pack.plan.id,
+      state.pack.revision,
+      experiences,
+      assets,
+      assetWrites,
+    );
+    for (const { asset, blob } of assetWrites)
+      blobCache.set(cacheKey(pack.plan.id, asset.id), blob);
     setState({ pack });
+    return true;
   } catch (error) {
     await refreshAfterConflict(error);
+    return false;
   }
 }
 

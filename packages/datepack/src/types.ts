@@ -109,6 +109,7 @@ export type Experience = {
   id: string;
   eventId?: string;
   title: string;
+  placeSnapshot?: { name: string; mapQuery?: string };
   outcome: 'completed' | 'skipped' | 'note';
   recordedAt: string;
   occurredOn?: string;

@@ -1704,6 +1704,123 @@ div.asset-placeholder,
   border: 1px solid var(--color-primary-light);
 }
 
+.memories-section > .hint-text {
+  margin: 0 0 var(--sp-3);
+}
+.memory-form {
+  padding: var(--sp-4);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-bg);
+}
+.memory-fields-row {
+  align-items: flex-start;
+}
+.memory-photo-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.memory-list {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin: var(--sp-4) 0 var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+}
+.memory-list legend {
+  padding: 0 6px;
+  font: var(--font-caption);
+  font-weight: 700;
+}
+.memory-card {
+  min-width: 0;
+  padding: var(--sp-3);
+  border-radius: 14px;
+  background: var(--color-bg);
+}
+.memory-select {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+.memory-select > input,
+.memory-note-share > input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--color-primary-deep);
+}
+.memory-select > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.memory-kind {
+  color: var(--color-primary-deep);
+  font: var(--font-small);
+  font-weight: 700;
+}
+.memory-meta,
+.memory-recorded {
+  color: var(--color-text-secondary);
+  font: var(--font-small);
+}
+.memory-note-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: var(--sp-2) 0 0 26px;
+  color: var(--color-text-secondary);
+  font: var(--font-small);
+  cursor: pointer;
+}
+.memory-recorded {
+  margin: var(--sp-2) 0 0 26px;
+}
+.memory-note {
+  margin: var(--sp-2) 0 0 26px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memory-photos {
+  display: flex;
+  gap: var(--sp-2);
+  overflow-x: auto;
+  margin: var(--sp-2) 0 0 26px;
+}
+.memory-photo {
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+.memory-share-actions {
+  margin: var(--sp-3) 0;
+}
+.memory-empty {
+  padding: var(--sp-3);
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border);
+  border-radius: 14px;
+  text-align: center;
+}
+
+@media (max-width: 420px) {
+  .memory-fields-row {
+    flex-direction: column;
+  }
+  .memory-form {
+    padding: var(--sp-3);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .view,
   .sheet,

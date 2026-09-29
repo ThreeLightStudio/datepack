@@ -68,6 +68,37 @@ describe('write → read roundtrip', () => {
     expect(restored!.size).toBe(blob.size);
   });
 
+  it('round-trips a memory photo and keeps the event snapshot after its plan item is removed', async () => {
+    const { pack, blob } = makePack();
+    pack.experiences.push({
+      id: 'memory-after-the-date',
+      eventId: 'event-a',
+      title: 'Found a quiet corner',
+      placeSnapshot: { name: 'Old Cafe', mapQuery: 'Old Cafe Seoul' },
+      outcome: 'completed',
+      occurredOn: '2026-09-25',
+      timing: { kind: 'exact', at: { dayOffset: 0, time: '14:20' } },
+      recordedAt: '2026-09-29T09:15:00.000Z',
+      note: 'We stayed until sunset.',
+      assetIds: ['asset-1'],
+    });
+    pack.plan.events = pack.plan.events.filter((event) => event.id !== 'event-a');
+
+    const written = await writeDatePack(pack, () => Promise.resolve(blob));
+    const read = await readDatePack(written.blob);
+
+    expect(read.pack.experiences[0]).toMatchObject({
+      eventId: 'event-a',
+      placeSnapshot: { name: 'Old Cafe', mapQuery: 'Old Cafe Seoul' },
+      occurredOn: '2026-09-25',
+      recordedAt: '2026-09-29T09:15:00.000Z',
+      note: 'We stayed until sunset.',
+      assetIds: ['asset-1'],
+    });
+    expect(read.pack.plan.events.some((event) => event.id === 'event-a')).toBe(false);
+    expect(read.blobs.get('asset-1')?.size).toBe(blob.size);
+  });
+
   it('reports missing blobs instead of failing', async () => {
     const { pack } = makePack();
     expect(validateDatePack(pack).ok).toBe(true);
