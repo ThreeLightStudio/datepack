@@ -109,13 +109,14 @@ export function buildAiPrompt(input: {
   lines.push('');
 
   const settled = ctx.events.filter((v) => v.status === 'completed' || v.status === 'skipped');
-  const remaining = ctx.events.filter((v) => v.status !== 'completed' && v.status !== 'skipped');
+  // Unknown elapsed items stay out of default replans until the user confirms them.
+  const remaining = ctx.events.filter((v) => v.status === 'upcoming' || v.status === 'current');
 
   if (settled.length > 0) {
     lines.push(L.settledHeader);
     for (const view of settled) {
       const mark = view.status === 'skipped' ? L.skippedMark : L.doneMark;
-      lines.push(`- ${formatTime(view.startMinutes)} ${view.event.title} (${mark})`);
+      lines.push(`- ${promptTiming(view, locale)} ${view.event.title} (${mark})`);
     }
     lines.push('');
   }
@@ -192,12 +193,29 @@ export function buildAiPrompt(input: {
  */
 function stopLine(view: DayEventView, locale: Locale): string {
   const delay = view.delayedByMinutes;
-  const start = formatTime(view.startMinutes + delay);
-  const end = view.endMinutes !== null ? `–${formatTime(view.endMinutes + delay)}` : '';
+  const start = promptTiming(view, locale, delay);
+  const end =
+    view.endMinutes !== null
+      ? `–${formatTime(view.endMinutes + delay)}${view.event.timing.kind === 'exact' && view.event.timing.end?.dayOffset ? (locale === 'ko' ? ' (다음 날)' : ' (next day)') : ''}`
+      : '';
   const tags = [`id: ${view.event.id}`, view.event.type];
-  if (view.event.fixed) tags.push(locale === 'ko' ? '고정' : 'fixed');
+  if (view.event.protectedFields?.length) tags.push(locale === 'ko' ? '보호됨' : 'protected');
   if (delay > 0) tags.push(locale === 'ko' ? `지연 ${delay}분` : `delayed ${delay} min`);
   return `- ${start}${end} ${view.event.title} (${tags.join(', ')})${planBNote(view)}`;
+}
+
+function promptTiming(view: DayEventView, locale: Locale, delay = 0): string {
+  if (view.startMinutes !== null)
+    return `${formatTime(view.startMinutes + delay)}${view.event.timing.kind === 'exact' && view.event.timing.start.dayOffset ? (locale === 'ko' ? ' (다음 날)' : ' (next day)') : ''}`;
+  if (view.event.timing.kind === 'window') {
+    const from = view.event.timing.earliestStart;
+    const to = view.event.timing.latestStart;
+    const nextDay = locale === 'ko' ? ' (다음 날)' : ' (next day)';
+    return `${locale === 'ko' ? '시작 시간대' : 'start window'} ${from.time}${from.dayOffset ? nextDay : ''}–${to.time}${to.dayOffset ? nextDay : ''}`;
+  }
+  if (view.event.timing.kind === 'unscheduled')
+    return view.event.timing.label || (locale === 'ko' ? '시간 미정' : 'time unset');
+  return locale === 'ko' ? '시간 미정' : 'time unset';
 }
 
 function planBNote(view: { event: { planB?: { title: string } | null } }): string {

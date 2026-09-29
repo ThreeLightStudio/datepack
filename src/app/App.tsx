@@ -18,7 +18,6 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { BetaBanner } from '../components/BetaBanner';
 import type { ViewId } from './routes';
 import { HeartIcon, UndoIcon } from '../components/icons';
-import { todayISO } from '@datepack/core';
 
 export default function App() {
   const store = useStore();
@@ -108,7 +107,7 @@ export default function App() {
 function EmptyState({ error }: { error?: string | null }) {
   const locale = useLocale();
   const [title, setTitle] = useState('');
-  const [date, setDate] = useState(todayISO());
+  const [date, setDate] = useState('');
   const [aiCreateOpen, setAiCreateOpen] = useState(false);
 
   return (
@@ -153,12 +152,18 @@ function EmptyState({ error }: { error?: string | null }) {
 
           <div className="divider" />
 
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={format(locale, 'empty.namePlaceholder')}
-          />
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <label className="field">
+            <span>{locale === 'ko' ? '데이트 이름' : 'Date name'}</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={format(locale, 'empty.namePlaceholder')}
+            />
+          </label>
+          <label className="field">
+            <span>{locale === 'ko' ? '날짜 (선택)' : 'Date (optional)'}</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
           <button
             type="button"
             className="btn btn-soft"

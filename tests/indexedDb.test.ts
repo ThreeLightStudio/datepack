@@ -86,13 +86,23 @@ describe('device IndexedDB persistence', () => {
         planId: pack.plan.id,
         revision: 2,
         updatedAt: '2026-09-29T00:00:00.000Z',
-        place: 'Seoul',
+        place: 'Seoul Station',
+        activity: 'Waiting for the train',
+        nextPlace: 'Bookstore',
+        confirmedAt: '2026-09-29T00:10:00.000Z',
       },
     });
     await closeStorage();
     const reopened = await loadDeviceState(pack.plan.id);
     expect(reopened.pendingRequest?.id).toBe('request-1');
     expect(reopened.liveContext?.revision).toBe(2);
+    expect(reopened.liveContext).toMatchObject({
+      place: 'Seoul Station',
+      activity: 'Waiting for the train',
+      nextPlace: 'Bookstore',
+      confirmedAt: '2026-09-29T00:10:00.000Z',
+    });
+    expect(await loadPack(pack.plan.id)).not.toHaveProperty('liveContext');
     expect(reopened.undoStack).toHaveLength(1);
   });
 

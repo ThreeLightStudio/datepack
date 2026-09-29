@@ -900,6 +900,7 @@ div.asset-placeholder,
 
 .field input,
 .field textarea,
+.field select,
 .custom-row input,
 .new-pack-row input,
 .patch-input {
@@ -913,6 +914,7 @@ div.asset-placeholder,
 
 .field input:focus,
 .field textarea:focus,
+.field select:focus,
 .patch-input:focus,
 .custom-row input:focus,
 .new-pack-row input:focus {
@@ -928,6 +930,206 @@ div.asset-placeholder,
 .field-row {
   display: flex;
   gap: var(--sp-3);
+}
+
+.fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+
+.fieldset legend {
+  padding: 0 6px;
+  color: var(--color-text-secondary);
+  font: var(--font-small);
+  font-weight: 600;
+}
+
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  font: var(--font-caption);
+}
+
+.check-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary-deep);
+}
+
+.meeting-summary,
+.context-summary,
+.context-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border-radius: 18px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.context-card {
+  align-items: flex-start;
+  margin-bottom: var(--sp-4);
+  background: var(--color-cream);
+}
+
+.context-card-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.context-card strong,
+.meeting-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.context-card .hint-text {
+  margin: 4px 0 0;
+}
+
+.meeting-summary .eyebrow,
+.context-summary .eyebrow,
+.context-card .eyebrow {
+  margin: 0 0 5px;
+}
+
+.context-summary {
+  margin: var(--sp-3) 0 var(--sp-5);
+}
+
+.event-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-2) var(--sp-3) 76px;
+}
+
+.plan-event {
+  margin-bottom: var(--sp-2);
+}
+
+.section-title {
+  margin: var(--sp-5) 0 var(--sp-3);
+  font: var(--font-section);
+}
+
+.candidate-section,
+.unknown-past {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.candidate-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+}
+
+.candidate-row > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.candidate-row.is-excluded {
+  opacity: 0.65;
+}
+
+.candidate-add {
+  align-self: end;
+  min-height: 44px;
+}
+
+.core-chip {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--color-primary-light);
+  color: var(--color-primary-deep);
+  font: var(--font-small);
+}
+
+.unknown-past {
+  color: var(--color-text-secondary);
+}
+
+.unknown-past ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+
+.day-actions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+}
+
+.day-actions > * {
+  flex: 1;
+}
+
+.device-note {
+  color: var(--color-text-secondary);
+  font: var(--font-small);
+}
+
+.empty-inline {
+  margin: var(--sp-3) 0;
+  padding: var(--sp-4);
+  border: 1px dashed var(--color-border);
+  border-radius: 16px;
+  color: var(--color-text-secondary);
+}
+
+.tl-row.tl-unknown-past {
+  color: var(--color-text-secondary);
+}
+
+.planned-card {
+  box-shadow: var(--shadow-sm);
+}
+
+:where(button, input, textarea, select, a):focus-visible {
+  outline: 3px solid var(--color-primary-deep);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: var(--color-text);
+  background: var(--color-primary-light);
+}
+
+@media (max-width: 360px) {
+  .field-row,
+  .day-actions {
+    flex-direction: column;
+  }
+
+  .event-plan-actions {
+    padding-left: 8px;
+  }
+
+  .candidate-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 .checkbox-field {

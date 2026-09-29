@@ -1,182 +1,149 @@
 import { describe, expect, it } from 'vitest';
 import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { createEvent } from '@datepack/core';
-import { computeDayContext, emptyRuntime, getRuntimeEntry } from '../src/features/day/dayRuntime';
+import {
+  computeDayContext,
+  emptyRuntime,
+  getRuntimeEntry,
+  timeRangeLabel,
+} from '../src/features/day/dayRuntime';
 
 const DAY = '2026-09-28';
-
-function makePlan(): DatePlan {
+function plan(): DatePlan {
   return {
-    id: 'p1',
-    title: '대전 데이트',
+    id: 'p',
+    title: 'Day out',
     date: DAY,
     events: [
       createEvent({
-        id: 'e1',
-        title: '대전역 도착',
-        start: '09:34',
-        end: '09:50',
-        type: 'transport',
+        id: 'later-first',
+        title: 'Late stop',
+        timing: { kind: 'exact', start: { dayOffset: 0, time: '15:30' } },
+        order: 0,
       }),
       createEvent({
-        id: 'e2',
-        title: '성심당 본점',
-        start: '10:00',
-        end: '11:20',
-        type: 'cafe',
-        travelMinutes: 9,
-      }),
-      createEvent({ id: 'e3', title: '디아로마', start: '12:45', end: '14:50', type: 'cafe' }),
-      createEvent({
-        id: 'e4',
-        title: '성심당 본점 재방문',
-        start: '15:30',
-        type: 'place',
-        travelMinutes: 9,
+        id: 'earlier-second',
+        title: 'Lunch',
+        timing: {
+          kind: 'exact',
+          start: { dayOffset: 0, time: '12:00' },
+          end: { dayOffset: 0, time: '13:00' },
+        },
+        order: 1,
       }),
       createEvent({
-        id: 'e5',
-        title: '대전역 출발',
-        start: '22:42',
-        type: 'transport',
-        fixed: true,
+        id: 'loose',
+        title: 'Walk',
+        timing: { kind: 'unscheduled', label: 'After lunch' },
+        order: 2,
       }),
     ],
-    places: [],
   };
 }
+const at = (hour: number, minute: number) => new Date(2026, 8, 28, hour, minute);
 
-function at(hour: number, minute: number): Date {
-  return new Date(2026, 8, 28, hour, minute);
-}
-
-describe('computeDayContext — today', () => {
-  it('finds NOW and NEXT mid-date (14:42, like the mockup)', () => {
-    const ctx = computeDayContext(makePlan(), emptyRuntime('p1'), at(14, 42));
-    expect(ctx.isToday).toBe(true);
-    expect(ctx.current?.event.id).toBe('e3');
-    expect(ctx.next?.event.id).toBe('e4');
-    // remaining in current: 14:50 − 14:42 = 8분
-    expect(ctx.remainingInCurrent).toBe(8);
-    // departure: 15:30 − 9분 = 15:21 → floored 15:20 (phrasing lives in i18n)
-    expect(ctx.departure?.departureMinutes).toBe(15 * 60 + 20);
+describe('dayRuntime', () => {
+  it('preserves manual order even when clock times disagree', () => {
+    const ctx = computeDayContext(plan(), emptyRuntime('p'), at(10, 0));
+    expect(ctx.events.map((v) => v.event.id)).toEqual(['later-first', 'earlier-second', 'loose']);
+    expect(ctx.next?.event.id).toBe('later-first');
   });
 
-  it('marks earlier events past and honours completed/skipped runtime', () => {
+  it('keeps elapsed planned events explicitly unknown until the user records an outcome', () => {
+    const ctx = computeDayContext(plan(), emptyRuntime('p'), at(14, 0));
+    expect(ctx.events.find((v) => v.event.id === 'earlier-second')?.status).toBe('unknown-past');
+    expect(ctx.completedCount).toBe(0);
+    expect(ctx.skippedCount).toBe(0);
+    expect(ctx.overdueUnsettled.map((v) => v.event.id)).toEqual(['earlier-second']);
+  });
+
+  it('uses explicit completion and skip runtime, never elapsed time', () => {
     const runtime: DatePackRuntimeState = {
-      planId: 'p1',
+      planId: 'p',
       updatedAt: '',
       events: {
-        e1: { eventId: 'e1', status: 'completed' },
-        e2: { eventId: 'e2', status: 'skipped' },
+        'earlier-second': { eventId: 'earlier-second', status: 'completed' },
+        'later-first': { eventId: 'later-first', status: 'skipped' },
       },
     };
-    const ctx = computeDayContext(makePlan(), runtime, at(14, 42));
-    const byId = new Map(ctx.events.map((v) => [v.event.id, v.status]));
-    expect(byId.get('e1')).toBe('completed');
-    expect(byId.get('e2')).toBe('skipped');
+    const ctx = computeDayContext(plan(), runtime, at(16, 0));
     expect(ctx.completedCount).toBe(1);
     expect(ctx.skippedCount).toBe(1);
+    expect(ctx.events.find((v) => v.event.id === 'earlier-second')?.status).toBe('completed');
+    expect(ctx.events.find((v) => v.event.id === 'later-first')?.status).toBe('skipped');
   });
 
-  it('treats a long-overdue unsettled event as past once the next event nears', () => {
-    // 15:10: 디아로마 ended 14:50 and 성심당 재방문(15:30) is coming up.
-    const ctx = computeDayContext(makePlan(), emptyRuntime('p1'), at(15, 10));
+  it('keeps timing windows as start windows and unscheduled activities out of clock inference', () => {
+    const p = plan();
+    p.events = [
+      createEvent({
+        id: 'window',
+        title: 'Meet',
+        order: 0,
+        timing: {
+          kind: 'window',
+          earliestStart: { dayOffset: 0, time: '14:00' },
+          latestStart: { dayOffset: 0, time: '16:00' },
+        },
+      }),
+      createEvent({
+        id: 'loose',
+        title: 'Coffee',
+        order: 1,
+        timing: { kind: 'unscheduled', label: 'After the gallery' },
+      }),
+    ];
+    const ctx = computeDayContext(p, emptyRuntime('p'), at(15, 0));
     expect(ctx.current).toBeNull();
-    expect(ctx.next?.event.id).toBe('e4');
-    const byId = new Map(ctx.events.map((v) => [v.event.id, v.status]));
-    expect(byId.get('e3')).toBe('past');
-    // the Today view needs the unrecorded events to stay honest about the day
-    expect(ctx.overdueUnsettled.map((v) => v.event.id)).toEqual(['e1', 'e2', 'e3']);
+    expect(ctx.events[0].status).toBe('unknown-past');
+    expect(timeRangeLabel(ctx.events[0])).toContain('start window');
+    expect(ctx.events[1].startMinutes).toBeNull();
   });
 
-  it('keeps showing an overdue event as NOW when nothing follows', () => {
-    const plan = makePlan();
-    plan.events = plan.events.filter((e) => ['e1', 'e2', 'e3'].includes(e.id));
-    const ctx = computeDayContext(plan, emptyRuntime('p1'), at(15, 10));
-    expect(ctx.current?.event.id).toBe('e3');
-    expect(ctx.remainingInCurrent).toBeLessThan(0);
-  });
-
-  it('marks earlier started events past while one is current', () => {
-    const ctx = computeDayContext(makePlan(), emptyRuntime('p1'), at(14, 42));
-    const byId = new Map(ctx.events.map((v) => [v.event.id, v.status]));
-    expect(byId.get('e1')).toBe('past');
-    expect(byId.get('e2')).toBe('past');
-    expect(byId.get('e3')).toBe('current');
-  });
-
-  it('handles delays: current event runs longer, next departure shifts', () => {
-    const runtime: DatePackRuntimeState = {
-      planId: 'p1',
-      updatedAt: '',
-      events: {
-        e3: { eventId: 'e3', status: 'pending', delayedByMinutes: 15 },
-        e4: { eventId: 'e4', status: 'pending', delayedByMinutes: 15 },
-      },
-    };
-    const ctx = computeDayContext(makePlan(), runtime, at(14, 42));
-    // remaining: 14:50 + 15 − 14:42 = 23분
-    expect(ctx.remainingInCurrent).toBe(23);
-    // departure: 15:30 + 15 − 9 = 15:36 → floored 15:35
-    expect(ctx.departure?.departureMinutes).toBe(15 * 60 + 35);
-  });
-
-  it('flags the night as cleared past a grace window after the last stop', () => {
-    // 마지막 일정 22:42, 종료 없음 → 23:42(=+60분)부터 마무리 상태
-    expect(computeDayContext(makePlan(), emptyRuntime('p1'), at(23, 10)).nightCleared).toBe(false);
-    expect(computeDayContext(makePlan(), emptyRuntime('p1'), at(23, 50)).nightCleared).toBe(true);
-    // 모든 일정을 기록하면 nightCleared가 아니라 allSettled가 된다
-    const runtime: DatePackRuntimeState = {
-      planId: 'p1',
-      updatedAt: '',
-      events: Object.fromEntries(
-        makePlan().events.map((e) => [e.id, { eventId: e.id, status: 'completed' as const }]),
-      ),
-    };
-    expect(computeDayContext(makePlan(), runtime, at(23, 50)).nightCleared).toBe(false);
-    expect(computeDayContext(makePlan(), runtime, at(23, 50)).allSettled).toBe(true);
-  });
-
-  it('reports all done when every event is settled', () => {
-    const runtime: DatePackRuntimeState = {
-      planId: 'p1',
-      updatedAt: '',
-      events: Object.fromEntries(
-        makePlan().events.map((e) => [e.id, { eventId: e.id, status: 'completed' as const }]),
-      ),
-    };
-    const ctx = computeDayContext(makePlan(), runtime, at(14, 42));
-    expect(ctx.allSettled).toBe(true);
+  it('handles next-day timing as the entered day offset', () => {
+    const p = plan();
+    p.events = [
+      createEvent({
+        id: 'night',
+        title: 'Night walk',
+        order: 0,
+        timing: { kind: 'exact', start: { dayOffset: 1, time: '00:20' } },
+      }),
+    ];
+    const ctx = computeDayContext(p, emptyRuntime('p'), at(23, 0));
     expect(ctx.current).toBeNull();
-    expect(ctx.next).toBeNull();
+    expect(ctx.next?.startMinutes).toBe(1460);
   });
 
-  it('shows nothing as current before the first event', () => {
-    const ctx = computeDayContext(makePlan(), emptyRuntime('p1'), at(8, 0));
-    expect(ctx.current).toBeNull();
-    expect(ctx.next?.event.id).toBe('e1');
+  it('shows next-day offsets in the plan time label', () => {
+    const p = plan();
+    p.events = [
+      createEvent({
+        id: 'overnight',
+        title: 'Late dinner',
+        order: 0,
+        timing: {
+          kind: 'exact',
+          start: { dayOffset: 0, time: '23:20' },
+          end: { dayOffset: 1, time: '00:10' },
+        },
+      }),
+    ];
+    const [view] = computeDayContext(p, emptyRuntime('p'), at(10, 0)).events;
+    expect(timeRangeLabel(view, 'en')).toBe('23:20 – 00:10 (next day)');
+    expect(timeRangeLabel(view, 'ko')).toBe('23:20 – 00:10 (다음 날)');
   });
-});
 
-describe('computeDayContext — not today', () => {
-  it('does not highlight NOW/NEXT on other days', () => {
-    const plan = makePlan();
-    plan.date = '2026-09-30';
-    const ctx = computeDayContext(plan, emptyRuntime('p1'), at(14, 42));
+  it('does not surface a current event on another calendar day', () => {
+    const p = plan();
+    p.date = '2026-09-30';
+    const ctx = computeDayContext(p, emptyRuntime('p'), at(16, 0));
     expect(ctx.isToday).toBe(false);
     expect(ctx.current).toBeNull();
     expect(ctx.next).toBeNull();
-    expect(ctx.departure).toBeNull();
-    expect(ctx.events.every((v) => v.status === 'upcoming')).toBe(true);
   });
-});
 
-describe('runtime helpers', () => {
-  it('defaults to pending/A for unknown events', () => {
-    const entry = getRuntimeEntry(emptyRuntime('p1'), 'ghost');
-    expect(entry.status).toBe('pending');
-    expect(entry.activePlan).toBe('A');
-    expect(entry.delayedByMinutes).toBe(0);
+  it('defaults missing runtime entries to pending', () => {
+    expect(getRuntimeEntry(emptyRuntime('p'), 'unknown').status).toBe('pending');
   });
 });

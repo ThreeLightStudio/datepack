@@ -1,37 +1,30 @@
 import type { DateEvent, DatePackRuntimeState, DatePlan, EventRuntimeState } from '@datepack/core';
-import { floorTo5, formatTime, minutesOfDay, parseTime, todayISO } from '@datepack/core';
+import { floorTo5, formatTime, localPointMinutes, minutesOfDay, todayISO } from '@datepack/core';
 
-export type DayEventStatus = 'completed' | 'skipped' | 'current' | 'past' | 'upcoming';
-
+export type DayEventStatus = 'completed' | 'skipped' | 'current' | 'unknown-past' | 'upcoming';
 export type DayEventView = {
   event: DateEvent;
   status: DayEventStatus;
-  /** effective start/end in minutes since midnight (delay included for departure math) */
-  startMinutes: number;
+  startMinutes: number | null;
   endMinutes: number | null;
   delayedByMinutes: number;
   activePlan: 'A' | 'B';
 };
-
 export type DayDeparture = {
   eventId: string;
-  /** Recommended departure in minutes since midnight (already floored for display). */
   departureMinutes: number;
   travelMinutes: number | null;
 };
-
 export type DayContext = {
   isToday: boolean;
   events: DayEventView[];
   current: DayEventView | null;
   next: DayEventView | null;
   departure: DayDeparture | null;
-  /** minutes left in the current event (negative = overdue) */
   remainingInCurrent: number | null;
-  /** started but never marked completed/skipped — the Today view must stay honest about these */
+  /** Clock has passed these planned starts; actual outcome is still unknown. */
   overdueUnsettled: DayEventView[];
-  /** the day has run past its last stop by a grace window and stops went unlogged */
-  nightCleared: boolean;
+  nightCleared: false;
   completedCount: number;
   skippedCount: number;
   totalCount: number;
@@ -51,6 +44,19 @@ export function getRuntimeEntry(
   );
 }
 
+function plannedStart(event: DateEvent): number | null {
+  const timing = event.timing;
+  if (timing.kind === 'exact') return localPointMinutes(timing.start);
+  if (timing.kind === 'window') return localPointMinutes(timing.earliestStart);
+  return null;
+}
+
+function plannedEnd(event: DateEvent): number | null {
+  return event.timing.kind === 'exact' && event.timing.end
+    ? localPointMinutes(event.timing.end)
+    : null;
+}
+
 export function computeDayContext(
   plan: DatePlan,
   runtime: DatePackRuntimeState | null,
@@ -58,105 +64,44 @@ export function computeDayContext(
 ): DayContext {
   const isToday = plan.date === todayISO(now);
   const nowMinutes = minutesOfDay(now);
-
-  const views: DayEventView[] = [...plan.events]
-    .sort((a, b) => (parseTime(a.start) ?? 0) - (parseTime(b.start) ?? 0))
-    .map((event) => {
+  const views = [...plan.events]
+    .sort((a, b) => a.order - b.order)
+    .map((event): DayEventView => {
       const state = getRuntimeEntry(runtime, event.id);
-      const start = parseTime(event.start) ?? 0;
-      const end = event.end ? parseTime(event.end) : null;
+      const startMinutes = plannedStart(event);
       return {
         event,
-        status: 'upcoming' as DayEventStatus,
-        startMinutes: start,
-        endMinutes: end,
+        status:
+          state.status === 'completed' || state.status === 'skipped' ? state.status : 'upcoming',
+        startMinutes,
+        endMinutes: plannedEnd(event),
         delayedByMinutes: state.delayedByMinutes ?? 0,
         activePlan: state.activePlan ?? 'A',
       };
     });
 
-  if (!isToday) {
-    const completed = views.filter(
-      (v) => getRuntimeEntry(runtime, v.event.id).status === 'completed',
-    ).length;
-    const skipped = views.filter(
-      (v) => getRuntimeEntry(runtime, v.event.id).status === 'skipped',
-    ).length;
-    return {
-      isToday: false,
-      events: views,
-      current: null,
-      next: null,
-      departure: null,
-      remainingInCurrent: null,
-      overdueUnsettled: [],
-      nightCleared: false,
-      completedCount: completed,
-      skippedCount: skipped,
-      totalCount: views.length,
-      allSettled: false,
-    };
-  }
-
-  // 1st pass: runtime-settled events
   for (const view of views) {
-    const state = getRuntimeEntry(runtime, view.event.id);
-    if (state.status === 'completed') view.status = 'completed';
-    if (state.status === 'skipped') view.status = 'skipped';
+    if (view.status !== 'upcoming' || view.startMinutes === null || !isToday) continue;
+    view.status = view.startMinutes < nowMinutes ? 'unknown-past' : 'upcoming';
   }
-
-  // 2nd pass: NOW is the *latest* unsettled event that already started.
-  // If it ran over its end time but the next event is coming up, it reads as
-  // past and the upcoming event takes over (departure card instead of NOW).
-  const unsettled = views.filter((v) => v.status === 'upcoming');
-  const started = unsettled.filter((v) => v.startMinutes <= nowMinutes);
-  const upcoming = unsettled.filter((v) => v.startMinutes > nowMinutes);
-  const next = upcoming[0] ?? null;
-
-  let current: DayEventView | null = null;
-  if (started.length > 0) {
-    const last = started[started.length - 1];
-    const endEffective = last.endMinutes === null ? null : last.endMinutes + last.delayedByMinutes;
-    const overdue = endEffective !== null && endEffective < nowMinutes;
-    if (!overdue || upcoming.length === 0) current = last;
-  }
-
-  for (const view of started) {
-    if (view === current) view.status = 'current';
-    else view.status = 'past';
-  }
-
-  let remainingInCurrent: number | null = null;
-  if (current?.endMinutes !== null && current?.endMinutes !== undefined) {
-    remainingInCurrent = current.endMinutes + current.delayedByMinutes - nowMinutes;
-  }
-
-  let departure: DayDeparture | null = null;
-  if (next) {
-    const travel = next.event.travelMinutes ?? null;
-    const departureMinutes = next.startMinutes + next.delayedByMinutes - (travel ?? 0);
-    departure = {
-      eventId: next.event.id,
-      departureMinutes: floorTo5(departureMinutes),
-      travelMinutes: travel,
-    };
-  }
-
-  const overdueUnsettled = views.filter((v) => v.status === 'past');
-
-  // Night closure: well past the last stop's start (45 min after its end when it
-  // has one, 60 min after its start when it doesn't) with stops still unlogged.
-  let nightCleared = false;
-  const last = views[views.length - 1];
-  if (last && overdueUnsettled.length > 0) {
-    const lastStart = last.startMinutes + last.delayedByMinutes;
-    const graceEnd =
-      last.endMinutes !== null ? last.endMinutes + last.delayedByMinutes + 45 : lastStart + 60;
-    nightCleared = nowMinutes >= graceEnd;
-  }
-
+  // A planned time cannot establish that someone is currently at a place.
+  // Only explicit runtime facts can resolve actual status; live context is separate.
+  const current = null;
+  const next = isToday
+    ? (views.find((v) => v.status === 'upcoming' && v.startMinutes !== null) ?? null)
+    : null;
+  const departure =
+    next?.startMinutes !== null && next?.startMinutes !== undefined
+      ? {
+          eventId: next.event.id,
+          travelMinutes: null,
+          departureMinutes: floorTo5(next.startMinutes + next.delayedByMinutes),
+        }
+      : null;
+  const remainingInCurrent = null;
   const completedCount = views.filter((v) => v.status === 'completed').length;
   const skippedCount = views.filter((v) => v.status === 'skipped').length;
+  const overdueUnsettled = views.filter((v) => v.status === 'unknown-past');
 
   return {
     isToday,
@@ -166,17 +111,31 @@ export function computeDayContext(
     departure,
     remainingInCurrent,
     overdueUnsettled,
-    nightCleared,
+    nightCleared: false,
     completedCount,
     skippedCount,
     totalCount: views.length,
-    allSettled: !current && !next && views.length > 0,
+    allSettled:
+      views.length > 0 && views.every((v) => v.status === 'completed' || v.status === 'skipped'),
   };
 }
 
-/** Caption under an event: "09:34 – 09:50" */
-export function timeRangeLabel(view: DayEventView): string {
-  const start = formatTime(view.startMinutes);
-  if (view.endMinutes === null) return start;
-  return `${start} – ${formatTime(view.endMinutes)}`;
+export function timeRangeLabel(view: DayEventView, locale: 'ko' | 'en' = 'en'): string {
+  const dayLabel = (offset: 0 | 1) =>
+    offset === 1 ? (locale === 'ko' ? '다음 날' : 'next day') : '';
+  if (view.event.timing.kind === 'unscheduled')
+    return view.event.timing.label ?? (locale === 'ko' ? '시간 미정' : 'Unscheduled');
+  if (view.event.timing.kind === 'window') {
+    const from = view.event.timing.earliestStart;
+    const to = view.event.timing.latestStart;
+    const a = `${formatTime(localPointMinutes(from) ?? 0)}${from.dayOffset ? ` (${dayLabel(from.dayOffset)})` : ''}`;
+    const b = `${formatTime(localPointMinutes(to) ?? 0)}${to.dayOffset ? ` (${dayLabel(to.dayOffset)})` : ''}`;
+    return `${a}–${b} ${locale === 'ko' ? '시작 시간대' : 'start window'}`;
+  }
+  const startMinutes = localPointMinutes(view.event.timing.start);
+  const start = `${formatTime(startMinutes ?? 0)}${view.event.timing.start.dayOffset ? ` (${dayLabel(view.event.timing.start.dayOffset)})` : ''}`;
+  if (!view.event.timing.end) return start;
+  const endMinutes = localPointMinutes(view.event.timing.end);
+  const end = `${formatTime(endMinutes ?? 0)}${view.event.timing.end.dayOffset ? ` (${dayLabel(view.event.timing.end.dayOffset)})` : ''}`;
+  return `${start} – ${end}`;
 }

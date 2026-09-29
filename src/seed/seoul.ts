@@ -40,6 +40,7 @@ type SeedCopy = {
   planB: { trigger: string; title: string; note: string };
   coverText: string;
   cafeText: string;
+  candidate: string;
 };
 
 const COPY: Record<Locale, SeedCopy> = {
@@ -78,6 +79,7 @@ const COPY: Record<Locale, SeedCopy> = {
     },
     coverText: '서울, 더 좋은 하루를 함께.',
     cafeText: '익선동',
+    candidate: '여유 있으면 작은 전시',
   },
   en: {
     title: 'Classic Seoul Day',
@@ -117,6 +119,7 @@ const COPY: Record<Locale, SeedCopy> = {
     },
     coverText: 'Seoul, a better day together.',
     cafeText: 'Ikseondong',
+    candidate: 'A small gallery if there’s time',
   },
 };
 
@@ -157,6 +160,7 @@ export function createSeoulSeed(locale: Locale): {
       end: '11:40',
       type: 'place',
       placeId: gyeongbokgung.id,
+      importance: 'core',
       travelMinutes: 15,
       note: e.gyeongbokgung.note,
     }),
@@ -223,6 +227,7 @@ export function createSeoulSeed(locale: Locale): {
       end: '21:00',
       type: 'place',
       placeId: namsan.id,
+      importance: 'core',
       travelMinutes: 30,
       note: e.namsan.note,
     }),
@@ -242,6 +247,8 @@ export function createSeoulSeed(locale: Locale): {
     title: copy.title,
     date,
     memo: copy.memo,
+    availableFrom: { dayOffset: 0, time: '09:30' },
+    mustEndBy: { dayOffset: 0, time: '22:00' },
     constraints: copy.constraints,
     events: events.map((event, order) => ({
       ...event,
@@ -249,6 +256,19 @@ export function createSeoulSeed(locale: Locale): {
       protectedFields: event.fixed ? ['time', 'place', 'content', 'delete', 'order'] : [],
     })),
     places,
+    meeting: {
+      placeId: station.id,
+      locationNote: '2번 출구 앞',
+      timing: { kind: 'exact', start: { dayOffset: 0, time: '09:30' } },
+    },
+    candidates: [
+      {
+        id: 'candidate-optional-market',
+        title: copy.candidate,
+        type: 'activity',
+        proposedBy: 'DatePack',
+      },
+    ],
   };
 
   // Local generated placeholder assets (no remote image dependency).

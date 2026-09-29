@@ -13,7 +13,6 @@ import {
   downloadBlob,
   readDatePack,
   registerAsset,
-  todayISO,
   validateDatePack,
   writeDatePack,
 } from '@datepack/core';
@@ -519,7 +518,7 @@ export async function applyPatchWithUndo(
 export async function createNewPack(title: string, date: string): Promise<void> {
   const pack = createDatePack({
     title: title.trim() || t('fallback.packTitle'),
-    date: date || todayISO(),
+    ...(date ? { date } : {}),
   });
   const runtime = emptyRuntime(pack.plan.id);
   await savePack(pack);

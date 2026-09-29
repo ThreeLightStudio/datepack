@@ -56,7 +56,8 @@ describe('buildAiPrompt', () => {
       now: NOW,
     });
     expect(prompt).toContain('- 15:00–16:00 카페 (id: event-cafe, cafe)');
-    expect(prompt).toContain('- 22:00 기차 타기 (id: event-train, transport, 고정)');
+    expect(prompt).toContain('- 22:00 기차 타기 (id: event-train, transport, 보호됨)');
+    expect(prompt).not.toContain('id: event-station');
   });
 
   it('never exposes ids for settled stops — they are not targets', () => {

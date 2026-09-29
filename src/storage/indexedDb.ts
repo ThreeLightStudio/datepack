@@ -16,6 +16,7 @@ export type LiveContext = {
   place?: string;
   activity?: string;
   nextPlaceId?: string;
+  nextPlace?: string;
   confirmedAt?: string;
 };
 export type PersonalJourney = {
