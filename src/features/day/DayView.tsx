@@ -231,6 +231,7 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
       {contextOpen && (
         <CurrentContextSheet
           plan={plan}
+          runtime={runtime}
           context={store.liveContext}
           onClose={() => setContextOpen(false)}
         />

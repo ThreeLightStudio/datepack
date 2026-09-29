@@ -1,12 +1,17 @@
-import { useState } from 'react';
-import type { DateEventType, DatePlan } from '@datepack/core';
+import { useRef, useState } from 'react';
+import type { DateEventType, DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { DATE_EVENT_TYPES } from '@datepack/core';
 import type { LiveContext } from '../../storage/indexedDb';
 import { updateLiveContext, updatePlan } from '../../store/datepackStore';
 import { Sheet } from '../../components/Sheet';
 import { CheckIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
-import { addNextActivity, promoteCandidateToNextActivity } from './nextDestination';
+import {
+  addNextActivity,
+  isSettledNextEvent,
+  promoteCandidateToNextActivity,
+  selectableNextEvents,
+} from './nextDestination';
 
 function toLocalDateTime(value: string): string {
   const date = new Date(value);
@@ -15,16 +20,20 @@ function toLocalDateTime(value: string): string {
 
 export function CurrentContextSheet({
   plan,
+  runtime,
   context,
   onClose,
 }: {
   plan: DatePlan;
+  runtime: DatePackRuntimeState | null;
   context: LiveContext | null;
   onClose: () => void;
 }) {
   const locale = useLocale();
   const ko = locale === 'ko';
-  const initialEvent = plan.events.find((event) => event.id === context?.nextPlaceId);
+  const initialEvent = selectableNextEvents(plan.events, runtime).find(
+    (event) => event.id === context?.nextPlaceId,
+  );
   const [place, setPlace] = useState(context?.place ?? '');
   const [activity, setActivity] = useState(context?.activity ?? '');
   const [nextSelection, setNextSelection] = useState(
@@ -37,6 +46,7 @@ export function CurrentContextSheet({
   );
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const pendingDestinationRef = useRef<{ eventId: string; title: string } | null>(null);
   const selectedEvent = nextSelection.startsWith('event:')
     ? plan.events.find((event) => event.id === nextSelection.slice('event:'.length))
     : undefined;
@@ -54,17 +64,32 @@ export function CurrentContextSheet({
     setSaving(true);
     setError('');
     try {
-      let nextPlaceId = selectedEvent?.id;
-      let nextTitle = selectedEvent?.title;
-      if (selectedCandidate || newActivity.trim()) {
+      const pendingDestination = pendingDestinationRef.current;
+      const destinationEventId = pendingDestination?.eventId ?? selectedEvent?.id;
+      if (destinationEventId && isSettledNextEvent(runtime, destinationEventId)) {
+        pendingDestinationRef.current = null;
+        setNextSelection('');
+        setNewActivity('');
+        setError(
+          ko
+            ? '이미 완료하거나 건너뛴 일정이에요. 다른 목적지를 선택해주세요.'
+            : 'That activity is already done or skipped. Choose another destination.',
+        );
+        return;
+      }
+
+      let nextPlaceId = pendingDestination?.eventId ?? selectedEvent?.id;
+      let nextTitle = pendingDestination?.title ?? selectedEvent?.title;
+      if (!pendingDestination && (selectedCandidate || newActivity.trim())) {
         let newEventId = '';
         let newEventTitle = '';
+        const requestedEventId = selectedCandidate ? undefined : `next-${crypto.randomUUID()}`;
         const saved = await updatePlan(
           ko ? '다음 목적지를 일정에 추가' : 'Add next place to plan',
           (draft) => {
             const event = selectedCandidate
               ? promoteCandidateToNextActivity(draft, selectedCandidate.id)
-              : addNextActivity(draft, newActivity, newActivityType);
+              : addNextActivity(draft, newActivity, newActivityType, requestedEventId);
             if (!event) return draft;
             newEventId = event.id;
             newEventTitle = event.title;
@@ -78,8 +103,11 @@ export function CurrentContextSheet({
           );
           return;
         }
-        nextPlaceId = newEventId || undefined;
-        nextTitle = newEventTitle || undefined;
+        nextPlaceId = newEventId;
+        nextTitle = newEventTitle;
+        pendingDestinationRef.current = { eventId: newEventId, title: newEventTitle };
+        setNextSelection(`event:${newEventId}`);
+        setNewActivity('');
       }
 
       await updateLiveContext({
@@ -91,9 +119,18 @@ export function CurrentContextSheet({
         nextPlace: nextTitle,
         confirmedAt: new Date(confirmedAt).toISOString(),
       });
+      pendingDestinationRef.current = null;
       onClose();
     } catch {
-      setError(ko ? '저장하지 못했어요. 다시 시도해주세요.' : 'Could not save. Please try again.');
+      setError(
+        pendingDestinationRef.current
+          ? ko
+            ? '활동은 일정에 추가됐어요. 다시 저장하면 상황과 연결돼요.'
+            : 'The activity is in the plan. Retry to finish saving this update.'
+          : ko
+            ? '저장하지 못했어요. 다시 시도해주세요.'
+            : 'Could not save. Please try again.',
+      );
     } finally {
       setSaving(false);
     }
@@ -125,13 +162,14 @@ export function CurrentContextSheet({
           <select
             value={nextSelection}
             onChange={(e) => {
+              pendingDestinationRef.current = null;
               setNextSelection(e.target.value);
               setNewActivity('');
             }}
           >
             <option value="">{ko ? '아직 정하지 않음' : 'Not decided yet'}</option>
             <optgroup label={ko ? '남은 일정' : 'Planned activities'}>
-              {plan.events.map((event) => (
+              {selectableNextEvents(plan.events, runtime).map((event) => (
                 <option key={event.id} value={`event:${event.id}`}>
                   {event.title}
                 </option>
@@ -155,6 +193,7 @@ export function CurrentContextSheet({
           <input
             value={newActivity}
             onChange={(e) => {
+              pendingDestinationRef.current = null;
               setNewActivity(e.target.value);
               if (e.target.value) setNextSelection('');
             }}
@@ -166,7 +205,10 @@ export function CurrentContextSheet({
             <span>{ko ? '활동 종류' : 'Activity type'}</span>
             <select
               value={newActivityType}
-              onChange={(e) => setNewActivityType(e.target.value as DateEventType)}
+              onChange={(e) => {
+                pendingDestinationRef.current = null;
+                setNewActivityType(e.target.value as DateEventType);
+              }}
             >
               {DATE_EVENT_TYPES.map((type) => (
                 <option key={type} value={type}>

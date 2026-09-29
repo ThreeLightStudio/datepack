@@ -424,6 +424,7 @@ export function PlanView({ plan, runtime }: Props) {
       {contextOpen && (
         <CurrentContextSheet
           plan={plan}
+          runtime={runtime}
           context={store.liveContext}
           onClose={() => setContextOpen(false)}
         />

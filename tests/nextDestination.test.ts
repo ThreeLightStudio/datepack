@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { DatePlan } from '@datepack/core';
+import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { createEvent } from '@datepack/core';
 import {
   addNextActivity,
   promoteCandidateToNextActivity,
+  selectableNextEvents,
 } from '../src/features/day/nextDestination';
 
 function plan(): DatePlan {
@@ -44,6 +45,28 @@ describe('next destination', () => {
       order: 1,
     });
     expect(p.events).toContain(event);
+  });
+
+  it('reuses an activity after a retry when the plan write already succeeded', () => {
+    const p = plan();
+    const first = addNextActivity(p, 'Bookstore', 'place', 'next-retry');
+    const retry = addNextActivity(p, 'Bookstore', 'place', 'next-retry');
+    expect(retry).toBe(first);
+    expect(p.events.filter((event) => event.id === 'next-retry')).toHaveLength(1);
+  });
+
+  it('filters completed and skipped events from destination choices', () => {
+    const p = plan();
+    p.events.push(createEvent({ id: 'skipped', title: 'Gallery', order: 1 }));
+    const runtime: DatePackRuntimeState = {
+      planId: p.id,
+      updatedAt: new Date().toISOString(),
+      events: {
+        existing: { eventId: 'existing', status: 'completed' },
+        skipped: { eventId: 'skipped', status: 'skipped' },
+      },
+    };
+    expect(selectableNextEvents(p.events, runtime).map((event) => event.id)).toEqual([]);
   });
 
   it('does not promote excluded or missing ideas', () => {

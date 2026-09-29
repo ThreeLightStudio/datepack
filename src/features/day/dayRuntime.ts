@@ -59,6 +59,26 @@ function plannedEnd(event: DateEvent): number | null {
     : null;
 }
 
+function latestTimingMinute(timing: DateEvent['timing']): number | null {
+  if (timing.kind === 'unscheduled') return null;
+  if (timing.kind === 'window') return (localPointMinutes(timing.latestStart) ?? 0) + 60;
+  const start = localPointMinutes(timing.start);
+  if (timing.end) return localPointMinutes(timing.end);
+  return start === null ? null : start + 60;
+}
+
+function latestPlanMinute(plan: DatePlan): number | null {
+  const endpoints = plan.events
+    .map((event) => latestTimingMinute(event.timing))
+    .filter((minute): minute is number => minute !== null);
+  if (plan.mustEndBy) endpoints.push(localPointMinutes(plan.mustEndBy) ?? 0);
+  if (plan.meeting?.timing) {
+    const meetingEnd = latestTimingMinute(plan.meeting.timing);
+    if (meetingEnd !== null) endpoints.push(meetingEnd);
+  }
+  return endpoints.length ? Math.max(...endpoints) : null;
+}
+
 /** Calendar-day difference from the plan's date to the current local date. */
 function calendarDayDifference(currentDate: string, planDate: string): number {
   const [currentYear, currentMonth, currentDay] = currentDate.split('-').map(Number);
@@ -76,7 +96,13 @@ export function computeDayContext(
   const isToday = plan.date === todayISO(now);
   const nowMinutes = minutesOfDay(now);
   const planDayOffset = plan.date ? calendarDayDifference(todayISO(now), plan.date) : null;
-  const withinPlanDays = planDayOffset !== null && planDayOffset >= 0 && planDayOffset <= 1;
+  const inferenceWithinPlanDays =
+    planDayOffset !== null && planDayOffset >= 0 && planDayOffset <= 1;
+  const withinPlanDays =
+    planDayOffset === 0 ||
+    (planDayOffset === 1 &&
+      latestPlanMinute(plan) !== null &&
+      1440 + nowMinutes <= latestPlanMinute(plan)!);
   const elapsedPlanMinutes =
     planDayOffset === null ? nowMinutes : planDayOffset * 1440 + nowMinutes;
   const views = [...plan.events]
@@ -97,13 +123,14 @@ export function computeDayContext(
     });
 
   for (const view of views) {
-    if (view.status !== 'upcoming' || view.startMinutes === null || !withinPlanDays) continue;
+    if (view.status !== 'upcoming' || view.startMinutes === null || !inferenceWithinPlanDays)
+      continue;
     view.status = view.startMinutes < elapsedPlanMinutes ? 'unknown-past' : 'upcoming';
   }
   // A planned time cannot establish that someone is currently at a place.
   // Only explicit runtime facts can resolve actual status; live context is separate.
   const current = null;
-  const next = withinPlanDays
+  const next = inferenceWithinPlanDays
     ? (views.find((v) => v.status === 'upcoming' && v.startMinutes !== null) ?? null)
     : null;
   const departure =

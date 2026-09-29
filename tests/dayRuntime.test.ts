@@ -133,8 +133,13 @@ describe('dayRuntime', () => {
     expect(beforeStart.events[0].status).toBe('upcoming');
 
     const afterStart = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 0, 21));
+    expect(afterStart.isWithinPlanDays).toBe(true);
     expect(afterStart.events[0].status).toBe('unknown-past');
     expect(afterStart.overdueUnsettled.map((view) => view.event.id)).toEqual(['after-midnight']);
+    const lateNextDay = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 23, 0));
+    expect(lateNextDay.isWithinPlanDays).toBe(false);
+    expect(lateNextDay.events[0].status).toBe('unknown-past');
+    expect(lateNextDay.next).toBeNull();
   });
 
   it('preserves explicit re-inclusion on an elapsed unconfirmed activity', () => {
