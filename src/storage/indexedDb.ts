@@ -87,6 +87,15 @@ export type PendingRequestGuard = Pick<
   | 'responseFingerprint'
 >;
 
+/** Device-only form drafts. Never included in a portable DatePack. */
+export async function loadAiFormDraft(key: string): Promise<unknown> {
+  return (await getDb()).get('meta', `ai-form:${key}`);
+}
+
+export async function saveAiFormDraft(key: string, value: unknown): Promise<void> {
+  await (await getDb()).put('meta', structuredClone(value), `ai-form:${key}`);
+}
+
 export async function savePendingRequest(
   request: PendingRequest | undefined,
   expected: PendingRequestGuard | null,
@@ -118,6 +127,14 @@ export async function savePendingRequest(
           actual.responseFingerprint === expected.responseFingerprint,
         );
   if (!matches) {
+    abortReadWrite(tx);
+    throw new Error('request-conflict');
+  }
+  if (
+    actual?.id === request.id &&
+    ['applied', 'cancelled'].includes(actual.status) &&
+    request.status !== actual.status
+  ) {
     abortReadWrite(tx);
     throw new Error('request-conflict');
   }
@@ -779,6 +796,8 @@ export async function deletePack(packId: string): Promise<void> {
   for (const key of await assets.index('byPack').getAllKeys(packId)) await assets.delete(key);
   await tx.objectStore('runtime').delete(packId);
   await tx.objectStore('device').delete(packId);
+  await tx.objectStore('meta').delete(`ai-form:replan:${packId}`);
+  await tx.objectStore('meta').delete(`ai-form:memory:${packId}`);
   await tx
     .objectStore('deletedPacks')
     .put({ planId: packId, deletedAt: new Date().toISOString() }, packId);

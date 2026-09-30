@@ -245,9 +245,10 @@ export const en: Record<MessageKey, string> = {
   'create.prompt.copy': 'Copy the note',
   'create.toast.copied': 'Note copied.',
   'create.prompt.hint':
-    "Keep the conversation going with your AI to refine the plan. Once it's final, paste the JSON it replies with into the next step.",
+    'Keep discussing with your AI. Approve a suggestion, then paste its whole final reply below.',
   'create.step2': '2. Paste the final reply',
-  'create.step2.hint': "Paste the Plan JSON your AI answered with — you'll preview it first.",
+  'create.step2.hint':
+    'Paste the whole approved reply or its JSON object. A preview appears automatically; confirm before saving.',
   'create.check': 'Review the plan',
   'create.review.head': '"{title}" · {date}',
   'create.review.events': '{count} stops',

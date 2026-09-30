@@ -53,6 +53,7 @@ import {
   validateImpact,
   type ValidationSnapshot,
 } from '../features/day/routeImpact';
+import { parseMemoryReply } from '../features/memories/aiMemory';
 import { getAiScopeEventIds } from '../features/ai/promptBuilder';
 import { t, getLocale, type I18nIssue } from '../i18n/core';
 
@@ -333,30 +334,67 @@ export async function updatePersonalJourney(
   setState({ personalJourney: personalJourney ?? null });
 }
 
-export async function updatePendingRequest(pendingRequest: PendingRequest): Promise<void> {
-  if (!state.pack) return;
-  if (pendingRequest && pendingRequest.planId !== state.pack.plan.id)
+// Serialize this tab's edits; IndexedDB still arbitrates across tabs. Capture the
+// expected snapshot before queueing so a late preview cannot overwrite new input.
+let requestWrites: Promise<unknown> = Promise.resolve();
+function enqueueRequestWrite<T>(write: () => Promise<T>): Promise<T> {
+  const result = requestWrites.then(write, write);
+  requestWrites = result.catch(() => undefined);
+  return result;
+}
+
+async function writePendingRequest(
+  pendingRequest: PendingRequest,
+  expected: PendingRequest | null,
+): Promise<void> {
+  if (!state.pack || pendingRequest.planId !== state.pack.plan.id)
     throw new Error('request-plan-mismatch');
-  const expected = state.pendingRequest
-    ? {
-        id: state.pendingRequest.id,
-        kind: state.pendingRequest.kind,
-        status: state.pendingRequest.status,
-        baseRevision: state.pendingRequest.baseRevision,
-        contextRevision: state.pendingRequest.contextRevision,
-        generatedAt: state.pendingRequest.generatedAt,
-        updatedAt: state.pendingRequest.updatedAt,
-        answerText: state.pendingRequest.answerText,
-        responseFingerprint: state.pendingRequest.responseFingerprint,
-      }
-    : null;
   try {
     await savePendingRequest(pendingRequest, expected);
   } catch (error) {
     await refreshAfterConflict(error);
     throw error;
   }
-  setState({ pendingRequest });
+  if (state.pack?.plan.id === pendingRequest.planId) setState({ pendingRequest });
+}
+
+export function updatePendingRequest(
+  pendingRequest: PendingRequest,
+  expected = state.pendingRequest,
+): Promise<void> {
+  return enqueueRequestWrite(() => writePendingRequest(pendingRequest, expected));
+}
+
+/** Each keystroke/paste is queued immediately, including before preview. */
+export function savePendingAnswer(requestId: string, answerText: string): Promise<void> {
+  return enqueueRequestWrite(async () => {
+    const request = state.pendingRequest;
+    if (!request || request.id !== requestId || ['applied', 'cancelled'].includes(request.status))
+      throw new Error('request-conflict');
+    await writePendingRequest(
+      {
+        ...request,
+        status: request.status === 'stale' ? 'stale' : 'draft',
+        answerText,
+        responseFingerprint: undefined,
+        error: undefined,
+        updatedAt: new Date().toISOString(),
+      },
+      request,
+    );
+  });
+}
+
+/** Sharing may finish after a paste or review. It cannot downgrade that answer. */
+export function markPendingRequestSent(requestId: string): Promise<void> {
+  return enqueueRequestWrite(async () => {
+    const request = state.pendingRequest;
+    if (!request || request.id !== requestId || request.status !== 'ready') return;
+    await writePendingRequest(
+      { ...request, status: 'waiting', updatedAt: new Date().toISOString() },
+      request,
+    );
+  });
 }
 
 /** Commit an approved AI plan using the same validated transaction as direct edits. */
@@ -564,6 +602,21 @@ export async function applyAiMemoryNote(
     showToast(t('ai.request.stale'));
     return false;
   }
+  const parsed = parseMemoryReply(
+    request.answerText,
+    {
+      requestId: request.id,
+      packId: request.planId,
+      baseRevision: request.baseRevision,
+      contextRevision: request.contextRevision,
+      generatedAt: request.generatedAt,
+      kind: 'memory-edit',
+    },
+    experience,
+    payload.originalText,
+  );
+  if (!parsed.ok || parsed.experienceId !== experienceId || parsed.editedText !== editedText.trim())
+    return false;
   const completed: PendingRequest = {
     ...request,
     status: 'applied',

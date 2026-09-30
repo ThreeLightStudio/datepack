@@ -15,19 +15,17 @@ import { REPO_URL } from '../../app/meta';
 import { AssetImage } from '../../components/AssetImage';
 import { DownloadIcon, EditIcon, PlusIcon, TrashIcon, UploadIcon } from '../../components/icons';
 import { AiSection } from '../ai/AiSection';
-import { CreateWithAiSheet } from '../ai/CreateWithAiSheet';
 import { PlanMetaSheet } from '../editor/PlanMetaSheet';
 import { formatDate, format, setLocale, useLocale, LOCALES } from '../../i18n';
 import { showImportError } from '../../app/App';
 import { MemoriesSection } from '../memories/MemoriesSection';
 
-type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
+type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null; onOpenCreate: () => void };
 
-export function DetailsView({ plan, runtime }: Props) {
+export function DetailsView({ plan, runtime, onOpenCreate }: Props) {
   const locale = useLocale();
   const { savedPacks } = useStore();
   const [metaOpen, setMetaOpen] = useState(false);
-  const [aiCreateOpen, setAiCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDate, setNewDate] = useState(todayISO());
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -176,7 +174,7 @@ export function DetailsView({ plan, runtime }: Props) {
         <div className="sub-block">
           <p className="eyebrow">{ko ? '새 데이트 만들기' : 'Start a new date'}</p>
           <div className="action-row">
-            <button type="button" className="btn btn-primary" onClick={() => setAiCreateOpen(true)}>
+            <button type="button" className="btn btn-primary" onClick={onOpenCreate}>
               {format(locale, 'create.btn')}
             </button>
           </div>
@@ -277,7 +275,6 @@ export function DetailsView({ plan, runtime }: Props) {
       </footer>
 
       {metaOpen && <PlanMetaSheet plan={plan} onClose={() => setMetaOpen(false)} />}
-      {aiCreateOpen && <CreateWithAiSheet open onClose={() => setAiCreateOpen(false)} />}
     </div>
   );
 }

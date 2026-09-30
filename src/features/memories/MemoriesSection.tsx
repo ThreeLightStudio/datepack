@@ -6,29 +6,21 @@ import {
   showToast,
   updatePendingRequest,
   applyAiMemoryNote,
+  getStoreState,
+  markPendingRequestSent,
 } from '../../store/datepackStore';
 import type { PendingRequest } from '../../storage/indexedDb';
 import { responseFingerprint, type AiRequestIdentity } from '../ai/exchange';
 import { useLocale, formatDate } from '../../i18n';
 import { AssetImage } from '../../components/AssetImage';
 import { buildExperienceShareText } from './shareText';
+import { copyRequestText } from '../ai/clipboard';
+import { useAiForm, useAnswerSave, recoverAnswer } from '../ai/useAiDraft';
+import { DraftSaveError, RequestHelp } from '../ai/RequestHelp';
 import { buildMemoryPrompt, parseMemoryReply } from './aiMemory';
 
 async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.setAttribute('readonly', '');
-  area.style.position = 'fixed';
-  area.style.opacity = '0';
-  document.body.append(area);
-  area.select();
-  const copied = document.execCommand('copy');
-  area.remove();
-  if (!copied) throw new Error('clipboard-unavailable');
+  if (!(await copyRequestText(text))) throw new Error('clipboard-unavailable');
 }
 
 export function MemoriesSection() {
@@ -36,13 +28,26 @@ export function MemoriesSection() {
   const ko = locale === 'ko';
   const { pack, pendingRequest, contextRevision } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState('');
-  const [eventId, setEventId] = useState('');
-  const [placeName, setPlaceName] = useState('');
-  const [occurredOn, setOccurredOn] = useState('');
-  const [time, setTime] = useState('');
-  const [outcome, setOutcome] = useState<Experience['outcome']>('note');
-  const [note, setNote] = useState('');
+  const form = useAiForm(`memory:${pack?.plan.id ?? 'none'}`, {
+    title: '',
+    eventId: '',
+    placeName: '',
+    occurredOn: '',
+    time: '',
+    outcome: 'note',
+    note: '',
+  });
+  const { title, eventId, placeName, occurredOn, time, note } = form.value;
+  const outcome = form.value.outcome as Experience['outcome'];
+  const setTitle = (v: string) => form.change('title', v);
+  const setEventId = (v: string) => form.change('eventId', v);
+  const setPlaceName = (v: string) => form.change('placeName', v);
+  const setOccurredOn = (v: string) => form.change('occurredOn', v);
+  const setTime = (v: string) => form.change('time', v);
+  const setOutcome = (v: Experience['outcome']) => form.change('outcome', v);
+  const setNote = (v: string) => form.change('note', v);
+  const answerSave = useAnswerSave(pendingRequest);
+  const checking = useRef(0);
   const [files, setFiles] = useState<File[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [noteIds, setNoteIds] = useState<Set<string>>(() => new Set());
@@ -68,43 +73,49 @@ export function MemoriesSection() {
       return;
     setAiTargetId(payload.experienceId);
     setAiPrompt(pendingRequest.input);
-    setAiReply(pendingRequest.answerText ?? '');
+    setAiReply(recoverAnswer(pendingRequest));
     setAiReview(null);
-    if (pendingRequest.status === 'review' && pendingRequest.answerText && pack) {
-      const identity: AiRequestIdentity = {
-        requestId: pendingRequest.id,
-        packId: pendingRequest.planId,
-        baseRevision: pendingRequest.baseRevision,
-        contextRevision: pendingRequest.contextRevision,
-        generatedAt: pendingRequest.generatedAt,
-        kind: 'memory-edit',
-      };
-      const experience = pack.experiences.find((item) => item.id === payload.experienceId);
-      const parsed = parseMemoryReply(
-        pendingRequest.answerText,
-        identity,
-        experience,
-        payload.originalText,
-      );
-      if (
-        parsed.ok &&
-        pack.revision === pendingRequest.baseRevision &&
-        contextRevision === pendingRequest.contextRevision
-      ) {
-        setAiReview({
-          experienceId: parsed.experienceId,
-          originalText: parsed.originalText,
-          editedText: parsed.editedText,
-        });
-      } else if (pendingRequest.status === 'review') {
-        setAiReview({
-          error: ko
-            ? '최신 계획이나 원문이 달라졌어요. 새 요청을 만들어주세요.'
-            : 'The latest plan or original text changed. Start a new request.',
-        });
-      }
-    }
   }, [pendingRequest?.id, pack?.plan.id]);
+
+  useEffect(() => {
+    if (
+      pendingRequest?.kind !== 'memory-edit' ||
+      !pendingRequest.answerText ||
+      recoverAnswer(pendingRequest) !== pendingRequest.answerText ||
+      ['applied', 'cancelled'].includes(pendingRequest.status)
+    )
+      return;
+    const token = ++checking.current;
+    const timer = window.setTimeout(
+      () => {
+        void reviewAiReply(
+          pendingRequest.answerText,
+          pendingRequest.status !== 'draft',
+          token,
+        ).catch(() => {
+          if (checking.current === token)
+            setAiReview({
+              error: ko
+                ? '검토 상태를 저장하지 못했어요. 답안을 유지했어요. 다시 확인해주세요.'
+                : 'Could not save the review. Your reply is kept. Check again.',
+            });
+        });
+      },
+      pendingRequest.status === 'draft' ? 400 : 0,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      checking.current++;
+    };
+  }, [
+    pendingRequest?.id,
+    pendingRequest?.answerText,
+    pendingRequest?.status,
+    pack?.revision,
+    contextRevision,
+    locale,
+    aiTargetId,
+  ]);
 
   if (!pack) return null;
   const activePack = pack;
@@ -292,12 +303,7 @@ export function MemoriesSection() {
       );
       return;
     }
-    if (pendingRequest?.kind === 'memory-edit')
-      await updatePendingRequest({
-        ...pendingRequest,
-        status: 'waiting',
-        updatedAt: new Date().toISOString(),
-      });
+    if (pendingRequest?.kind === 'memory-edit') await markPendingRequestSent(pendingRequest.id);
     showToast(ko ? '기록 정리 요청을 복사했어요.' : 'Memory edit request copied.');
   }
 
@@ -311,20 +317,9 @@ export function MemoriesSection() {
         title: ko ? 'DatePack 기록 정리' : 'DatePack memory edit',
         text: aiPrompt,
       });
-      if (pendingRequest?.kind === 'memory-edit')
-        await updatePendingRequest({
-          ...pendingRequest,
-          status: 'waiting',
-          updatedAt: new Date().toISOString(),
-        });
+      if (pendingRequest?.kind === 'memory-edit') await markPendingRequestSent(pendingRequest.id);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        if (pendingRequest?.kind === 'memory-edit')
-          await updatePendingRequest({
-            ...pendingRequest,
-            status: 'ready',
-            updatedAt: new Date().toISOString(),
-          });
         showToast(
           ko
             ? '공유를 취소했어요. 복사해 직접 붙여넣을 수 있어요.'
@@ -339,13 +334,17 @@ export function MemoriesSection() {
     }
   }
 
-  async function reviewAiReply(): Promise<void> {
+  async function reviewAiReply(
+    raw = aiReply,
+    restoring = false,
+    token = ++checking.current,
+  ): Promise<void> {
     if (
       !pendingRequest ||
       pendingRequest.kind !== 'memory-edit' ||
       !activePack ||
       !aiTargetId ||
-      !aiReply.trim()
+      !raw.trim()
     )
       return;
     const identity: AiRequestIdentity = {
@@ -356,21 +355,25 @@ export function MemoriesSection() {
       generatedAt: pendingRequest.generatedAt,
       kind: pendingRequest.kind,
     };
-    const fingerprint = responseFingerprint(aiReply);
+    const fingerprint = responseFingerprint(raw);
     const payload = pendingRequest.payload as
       | { experienceId?: unknown; originalText?: unknown }
       | undefined;
     const fail = async (message: string, status: PendingRequest['status'] = 'error') => {
       setAiReview({ error: message });
       try {
-        await updatePendingRequest({
-          ...pendingRequest,
-          status,
-          answerText: aiReply,
-          responseFingerprint: fingerprint,
-          error: message,
-          updatedAt: new Date().toISOString(),
-        });
+        if (!restoring)
+          await updatePendingRequest(
+            {
+              ...pendingRequest,
+              status,
+              answerText: raw,
+              responseFingerprint: fingerprint,
+              error: message,
+              updatedAt: new Date().toISOString(),
+            },
+            pendingRequest,
+          );
       } catch {
         showToast(
           ko
@@ -379,13 +382,6 @@ export function MemoriesSection() {
         );
       }
     };
-    if (
-      pendingRequest.responseFingerprint === fingerprint &&
-      pendingRequest.answerText === aiReply
-    ) {
-      setAiReview({ error: ko ? '이미 검토한 답안이에요.' : 'This reply was already reviewed.' });
-      return;
-    }
     if (
       activePack.revision !== identity.baseRevision ||
       contextRevision !== identity.contextRevision
@@ -399,7 +395,7 @@ export function MemoriesSection() {
       return;
     }
     const experience = activePack.experiences.find((item) => item.id === aiTargetId);
-    const parsed = parseMemoryReply(aiReply, identity, experience, payload?.originalText);
+    const parsed = parseMemoryReply(raw, identity, experience, payload?.originalText);
     if (!parsed.ok) {
       await fail(
         parsed.reason === 'mismatch'
@@ -417,14 +413,19 @@ export function MemoriesSection() {
       );
       return;
     }
-    await updatePendingRequest({
-      ...pendingRequest,
-      status: 'review',
-      answerText: aiReply,
-      responseFingerprint: fingerprint,
-      error: undefined,
-      updatedAt: new Date().toISOString(),
-    });
+    if (!restoring)
+      await updatePendingRequest(
+        {
+          ...pendingRequest,
+          status: 'review',
+          answerText: raw,
+          responseFingerprint: fingerprint,
+          error: undefined,
+          updatedAt: new Date().toISOString(),
+        },
+        pendingRequest,
+      );
+    if (checking.current !== token) return;
     setAiReview({
       experienceId: parsed.experienceId,
       originalText: parsed.originalText,
@@ -433,7 +434,16 @@ export function MemoriesSection() {
   }
 
   async function applyAiReply(): Promise<void> {
-    if (!aiReview || 'error' in aiReview || !pendingRequest || aiBusy) return;
+    if (
+      !aiReview ||
+      'error' in aiReview ||
+      !pendingRequest ||
+      aiBusy ||
+      answerSave.error ||
+      getStoreState().pendingRequest?.answerText !== aiReply ||
+      getStoreState().pendingRequest?.status !== 'review'
+    )
+      return;
     setAiBusy(true);
     try {
       const saved = await applyAiMemoryNote(
@@ -459,8 +469,8 @@ export function MemoriesSection() {
       } else
         setAiReview({
           error: ko
-            ? '최신 상태를 확인한 뒤 다시 요청해주세요.'
-            : 'Check the latest state and start a new request.',
+            ? '저장하지 못했어요. 답안을 유지했어요. 현재 상태를 다시 확인한 뒤 저장을 시도해주세요.'
+            : 'Could not save. Your reply is kept. Review the current state and try saving again.',
         });
     } finally {
       setAiBusy(false);
@@ -491,6 +501,7 @@ export function MemoriesSection() {
           : 'Save a photo or note without completing the plan. The visit date and the time you saved it are kept separately.'}
       </p>
 
+      {form.error && <DraftSaveError retry={form.retry} />}
       <form className="form memory-form" onSubmit={(event) => void saveExperience(event)}>
         <label className="field">
           <span>{ko ? '기억할 순간' : 'What do you want to remember?'}</span>
@@ -615,7 +626,12 @@ export function MemoriesSection() {
               const checked = selectedIds.has(experience.id);
               const noteChecked = noteIds.has(experience.id);
               return (
-                <article className="memory-card" key={experience.id}>
+                <article
+                  className="memory-card"
+                  key={experience.id}
+                  id={`memory-${experience.id}`}
+                  tabIndex={-1}
+                >
                   <label className="memory-select">
                     <input
                       type="checkbox"
@@ -687,11 +703,15 @@ export function MemoriesSection() {
                   )}
                   {aiTargetId === experience.id &&
                     aiPrompt &&
-                    pendingRequest?.kind === 'memory-edit' && (
+                    pendingRequest?.kind === 'memory-edit' &&
+                    !['applied', 'cancelled'].includes(pendingRequest.status) && (
                       <div
                         className="memory-ai-editor"
+                        id={`ai-memory-${experience.id}`}
+                        tabIndex={-1}
                         aria-label={ko ? 'AI 기록 문장 정리' : 'AI memory wording review'}
                       >
+                        <RequestHelp />
                         <p className="hint-text">
                           {ko
                             ? '보내는 내용은 이 기록의 제목과 메모뿐이에요. 사진과 계획은 포함하지 않아요.'
@@ -733,8 +753,10 @@ export function MemoriesSection() {
                             rows={6}
                             value={aiReply}
                             onChange={(event) => {
+                              checking.current++;
                               setAiReply(event.target.value);
                               setAiReview(null);
+                              answerSave.save(event.target.value);
                             }}
                           />
                         </label>
@@ -742,7 +764,11 @@ export function MemoriesSection() {
                           <button
                             type="button"
                             className="btn btn-soft"
-                            disabled={!aiReply.trim()}
+                            disabled={
+                              !aiReply.trim() ||
+                              pendingRequest.answerText !== aiReply ||
+                              answerSave.error
+                            }
                             onClick={() =>
                               void reviewAiReply().catch(() =>
                                 showToast(ko ? '요청 상태가 달라졌어요.' : 'The request changed.'),
@@ -763,6 +789,9 @@ export function MemoriesSection() {
                             {ko ? '요청 취소' : 'Cancel request'}
                           </button>
                         </div>
+                        {answerSave.error && (
+                          <DraftSaveError retry={() => answerSave.retry(aiReply)} />
+                        )}
                         {aiReview && 'editedText' in aiReview && (
                           <div className="review-card" aria-live="polite">
                             <p className="review-head">
@@ -782,7 +811,9 @@ export function MemoriesSection() {
                             <button
                               type="button"
                               className="btn btn-primary"
-                              disabled={aiBusy}
+                              disabled={
+                                aiBusy || answerSave.error || pendingRequest.status !== 'review'
+                              }
                               onClick={() => void applyAiReply()}
                             >
                               {ko ? '원문과 함께 저장' : 'Save alongside original'}
@@ -790,9 +821,10 @@ export function MemoriesSection() {
                           </div>
                         )}
                         {aiReview && 'error' in aiReview && (
-                          <p className="form-warning" role="alert">
-                            {aiReview.error}
-                          </p>
+                          <div className="form-warning" role="alert">
+                            <p>{aiReview.error}</p>
+                            <RequestHelp correction />
+                          </div>
                         )}
                       </div>
                     )}

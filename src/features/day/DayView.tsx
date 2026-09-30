@@ -3,11 +3,12 @@ import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { completeEvent, setEventIncludedInRemaining } from '../../store/datepackStore';
 import { useStore } from '../../store/datepackStore';
 import { CurrentContextSheet } from './CurrentContextSheet';
-import { computeDayContext, getRemainingPlanEvents, timeRangeLabel } from './dayRuntime';
+import { computeDayContext, timeRangeLabel } from './dayRuntime';
 import { format, formatDate, useLocale } from '../../i18n';
 import { useNow } from '../../hooks/useNow';
 import { CheckIcon, MapIcon } from '../../components/icons';
 import { mapBridgeUrl } from '../../utils/mapBridge';
+import { resolveDayDestination } from './nextDestination';
 import { locationMessage } from './routeCopy';
 
 type Props = {
@@ -16,7 +17,7 @@ type Props = {
   onOpenAi: () => void;
   onOpenPlan: () => void;
 };
-export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Props) {
+export function DayView({ plan, runtime, onOpenAi, onOpenPlan }: Props) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const store = useStore();
@@ -25,16 +26,12 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
   const [contextOpen, setContextOpen] = useState(false);
   const current = ctx.current;
   const contextPlan = store.liveContext?.planId === plan.id ? store.liveContext : null;
-  const requestedNextId = contextPlan?.nextPlaceId;
-  const requestedNext = ctx.events.find((view) => view.event.id === requestedNextId);
-  const preferredNextId =
-    requestedNext && requestedNext.status !== 'completed' && requestedNext.status !== 'skipped'
-      ? requestedNext.event.id
-      : undefined;
-  const selectedNext = preferredNextId ? requestedNext?.event : undefined;
-  const remainingPlan = getRemainingPlanEvents(ctx, preferredNextId);
-  const visibleCurrent =
-    (preferredNextId ? remainingPlan[0] : (current ?? remainingPlan[0])) ?? null;
+  const {
+    preferredId: preferredNextId,
+    selected: selectedNext,
+    remaining: remainingPlan,
+    destination: visibleCurrent,
+  } = resolveDayDestination(ctx, contextPlan?.nextPlaceId);
   const isChosenNext = Boolean(visibleCurrent && preferredNextId === visibleCurrent.event.id);
   const isReincludedNext = Boolean(
     visibleCurrent?.status === 'unknown-past' && visibleCurrent.includeInRemaining,
@@ -226,8 +223,8 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
         </p>
       )}
       <div className="day-actions">
-        <button type="button" className="btn btn-primary" onClick={onOpenPlan}>
-          {format(locale, 'p3.day.adjust')}
+        <button type="button" className="btn btn-primary" onClick={onOpenAi}>
+          {ko ? 'AI와 다시 계획하기' : 'Replan with AI'}
         </button>
         <button type="button" className="btn btn-soft" onClick={onOpenPlan}>
           {ko ? '전체 일정 보기' : 'View full plan'}

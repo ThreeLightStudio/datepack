@@ -12,6 +12,7 @@ import { localizeAll, format, useLocale, setLocale, LOCALES } from '../i18n';
 import { DayView } from '../features/day/DayView';
 import { PlanView } from '../features/plan/PlanView';
 import { DetailsView } from '../features/details/DetailsView';
+import { RequestResume } from '../features/ai/RequestResume';
 import { CreateWithAiSheet } from '../features/ai/CreateWithAiSheet';
 import { TabBar } from '../components/TabBar';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -20,9 +21,47 @@ import type { ViewId } from './routes';
 import { HeartIcon, UndoIcon } from '../components/icons';
 
 export default function App() {
+  const [aiCreateOpen, setAiCreateOpen] = useState(false);
+  return (
+    <>
+      <AppContent onOpenCreate={() => setAiCreateOpen(true)} />
+      <CreateWithAiSheet open={aiCreateOpen} onClose={() => setAiCreateOpen(false)} />
+    </>
+  );
+}
+
+function AppContent({ onOpenCreate }: { onOpenCreate: () => void }) {
   const store = useStore();
   const locale = useLocale();
   const [view, setView] = useState<ViewId>('today');
+  const [resumeTarget, setResumeTarget] = useState('');
+
+  useEffect(() => {
+    if (view !== 'details' || !resumeTarget) return;
+    const target = document.getElementById(resumeTarget);
+    target?.scrollIntoView({ block: 'start' });
+    target?.focus();
+    setResumeTarget('');
+  }, [view, resumeTarget]);
+
+  function openView(next: ViewId): void {
+    setView(next);
+    window.scrollTo({ top: 0 });
+  }
+
+  function resumeRequest(): void {
+    if (store.pendingRequest?.kind === 'create') {
+      onOpenCreate();
+      return;
+    }
+    const payload = store.pendingRequest?.payload as { experienceId?: string } | undefined;
+    setResumeTarget(
+      store.pendingRequest?.kind === 'memory-edit'
+        ? `memory-${payload?.experienceId}`
+        : 'ai-section',
+    );
+    setView('details');
+  }
 
   useEffect(() => {
     void initStore();
@@ -44,7 +83,7 @@ export default function App() {
   }
 
   if (store.status === 'empty' || !store.pack) {
-    return <EmptyState error={store.error} />;
+    return <EmptyState error={store.error} onOpenCreate={onOpenCreate} />;
   }
 
   const { pack, runtime } = store;
@@ -66,20 +105,35 @@ export default function App() {
       </header>
 
       <ErrorBoundary key={locale}>
+        <RequestResume onResume={resumeRequest} onToday={() => openView('today')} />
         <div className="app-content">
           {view === 'today' && (
             <DayView
               plan={pack.plan}
               runtime={runtime}
-              onOpenAi={() => setView('details')}
-              onOpenPlan={() => setView('plan')}
+              onOpenAi={() => {
+                setResumeTarget('ai-section');
+                setView('details');
+              }}
+              onOpenPlan={() => openView('plan')}
             />
           )}
-          {view === 'plan' && <PlanView plan={pack.plan} runtime={runtime} />}
-          {view === 'details' && <DetailsView plan={pack.plan} runtime={runtime} />}
+          {view === 'plan' && (
+            <PlanView
+              plan={pack.plan}
+              runtime={runtime}
+              onOpenAi={() => {
+                setResumeTarget('ai-section');
+                setView('details');
+              }}
+            />
+          )}
+          {view === 'details' && (
+            <DetailsView plan={pack.plan} runtime={runtime} onOpenCreate={onOpenCreate} />
+          )}
         </div>
 
-        <TabBar current={view} onSelect={setView} />
+        <TabBar current={view} onSelect={openView} />
 
         {store.toast && (
           <div className="toast" role="status">
@@ -104,11 +158,10 @@ export default function App() {
   );
 }
 
-function EmptyState({ error }: { error?: string | null }) {
+function EmptyState({ error, onOpenCreate }: { error?: string | null; onOpenCreate: () => void }) {
   const locale = useLocale();
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
-  const [aiCreateOpen, setAiCreateOpen] = useState(false);
 
   return (
     <main className="app-shell center">
@@ -145,7 +198,7 @@ function EmptyState({ error }: { error?: string | null }) {
         )}
 
         <div className="empty-form">
-          <button type="button" className="btn btn-primary" onClick={() => setAiCreateOpen(true)}>
+          <button type="button" className="btn btn-primary" onClick={onOpenCreate}>
             {format(locale, 'create.btn')}
           </button>
           <p className="hint-text">{format(locale, 'create.btn.sub')}</p>
@@ -193,8 +246,6 @@ function EmptyState({ error }: { error?: string | null }) {
           </button>
         </div>
       </div>
-
-      {aiCreateOpen && <CreateWithAiSheet open onClose={() => setAiCreateOpen(false)} />}
     </main>
   );
 }

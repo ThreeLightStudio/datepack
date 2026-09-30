@@ -1,3 +1,4 @@
+import { getRemainingPlanEvents } from './dayRuntime';
 import type {
   Candidate,
   DateEvent,
@@ -63,4 +64,23 @@ function eventFromCandidate(candidate: Candidate, order: number, eventId: string
     timing: { kind: 'unscheduled' },
     order,
   });
+}
+
+/** One destination decision shared by Today and the post-apply return action. */
+export function resolveDayDestination(
+  context: import('./dayRuntime').DayContext,
+  requestedId?: string,
+) {
+  const requested = context.events.find((view) => view.event.id === requestedId);
+  const preferredId =
+    requested && requested.status !== 'completed' && requested.status !== 'skipped'
+      ? requested.event.id
+      : undefined;
+  const remaining = getRemainingPlanEvents(context, preferredId);
+  return {
+    preferredId,
+    selected: preferredId ? requested?.event : undefined,
+    remaining,
+    destination: (preferredId ? remaining[0] : (context.current ?? remaining[0])) ?? null,
+  };
 }

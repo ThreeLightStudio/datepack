@@ -242,10 +242,10 @@ export const ko = {
   'create.prompt.eyebrow': 'AI 요청문 — 복사해서 AI에게 보내주세요',
   'create.prompt.copy': 'AI 요청문 복사',
   'create.toast.copied': 'AI 요청문을 복사했어요.',
-  'create.prompt.hint':
-    'AI와 대화를 이어가며 계획을 다듬으세요. 계획이 확정되면 AI가 마지막에 답한 JSON을 다음 단계에 붙여넣으면 돼요.',
+  'create.prompt.hint': 'AI와 대화하고 제안을 승인한 뒤, 마지막 답안 전체를 아래에 붙여넣으세요.',
   'create.step2': '2. AI의 최종 답안 붙여넣기',
-  'create.step2.hint': 'AI가 확정 후 답한 Plan JSON을 그대로 붙여넣으면, 먼저 보여드릴게요.',
+  'create.step2.hint':
+    '승인한 답안 전체 또는 JSON을 붙여넣으면 자동으로 미리 보여드려요. 확인 후 저장하세요.',
   'create.check': '계획 검토하기',
   'create.review.head': '"{title}" · {date}',
   'create.review.events': '일정 {count}개',

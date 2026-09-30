@@ -9,9 +9,13 @@ import type {
 } from '@datepack/core';
 import { describePatch, parsePatch } from '@datepack/core';
 import { buildAiPrompt, getAiScopeEventIds, SITUATIONS } from './promptBuilder';
+import { useAiForm, useAnswerSave, recoverAnswer } from './useAiDraft';
+import { DraftSaveError, RequestHelp } from './RequestHelp';
+import { copyRequestText } from './clipboard';
 import { timingLabel } from './timingPresentation';
 import {
   applyAiPlan,
+  markPendingRequestSent,
   showToast,
   undo,
   updatePendingRequest,
@@ -129,11 +133,20 @@ export function AiSection({ plan, runtime }: Props) {
   const requestBusy = useRef(false);
   const [preparing, setPreparing] = useState(false);
   const [stage, setStage] = useState<Stage>('idle');
-  const [situationId, setSituationId] = useState<string | null>(null);
-  const [scopeKind, setScopeKind] = useState<'next-change' | 'remaining-change'>(
-    'remaining-change',
-  );
-  const [customInput, setCustomInput] = useState('');
+  const form = useAiForm(`replan:${plan.id}`, {
+    situationId: '',
+    scopeKind: 'remaining-change',
+    customInput: '',
+  });
+  const situationId = form.value.situationId;
+  const scopeKind = form.value.scopeKind as 'next-change' | 'remaining-change';
+  const customInput = form.value.customInput;
+  const setSituationId = (v: string) => form.change('situationId', v);
+  const setScopeKind = (v: 'next-change' | 'remaining-change') => form.change('scopeKind', v);
+  const setCustomInput = (v: string) => form.change('customInput', v);
+  const answerSave = useAnswerSave(pendingRequest);
+  const checking = useRef(0);
+  const [reviewing, setReviewing] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [patchText, setPatchText] = useState('');
   const [review, setReview] = useState<
@@ -156,23 +169,62 @@ export function AiSection({ plan, runtime }: Props) {
       (pendingRequest.kind !== 'next-change' && pendingRequest.kind !== 'remaining-change') ||
       pendingRequest.planId !== plan.id ||
       ['applied', 'cancelled'].includes(pendingRequest.status)
-    )
+    ) {
+      setStage('idle');
+      setPrompt('');
+      setPatchText('');
+      setReview(null);
       return;
+    }
     setStage('prompted');
     setPrompt(pendingRequest.input);
-    setPatchText(pendingRequest.answerText ?? '');
-    setScopeKind(pendingRequest.kind);
+    setPatchText(recoverAnswer(pendingRequest));
     setReview(null);
-    if (pendingRequest.status === 'review' && pendingRequest.answerText) {
-      window.setTimeout(
-        () =>
-          void checkPatch(pendingRequest.answerText, true).catch(() =>
-            setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] }),
-          ),
-        0,
-      );
-    }
   }, [pendingRequest?.id, plan.id]);
+
+  useEffect(() => {
+    if (
+      !pendingRequest ||
+      !['next-change', 'remaining-change'].includes(pendingRequest.kind) ||
+      !pendingRequest.answerText ||
+      recoverAnswer(pendingRequest) !== pendingRequest.answerText ||
+      ['applied', 'cancelled'].includes(pendingRequest.status)
+    )
+      return;
+    const token = ++checking.current;
+    const timer = window.setTimeout(
+      () => {
+        setReviewing(true);
+        void checkPatch(pendingRequest.answerText, pendingRequest.status !== 'draft', token)
+          .catch(() => {
+            if (checking.current === token)
+              setReview({
+                ok: false,
+                errors: [
+                  locale === 'ko'
+                    ? '검토 상태를 저장하지 못했어요. 답안을 유지했어요. 다시 확인해주세요.'
+                    : 'Could not save the review. Your reply is kept. Check again.',
+                ],
+              });
+          })
+          .finally(() => {
+            if (checking.current === token) setReviewing(false);
+          });
+      },
+      pendingRequest.status === 'draft' ? 400 : 0,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      checking.current++;
+    };
+  }, [
+    pendingRequest?.id,
+    pendingRequest?.answerText,
+    pendingRequest?.status,
+    plan,
+    contextRevision,
+    locale,
+  ]);
 
   const activeRequest =
     pendingRequest &&
@@ -300,6 +352,7 @@ export function AiSection({ plan, runtime }: Props) {
       contextRevision: requestIdentity.contextRevision,
       generatedAt,
       scopeEventIds: eventIds,
+      payload: { situationId: id, customInput: custom ?? '' },
       createdAt: generatedAt,
       updatedAt: generatedAt,
     };
@@ -338,26 +391,7 @@ export function AiSection({ plan, runtime }: Props) {
   }
 
   async function copyPrompt(): Promise<void> {
-    let copied = false;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(prompt);
-        copied = true;
-      }
-    } catch {
-      copied = false;
-    }
-    if (!copied) {
-      const area = document.createElement('textarea');
-      area.value = prompt;
-      area.setAttribute('readonly', '');
-      area.style.position = 'fixed';
-      area.style.opacity = '0';
-      document.body.appendChild(area);
-      area.select();
-      copied = document.execCommand('copy');
-      area.remove();
-    }
+    const copied = await copyRequestText(prompt);
     if (!copied) {
       showToast(
         locale === 'ko'
@@ -366,12 +400,7 @@ export function AiSection({ plan, runtime }: Props) {
       );
       return;
     }
-    if (activeRequest)
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'waiting',
-        updatedAt: new Date().toISOString(),
-      });
+    if (activeRequest) await markPendingRequestSent(activeRequest.id);
     showToast(locale === 'ko' ? 'AI 요청문을 복사했어요.' : 'Note copied.');
   }
 
@@ -385,20 +414,9 @@ export function AiSection({ plan, runtime }: Props) {
         title: locale === 'ko' ? 'DatePack AI 요청' : 'DatePack AI request',
         text: prompt,
       });
-      if (activeRequest)
-        await updatePendingRequest({
-          ...activeRequest,
-          status: 'waiting',
-          updatedAt: new Date().toISOString(),
-        });
+      if (activeRequest) await markPendingRequestSent(activeRequest.id);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        if (activeRequest)
-          await updatePendingRequest({
-            ...activeRequest,
-            status: 'ready',
-            updatedAt: new Date().toISOString(),
-          });
         showToast(format(locale, 'ai.request.cancelled'));
       } else
         showToast(
@@ -409,27 +427,27 @@ export function AiSection({ plan, runtime }: Props) {
     }
   }
 
-  async function checkPatch(raw = patchText, allowPreviouslyReviewed = false): Promise<void> {
+  async function checkPatch(
+    raw = patchText,
+    restoring = false,
+    token = ++checking.current,
+  ): Promise<void> {
     if (!identity || !activeRequest || !pack) return;
     const fingerprint = responseFingerprint(raw);
-    if (
-      !allowPreviouslyReviewed &&
-      activeRequest.responseFingerprint === fingerprint &&
-      activeRequest.answerText === raw
-    ) {
-      setReview({ ok: false, errors: [format(locale, 'ai.request.duplicate')] });
-      return;
-    }
     if (pack.revision !== identity.baseRevision || contextRevision !== identity.contextRevision) {
       const message = format(locale, 'ai.request.stale');
       setReview({ ok: false, errors: [message] });
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'stale',
-        answerText: raw,
-        error: message,
-        updatedAt: new Date().toISOString(),
-      });
+      if (!restoring)
+        await updatePendingRequest(
+          {
+            ...activeRequest,
+            status: 'stale',
+            answerText: raw,
+            error: message,
+            updatedAt: new Date().toISOString(),
+          },
+          activeRequest,
+        );
       return;
     }
     const currentlyAllowed = new Set(
@@ -438,13 +456,17 @@ export function AiSection({ plan, runtime }: Props) {
     if ((activeRequest.scopeEventIds ?? []).some((eventId) => !currentlyAllowed.has(eventId))) {
       const message = format(locale, 'ai.request.stale');
       setReview({ ok: false, errors: [message] });
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'stale',
-        answerText: raw,
-        error: message,
-        updatedAt: new Date().toISOString(),
-      });
+      if (!restoring)
+        await updatePendingRequest(
+          {
+            ...activeRequest,
+            status: 'stale',
+            answerText: raw,
+            error: message,
+            updatedAt: new Date().toISOString(),
+          },
+          activeRequest,
+        );
       return;
     }
     const envelope = parseAiResponse(raw, identity);
@@ -457,13 +479,17 @@ export function AiSection({ plan, runtime }: Props) {
             : 'ai.review.error';
       const message = format(locale, key);
       setReview({ ok: false, errors: [message] });
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'error',
-        answerText: raw,
-        error: message,
-        updatedAt: new Date().toISOString(),
-      });
+      if (!restoring)
+        await updatePendingRequest(
+          {
+            ...activeRequest,
+            status: 'error',
+            answerText: raw,
+            error: message,
+            updatedAt: new Date().toISOString(),
+          },
+          activeRequest,
+        );
       return;
     }
     const responsePatch = JSON.stringify(envelope.response.result);
@@ -471,14 +497,18 @@ export function AiSection({ plan, runtime }: Props) {
     if (!parsed.ok) {
       const errors = parsed.errors.map((e) => format(locale, e));
       setReview({ ok: false, errors });
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'error',
-        answerText: raw,
-        responseFingerprint: fingerprint,
-        error: errors.join('\n'),
-        updatedAt: new Date().toISOString(),
-      });
+      if (!restoring)
+        await updatePendingRequest(
+          {
+            ...activeRequest,
+            status: 'error',
+            answerText: raw,
+            responseFingerprint: fingerprint,
+            error: errors.join('\n'),
+            updatedAt: new Date().toISOString(),
+          },
+          activeRequest,
+        );
       return;
     }
     const allowFirstInsert =
@@ -489,14 +519,18 @@ export function AiSection({ plan, runtime }: Props) {
           ? '요청 범위 밖의 일정이 포함되어 있어 적용할 수 없어요.'
           : 'The reply changes a stop outside this request scope.';
       setReview({ ok: false, errors: [message] });
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'error',
-        answerText: raw,
-        responseFingerprint: fingerprint,
-        error: message,
-        updatedAt: new Date().toISOString(),
-      });
+      if (!restoring)
+        await updatePendingRequest(
+          {
+            ...activeRequest,
+            status: 'error',
+            answerText: raw,
+            responseFingerprint: fingerprint,
+            error: message,
+            updatedAt: new Date().toISOString(),
+          },
+          activeRequest,
+        );
       return;
     }
     const outcome = describePatch(plan, parsed.patch);
@@ -518,14 +552,18 @@ export function AiSection({ plan, runtime }: Props) {
         ok: false,
         errors: warnings.length > 0 ? warnings : [format(locale, 'err.patch.nothingApplied')],
       });
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'error',
-        answerText: raw,
-        responseFingerprint: fingerprint,
-        error: warnings.join('\n'),
-        updatedAt: new Date().toISOString(),
-      });
+      if (!restoring)
+        await updatePendingRequest(
+          {
+            ...activeRequest,
+            status: 'error',
+            answerText: raw,
+            responseFingerprint: fingerprint,
+            error: warnings.join('\n'),
+            updatedAt: new Date().toISOString(),
+          },
+          activeRequest,
+        );
       return;
     }
     const impact = await prepareImpact({
@@ -538,9 +576,11 @@ export function AiSection({ plan, runtime }: Props) {
       eventIds: eligibleIds('remaining-change'),
     });
     const current = getStoreState();
+    if (checking.current !== token) return;
     if (
       current.pack?.revision !== identity.baseRevision ||
       current.contextRevision !== identity.contextRevision ||
+      current.pendingRequest?.answerText !== raw ||
       current.pendingRequest?.id !== identity.requestId
     ) {
       setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] });
@@ -549,29 +589,46 @@ export function AiSection({ plan, runtime }: Props) {
     if (impact.status !== 'verified') {
       const message = impactMessage(impact, locale);
       setReview({ ok: false, errors: [message] });
-      await updatePendingRequest({
-        ...activeRequest,
-        status: 'error',
-        answerText: raw,
-        responseFingerprint: fingerprint,
-        error: message,
-        updatedAt: new Date().toISOString(),
-      });
+      if (!restoring)
+        await updatePendingRequest(
+          {
+            ...activeRequest,
+            status: 'error',
+            answerText: raw,
+            responseFingerprint: fingerprint,
+            error: message,
+            updatedAt: new Date().toISOString(),
+          },
+          activeRequest,
+        );
       return;
     }
-    await updatePendingRequest({
-      ...activeRequest,
-      status: 'review',
-      answerText: raw,
-      responseFingerprint: fingerprint,
-      error: undefined,
-      updatedAt: new Date().toISOString(),
-    });
+    if (!restoring)
+      await updatePendingRequest(
+        {
+          ...activeRequest,
+          status: 'review',
+          answerText: raw,
+          responseFingerprint: fingerprint,
+          error: undefined,
+          updatedAt: new Date().toISOString(),
+        },
+        activeRequest,
+      );
+    if (checking.current !== token) return;
     setReview({ ok: true, changes: outcome.applied, warnings, prepared: outcome, impact });
   }
 
   function applyApproved(): void {
-    if (!review?.ok || !identity) return;
+    if (
+      !review?.ok ||
+      !identity ||
+      reviewing ||
+      answerSave.error ||
+      getStoreState().pendingRequest?.answerText !== patchText ||
+      getStoreState().pendingRequest?.status !== 'review'
+    )
+      return;
     const currentlyAllowed = new Set(
       eligibleIds(identity.kind as 'next-change' | 'remaining-change'),
     );
@@ -598,7 +655,14 @@ export function AiSection({ plan, runtime }: Props) {
       review.impact.snapshot,
     ).then((applied) => {
       if (!applied) {
-        setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] });
+        setReview({
+          ok: false,
+          errors: [
+            locale === 'ko'
+              ? '적용하지 못했어요. 답안을 유지했어요. 현재 상태와 동선을 다시 확인한 뒤 시도해주세요.'
+              : 'Could not apply. Your reply is kept. Review the current state and journey, then try again.',
+          ],
+        });
         return;
       }
       setReview(null);
@@ -640,7 +704,7 @@ export function AiSection({ plan, runtime }: Props) {
   const undoAvailable = undoStack.length > 0;
 
   return (
-    <section className="ai-section" id="ai-section">
+    <section className="ai-section" id="ai-section" tabIndex={-1}>
       <div className="section-head">
         <SparkleIcon width={18} height={18} />
         <h2>{locale === 'ko' ? '다시 계획하기' : 'Replan'}</h2>
@@ -658,6 +722,7 @@ export function AiSection({ plan, runtime }: Props) {
             : 'Each new request looks up your location once. Turn this off in your situation settings.'}
         </p>
       )}
+      {form.error && <DraftSaveError retry={form.retry} />}
       {preparing && (
         <p className="hint-text" role="status">
           {locale === 'ko' ? '현재 상황을 확인하고 있어요…' : 'Checking your current context…'}
@@ -724,6 +789,7 @@ export function AiSection({ plan, runtime }: Props) {
 
       {stage === 'prompted' && (
         <>
+          <RequestHelp />
           <div className="prompt-box">
             <p className="eyebrow">
               {locale === 'ko'
@@ -767,7 +833,12 @@ export function AiSection({ plan, runtime }: Props) {
             className="patch-input"
             aria-label={locale === 'ko' ? 'AI 답안 붙여넣기' : 'Paste AI reply'}
             value={patchText}
-            onChange={(e) => setPatchText(e.target.value)}
+            onChange={(e) => {
+              checking.current++;
+              setReview(null);
+              setPatchText(e.target.value);
+              answerSave.save(e.target.value);
+            }}
             rows={8}
             placeholder={
               '{\n  "type": "datepack.response",\n  "version": 2,\n  "requestId": "…",\n  "packId": "…",\n  "baseRevision": 0,\n  "contextRevision": 0,\n  "generatedAt": "2026-09-29T10:00:00.000Z",\n  "kind": "remaining-change",\n  "result": { "type": "datepack.patch", "version": 1, "operations": [] }\n}'
@@ -782,7 +853,12 @@ export function AiSection({ plan, runtime }: Props) {
                   setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] }),
                 )
               }
-              disabled={!patchText.trim()}
+              disabled={
+                !patchText.trim() ||
+                reviewing ||
+                activeRequest?.answerText !== patchText ||
+                answerSave.error
+              }
             >
               {locale === 'ko' ? '변경 내용 보기' : 'Preview changes'}
             </button>
@@ -797,6 +873,14 @@ export function AiSection({ plan, runtime }: Props) {
             </button>
           </div>
 
+          {answerSave.error && <DraftSaveError retry={() => answerSave.retry(patchText)} />}
+          {reviewing && (
+            <p className="hint-text" role="status">
+              {locale === 'ko'
+                ? '답안과 현재 동선을 확인하고 있어요…'
+                : 'Checking the reply and current journey…'}
+            </p>
+          )}
           {review?.ok && (
             <div className="review-card" aria-live="polite">
               <p className="review-head">
@@ -814,7 +898,12 @@ export function AiSection({ plan, runtime }: Props) {
                 <p className="form-warning">{review.warnings.join(' ')}</p>
               )}
               <div className="action-row">
-                <button type="button" className="btn btn-primary" onClick={applyApproved}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={applyApproved}
+                  disabled={reviewing || answerSave.error || activeRequest?.status !== 'review'}
+                >
                   {locale === 'ko' ? '적용' : 'Apply'}
                 </button>
                 <button
@@ -836,6 +925,7 @@ export function AiSection({ plan, runtime }: Props) {
           )}
           {review && !review.ok && (
             <div className="review-card error" role="alert">
+              <RequestHelp correction />
               <p className="review-head">
                 {locale === 'ko' ? 'Patch에 문제가 있어요' : "That reply won't apply"}
               </p>

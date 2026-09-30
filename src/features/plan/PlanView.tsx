@@ -28,8 +28,8 @@ function pointLabel(point: { time: string; dayOffset: 0 | 1 }, locale: 'ko' | 'e
   return `${point.time}${point.dayOffset ? (locale === 'ko' ? ' (다음 날)' : ' (next day)') : ''}`;
 }
 
-type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
-export function PlanView({ plan, runtime }: Props) {
+type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null; onOpenAi: () => void };
+export function PlanView({ plan, runtime, onOpenAi }: Props) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const store = useStore();
@@ -135,6 +135,12 @@ export function PlanView({ plan, runtime }: Props) {
           {ko ? '지금 상황' : 'Update now'}
         </button>
       </section>
+
+      <div className="action-row">
+        <button type="button" className="btn btn-soft" onClick={onOpenAi}>
+          {ko ? 'AI와 다시 계획하기' : 'Replan with AI'}
+        </button>
+      </div>
 
       <section aria-labelledby="selected-heading">
         <h2 id="selected-heading" className="section-title">
