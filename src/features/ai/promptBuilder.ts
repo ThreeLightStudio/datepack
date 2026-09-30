@@ -1,4 +1,6 @@
 import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
+import type { LiveContext } from '../../storage/indexedDb';
+import { getRemainingPlanEvents } from '../day/dayRuntime';
 import { formatTime, nowLabel, todayISO } from '@datepack/core';
 import { computeDayContext, type DayEventView } from '../day/dayRuntime';
 import type { Locale } from '../../i18n/core';
@@ -97,6 +99,7 @@ export function buildAiPrompt(input: {
   now?: Date;
   identity?: AiRequestIdentity;
   scopeEventIds?: string[];
+  liveContext?: LiveContext | null;
 }): string {
   const locale = input.locale ?? 'ko';
   const now = input.now ?? new Date();
@@ -105,6 +108,11 @@ export function buildAiPrompt(input: {
   const L = locale === 'ko' ? koText : enText;
 
   const lines: string[] = [];
+  lines.push(
+    locale === 'ko'
+      ? '도보와 대중교통을 균형 있게 비교하되 확인되지 않은 대중교통을 도보보다 낫다고 단정하지 마세요. 자동차·택시는 사용자가 명시한 경우에만 제안하세요. AI가 적은 이동 시간이나 verified 표시는 경로 근거가 아닙니다.'
+      : 'Compare walking and transit in balance; do not favor unverified transit. Suggest car or taxi only when explicitly requested. AI travel estimates or a verified label are not route evidence.',
+  );
   lines.push(L.currentTime(nowLabel(now)));
   if (!isToday)
     lines.push(
@@ -115,6 +123,31 @@ export function buildAiPrompt(input: {
           : 'Plan date undecided',
     );
   lines.push('');
+  if (input.liveContext) {
+    const live = input.liveContext;
+    const label = locale === 'ko' ? '직접 확인한 상황' : 'User-confirmed context';
+    if (live.place || live.activity)
+      lines.push(
+        `${label}: ${[live.place, live.activity].filter(Boolean).join(' · ')} (${live.confirmedAt ?? live.updatedAt})`,
+      );
+    const attempt = live.locationAttempt;
+    if (attempt) {
+      lines.push(
+        `${locale === 'ko' ? '위치 조회' : 'Location attempt'}: ${attempt.status} (${attempt.attemptedAt})`,
+      );
+      const known = attempt.observation?.coarseLabel ? attempt.observation : attempt.lastKnown;
+      if (known?.coarseLabel)
+        lines.push(
+          `${locale === 'ko' ? '마지막 확인 지역' : 'Last observed area'}: ${known.coarseLabel} (${known.observedAt})`,
+        );
+      lines.push(
+        locale === 'ko'
+          ? '이 위치로 방문·완료나 경로 검증을 추정하지 마세요.'
+          : 'Do not infer visits, completion or verified routes from this location.',
+      );
+    }
+    lines.push('');
+  }
 
   const settled = ctx.events.filter((v) => v.status === 'completed' || v.status === 'skipped');
   // Unknown elapsed items stay out of default replans until the user confirms them.
@@ -122,6 +155,7 @@ export function buildAiPrompt(input: {
   const remaining = ctx.events
     .filter(
       (v) =>
+        (allowed?.has(v.event.id) && v.status !== 'completed' && v.status !== 'skipped') ||
         v.status === 'upcoming' ||
         v.status === 'current' ||
         (v.status === 'unknown-past' && v.includeInRemaining),
@@ -151,6 +185,20 @@ export function buildAiPrompt(input: {
     }
     lines.push('');
   }
+  if (allowed) {
+    const readOnly = getRemainingPlanEvents(ctx, input.liveContext?.nextPlaceId).filter(
+      (view) => !allowed.has(view.event.id),
+    );
+    if (readOnly.length) {
+      lines.push(
+        locale === 'ko'
+          ? '변경 범위 밖 동선 맥락 (읽기 전용 · 수정 금지)'
+          : 'Journey context outside the edit scope (read-only; do not change)',
+      );
+      for (const view of readOnly) lines.push(stopLine(view, locale));
+      lines.push('');
+    }
+  }
 
   const constraint = input.plan.constraints;
   if (constraint?.must?.length) {
@@ -169,11 +217,16 @@ export function buildAiPrompt(input: {
     lines.push('');
   }
 
-  const fixedEvents = input.plan.events.filter((e) => e.fixed);
+  const fixedEvents = input.plan.events.filter((e) => e.fixed || e.protectedFields?.length);
   if (fixedEvents.length > 0) {
     lines.push(L.fixedHeader);
-    for (const event of fixedEvents)
-      lines.push(`- ${event.start} ${event.title} (id: ${event.id})`);
+    for (const event of fixedEvents) {
+      const view = ctx.events.find((v) => v.event.id === event.id)!;
+      const place = input.plan.places?.find((p) => p.id === event.placeId);
+      lines.push(
+        `${stopLine(view, locale)}${place ? ` · ${place.name}` : ''} · ${event.fixed ? 'time/place/content/delete/order' : event.protectedFields?.join('/')}`,
+      );
+    }
     lines.push('');
   }
 
@@ -226,15 +279,15 @@ export function getAiScopeEventIds(
   runtime: DatePackRuntimeState | null,
   kind: 'next-change' | 'remaining-change',
   now: Date = new Date(),
+  liveContext?: Pick<LiveContext, 'nextPlaceId'> | null,
 ): string[] {
   const context = computeDayContext(plan, runtime, now);
-  const eligible = context.events.filter(
-    (item) =>
-      item.status === 'upcoming' ||
-      item.status === 'current' ||
-      (item.status === 'unknown-past' && item.includeInRemaining),
-  );
-  return (kind === 'next-change' ? eligible.slice(0, 1) : eligible).map((item) => item.event.id);
+  const eligible = getRemainingPlanEvents(context, liveContext?.nextPlaceId);
+  const next =
+    liveContext?.nextPlaceId && eligible[0]?.event.id === liveContext.nextPlaceId
+      ? eligible[0]
+      : (context.current ?? eligible[0]);
+  return (kind === 'next-change' ? (next ? [next] : []) : eligible).map((item) => item.event.id);
 }
 
 /**

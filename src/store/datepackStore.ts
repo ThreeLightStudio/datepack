@@ -45,6 +45,15 @@ import {
 } from '../storage/indexedDb';
 import { createSeoulSeed } from '../seed/seoul';
 import { emptyRuntime, getRuntimeEntry } from '../features/day/dayRuntime';
+import {
+  hasRouteImpact,
+  protectionReasons,
+  localImpactInput,
+  snapshotMatches,
+  validateImpact,
+  type ValidationSnapshot,
+} from '../features/day/routeImpact';
+import { getAiScopeEventIds } from '../features/ai/promptBuilder';
 import { t, getLocale, type I18nIssue } from '../i18n/core';
 
 export type SavedPackSummary = { pack: DatePack; savedAt: string };
@@ -298,7 +307,10 @@ async function refreshAfterConflict(error: unknown): Promise<void> {
   showToast(t('toast.persistFailed'));
 }
 
-export async function updateLiveContext(context: Omit<LiveContext, 'revision'>): Promise<void> {
+export async function updateLiveContext(
+  context: Omit<LiveContext, 'revision'>,
+  expectedContextRevision?: number,
+): Promise<void> {
   const existing = await loadDeviceState(context.planId);
   const revision = (existing.liveContext?.revision ?? 0) + 1;
   const liveContext = { ...context, revision };
@@ -306,6 +318,8 @@ export async function updateLiveContext(context: Omit<LiveContext, 'revision'>):
     context.planId,
     { liveContext },
     existing.liveContext?.revision ?? 0,
+    undefined,
+    expectedContextRevision,
   );
   if (state.pack?.plan.id === context.planId)
     setState({ liveContext, contextRevision: device.contextRevision ?? 0 });
@@ -352,6 +366,7 @@ export async function applyAiPlan(
     'id' | 'planId' | 'baseRevision' | 'contextRevision' | 'generatedAt' | 'kind'
   >,
   plan: DatePlan,
+  impactSnapshot?: ValidationSnapshot,
 ): Promise<boolean> {
   const current = state.pack;
   const request = state.pendingRequest;
@@ -389,6 +404,48 @@ export async function applyAiPlan(
     status: 'applied',
     updatedAt: new Date().toISOString(),
   };
+  const replan = request.kind === 'next-change' || request.kind === 'remaining-change';
+  const checkImpact = (before: DatePlan): boolean => {
+    if (protectionReasons(before, plan).length) return false;
+    if (!replan) return true;
+    const allowed = getAiScopeEventIds(
+      before,
+      state.runtime,
+      request.kind as 'next-change' | 'remaining-change',
+      new Date(),
+      state.liveContext,
+    );
+    if ((request.scopeEventIds ?? []).some((id) => !allowed.includes(id))) return false;
+    const input = localImpactInput({
+      before,
+      proposed: plan,
+      planRevision: identity.baseRevision,
+      contextRevision: identity.contextRevision,
+      requestId: identity.id,
+      scopeEventIds: request.scopeEventIds ?? [],
+      eventIds: getAiScopeEventIds(
+        before,
+        state.runtime,
+        'remaining-change',
+        new Date(),
+        state.liveContext,
+      ),
+    });
+    if (
+      hasRouteImpact(before, plan) &&
+      (!impactSnapshot || !snapshotMatches(impactSnapshot, input))
+    )
+      return false;
+    return validateImpact(input).status === 'verified';
+  };
+  if (!checkImpact(current.plan)) {
+    showToast(
+      getLocale() === 'ko'
+        ? '동선을 확인하지 못했어요. 기존 일정을 유지하고 다른 후보를 확인해주세요.'
+        : 'Route not confirmed. Keep this plan and check another option.',
+    );
+    return false;
+  }
   const guard: AiCommitGuard = {
     requestId: identity.id,
     kind: identity.kind,
@@ -398,6 +455,7 @@ export async function applyAiPlan(
     responseFingerprint: request.responseFingerprint,
     answerText: request.answerText,
     requestUpdate: completed,
+    validateImpact: checkImpact,
   };
   try {
     const saved = await commitPlanChange(
@@ -730,6 +788,7 @@ export type PatchApplyResult = { applied: PatchChange[]; skipped: I18nIssue[] };
 export async function applyPatchWithUndo(
   outcome: PatchOutcome,
   basePlan: DatePlan,
+  impactSnapshot?: ValidationSnapshot,
 ): Promise<PatchApplyResult> {
   if (!state.pack) return { applied: [], skipped: [] };
   if (!outcome.canApply || state.pack.plan !== basePlan) {
@@ -741,6 +800,18 @@ export async function applyPatchWithUndo(
     };
   }
   const plan = outcome.plan;
+  const input = localImpactInput({
+    before: basePlan,
+    proposed: plan,
+    planRevision: state.pack.revision,
+    contextRevision: state.contextRevision,
+  });
+  if (
+    validateImpact(input).status !== 'verified' ||
+    (hasRouteImpact(basePlan, plan) && (!impactSnapshot || !snapshotMatches(impactSnapshot, input)))
+  ) {
+    return { applied: [], skipped: [{ key: 'err.patch.nothingApplied' }] };
+  }
   if (!(await commitCurrentPlan(t('undo.patch'), plan))) {
     return { applied: [], skipped: [{ key: 'err.patch.stale' }] };
   }

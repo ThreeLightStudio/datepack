@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { toCoarseContext, type CoarseLocationAttempt } from '../features/day/location';
 import {
   migrateLegacyDatePack,
   validateDatePack,
@@ -18,6 +19,8 @@ export type LiveContext = {
   nextPlaceId?: string;
   nextPlace?: string;
   confirmedAt?: string;
+  gpsConsent?: boolean;
+  locationAttempt?: CoarseLocationAttempt;
 };
 export type PersonalJourney = {
   planId: string;
@@ -26,6 +29,22 @@ export type PersonalJourney = {
   mode?: string;
   note?: string;
 };
+function safeLiveContext(context: LiveContext): LiveContext {
+  return {
+    planId: context.planId,
+    revision: context.revision,
+    updatedAt: context.updatedAt,
+    place: context.place,
+    activity: context.activity,
+    nextPlaceId: context.nextPlaceId,
+    nextPlace: context.nextPlace,
+    confirmedAt: context.confirmedAt,
+    gpsConsent: context.gpsConsent,
+    ...(context.locationAttempt
+      ? { locationAttempt: toCoarseContext(context.locationAttempt) }
+      : {}),
+  };
+}
 export type PendingRequest = {
   id: string;
   planId: string;
@@ -52,6 +71,8 @@ export type AiCommitGuard = {
   responseFingerprint: string;
   answerText: string;
   requestUpdate: PendingRequest;
+  /** Memory-only check inside the transaction, after revision/context/request guards. */
+  validateImpact?: (before: DatePlan) => boolean;
 };
 export type PendingRequestGuard = Pick<
   PendingRequest,
@@ -449,6 +470,10 @@ export async function commitPlanChange(
       throw new Error('request-conflict');
     }
   }
+  if (aiGuard?.validateImpact && !aiGuard.validateImpact(row.pack.plan)) {
+    abortReadWrite(tx);
+    throw new Error('route-impact-conflict');
+  }
   const device: DeviceState = {
     ...existing,
     ...(aiGuard ? { pendingRequest: structuredClone(aiGuard.requestUpdate) } : {}),
@@ -641,6 +666,7 @@ export async function saveDeviceState(
   await tx.store.put(
     {
       ...value,
+      ...(value.liveContext ? { liveContext: safeLiveContext(value.liveContext) } : {}),
       contextRevision:
         value.contextRevision ??
         Math.max(current.contextRevision ?? 0, value.liveContext?.revision ?? 0),
@@ -656,10 +682,19 @@ export async function saveDeviceFields(
   fields: Pick<Partial<DeviceState>, 'liveContext' | 'personalJourney' | 'pendingRequest'>,
   expectedContextRevision?: number,
   expectedPendingRequest?: PendingRequestGuard | null,
+  expectedDeviceContextRevision?: number,
 ): Promise<DeviceState> {
   const db = await getDb();
   const tx = db.transaction('device', 'readwrite');
   const current = (await tx.store.get(planId)) ?? defaultDevice(planId);
+  if (
+    expectedDeviceContextRevision !== undefined &&
+    (current.contextRevision ?? current.liveContext?.revision ?? 0) !==
+      expectedDeviceContextRevision
+  ) {
+    abortReadWrite(tx);
+    throw new Error('context-revision-conflict');
+  }
   if (
     expectedContextRevision !== undefined &&
     (current.liveContext?.revision ?? 0) !== expectedContextRevision
@@ -689,7 +724,9 @@ export async function saveDeviceFields(
   }
   const contextRevision =
     (current.contextRevision ?? current.liveContext?.revision ?? 0) + (fields.liveContext ? 1 : 0);
-  const next = { ...current, ...fields, contextRevision, planId, undoStack: current.undoStack };
+  const safeFields = { ...fields };
+  if (safeFields.liveContext) safeFields.liveContext = safeLiveContext(safeFields.liveContext);
+  const next = { ...current, ...safeFields, contextRevision, planId, undoStack: current.undoStack };
   await tx.store.put(next, planId);
   await tx.done;
   return next;
@@ -718,6 +755,7 @@ export async function loadDeviceState(planId: string): Promise<DeviceState> {
     : rawRequest;
   const result: DeviceState = {
     ...device,
+    ...(device.liveContext ? { liveContext: safeLiveContext(device.liveContext) } : {}),
     contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
     ...(normalized ? { pendingRequest: normalized } : {}),
   };

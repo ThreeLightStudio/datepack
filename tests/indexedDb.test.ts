@@ -20,6 +20,7 @@ import {
   getCurrentPackId,
   savePackWithPendingRequest,
   savePendingRequest,
+  saveDeviceFields,
 } from '../src/storage/indexedDb';
 import { openDB } from 'idb';
 
@@ -37,6 +38,68 @@ beforeEach(clearDatabase);
 afterEach(closeStorage);
 
 describe('device IndexedDB persistence', () => {
+  it('does not overwrite a runtime context changed while a one-shot GPS request was pending', async () => {
+    const pack = createDatePack({ title: 'GPS context race' });
+    await savePack(pack);
+    await saveRuntimeAndAdvanceContext({
+      planId: pack.plan.id,
+      updatedAt: '2026-10-01T07:40:00Z',
+      events: {},
+    });
+    await expect(
+      saveDeviceFields(
+        pack.plan.id,
+        {
+          liveContext: {
+            planId: pack.plan.id,
+            revision: 1,
+            updatedAt: '2026-10-01T07:41:00Z',
+            place: 'Stale GPS result',
+          },
+        },
+        0,
+        undefined,
+        0,
+      ),
+    ).rejects.toThrow('context-revision-conflict');
+    expect((await loadDeviceState(pack.plan.id)).contextRevision).toBe(1);
+    expect((await loadDeviceState(pack.plan.id)).liveContext).toBeUndefined();
+  });
+  it('strips exact GPS coordinates at every device write and excludes device context from portable packs', async () => {
+    const pack = createDatePack({ title: 'Private origin' });
+    await savePack(pack);
+    const attempt = {
+      attemptedAt: '2026-10-01T07:40:00Z',
+      status: 'success' as const,
+      observation: {
+        source: 'gps' as const,
+        observedAt: '2026-10-01T07:40:00Z',
+        coarseLabel: 'Seoul',
+        coordinate: { lat: 37.563214, lon: 126.987654, accuracyMeters: 5 },
+      },
+    };
+    const liveContext = {
+      planId: pack.plan.id,
+      revision: 1,
+      updatedAt: attempt.attemptedAt,
+      gpsConsent: true,
+      locationAttempt: attempt,
+    };
+    await saveDeviceFields(pack.plan.id, { liveContext });
+    await closeStorage();
+    const saved = await loadDeviceState(pack.plan.id);
+    expect(JSON.stringify(saved)).not.toMatch(/37\.563214|126\.987654|coordinate|accuracy/);
+    expect(saved.liveContext?.locationAttempt?.observation?.observedAt).toBe(attempt.attemptedAt);
+    await saveDeviceState({ ...saved, liveContext });
+    const rawDb = await openDB('datepack');
+    expect(JSON.stringify(await rawDb.get('device', pack.plan.id))).not.toMatch(
+      /37\.563214|126\.987654|coordinate|accuracy/,
+    );
+    rawDb.close();
+    expect(JSON.stringify(await loadPack(pack.plan.id))).not.toMatch(
+      /gpsConsent|locationAttempt|37\.563214/,
+    );
+  });
   it('saves a memory and its image blob atomically across a storage restart', async () => {
     const pack = createDatePack({ title: 'Later memories', date: '2026-09-25' });
     await savePack(pack);
@@ -170,6 +233,30 @@ describe('device IndexedDB persistence', () => {
       createdAt: '2026-09-29T00:00:00Z',
       updatedAt: '2026-09-29T00:02:00Z',
     };
+    await expect(
+      commitPlanChange(
+        pack.plan.id,
+        0,
+        'Expired route',
+        { ...pack.plan, title: 'Rejected' },
+        undefined,
+        [],
+        {
+          requestId: 'request-ai',
+          kind: 'remaining-change',
+          baseRevision: 0,
+          contextRevision: 7,
+          generatedAt: requestUpdate.generatedAt,
+          responseFingerprint: 'fingerprint',
+          answerText: 'answer',
+          requestUpdate,
+          validateImpact: () => false,
+        },
+      ),
+    ).rejects.toThrow('route-impact-conflict');
+    expect((await loadPack(pack.plan.id))?.revision).toBe(0);
+    expect((await loadDeviceState(pack.plan.id)).pendingRequest?.status).toBe('review');
+    expect((await loadDeviceState(pack.plan.id)).undoStack).toHaveLength(0);
     await commitPlanChange(
       pack.plan.id,
       0,
@@ -186,6 +273,7 @@ describe('device IndexedDB persistence', () => {
         responseFingerprint: 'fingerprint',
         answerText: 'answer',
         requestUpdate,
+        validateImpact: (before) => before.title === pack.plan.title,
       },
     );
     expect((await loadPack(pack.plan.id))?.plan.title).toBe('Reviewed');

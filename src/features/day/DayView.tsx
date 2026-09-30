@@ -8,6 +8,7 @@ import { format, formatDate, useLocale } from '../../i18n';
 import { useNow } from '../../hooks/useNow';
 import { CheckIcon, MapIcon } from '../../components/icons';
 import { mapBridgeUrl } from '../../utils/mapBridge';
+import { locationMessage } from './routeCopy';
 
 type Props = {
   plan: DatePlan;
@@ -32,7 +33,8 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
       : undefined;
   const selectedNext = preferredNextId ? requestedNext?.event : undefined;
   const remainingPlan = getRemainingPlanEvents(ctx, preferredNextId);
-  const visibleCurrent = current ?? remainingPlan[0] ?? null;
+  const visibleCurrent =
+    (preferredNextId ? remainingPlan[0] : (current ?? remainingPlan[0])) ?? null;
   const isChosenNext = Boolean(visibleCurrent && preferredNextId === visibleCurrent.event.id);
   const isReincludedNext = Boolean(
     visibleCurrent?.status === 'unknown-past' && visibleCurrent.includeInRemaining,
@@ -85,9 +87,12 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
               </p>
               <p className="hint-text">
                 {ko
-                  ? '직접 확인한 내용'
+                  ? `마지막 직접 확인 · ${new Date(store.liveContext.confirmedAt ?? store.liveContext.updatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`
                   : `Confirmed ${new Date(store.liveContext.confirmedAt ?? store.liveContext.updatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`}
               </p>
+              {contextPlan?.locationAttempt && (
+                <p className="hint-text">{locationMessage(contextPlan.locationAttempt, locale)}</p>
+              )}
             </>
           ) : (
             <p className="sub-line">

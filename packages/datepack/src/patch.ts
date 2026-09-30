@@ -164,20 +164,12 @@ export function describePatch(plan: DatePlan, patch: DatePackPatch): PatchOutcom
           skipped.push({ key: 'err.patch.unknownTarget', params: { target: op.target } });
           break;
         }
-        if (
-          (event.fixed && !event.protectedFields?.length) ||
-          event.protectedFields?.includes('delete')
-        ) {
+        if (event.fixed || event.protectedFields?.includes('delete')) {
           skipped.push({ key: 'err.patch.protected', params: { title: event.title } });
           break;
         }
         next.events.splice(index, 1);
-        applied.push({
-          op: 'remove',
-          target: event.id,
-          title: event.title,
-          fixed: event.fixed === true,
-        });
+        applied.push({ op: 'remove', target: event.id, title: event.title, fixed: false });
         break;
       }
       case 'insertBefore':
@@ -319,8 +311,13 @@ function detailFor(key: string, oldValue: unknown, newValue: unknown): PatchChan
 }
 
 function isFieldProtected(event: DateEvent, key: string): boolean {
-  if (event.fixed && !event.protectedFields?.length) return true;
-  const field = key === 'start' || key === 'end' ? 'time' : key === 'placeId' ? 'place' : 'content';
+  if (event.fixed) return true;
+  const field =
+    key === 'start' || key === 'end' || key === 'timing'
+      ? 'time'
+      : key === 'placeId' || key === 'place'
+        ? 'place'
+        : 'content';
   return event.protectedFields?.includes(field) ?? false;
 }
 

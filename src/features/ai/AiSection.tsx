@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   DatePackRuntimeState,
   DatePlan,
@@ -13,9 +13,14 @@ import {
   showToast,
   undo,
   updatePendingRequest,
+  updateLiveContext,
+  getStoreState,
   useStore,
 } from '../../store/datepackStore';
 import type { PendingRequest } from '../../storage/indexedDb';
+import { acquireLocation, setLocalObservation, toCoarseContext } from '../day/location';
+import { prepareImpact, type ImpactResult } from '../day/routeImpact';
+import { impactMessage, locationMessage } from '../day/routeCopy';
 import { CopyIcon, SparkleIcon, UndoIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
 import {
@@ -106,7 +111,9 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
 
 export function AiSection({ plan, runtime }: Props) {
   const locale = useLocale();
-  const { undoStack, pack, contextRevision, pendingRequest } = useStore();
+  const { undoStack, pack, contextRevision, pendingRequest, liveContext } = useStore();
+  const requestBusy = useRef(false);
+  const [preparing, setPreparing] = useState(false);
   const [stage, setStage] = useState<Stage>('idle');
   const [situationId, setSituationId] = useState<string | null>(null);
   const [scopeKind, setScopeKind] = useState<'next-change' | 'remaining-change'>(
@@ -116,7 +123,13 @@ export function AiSection({ plan, runtime }: Props) {
   const [prompt, setPrompt] = useState('');
   const [patchText, setPatchText] = useState('');
   const [review, setReview] = useState<
-    | { ok: true; changes: PatchChange[]; warnings: string[]; prepared: PatchOutcome }
+    | {
+        ok: true;
+        changes: PatchChange[];
+        warnings: string[];
+        prepared: PatchOutcome;
+        impact: ImpactResult;
+      }
     | { ok: false; errors: string[] }
     | null
   >(null);
@@ -166,10 +179,28 @@ export function AiSection({ plan, runtime }: Props) {
     : null;
 
   function eligibleIds(kind: 'next-change' | 'remaining-change'): string[] {
-    return getAiScopeEventIds(plan, runtime, kind);
+    return getAiScopeEventIds(plan, runtime, kind, new Date(), liveContext);
   }
 
   async function prepareRequest(id: string, custom?: string): Promise<void> {
+    if (requestBusy.current) return;
+    requestBusy.current = true;
+    setPreparing(true);
+    try {
+      await prepareRequestWithLocation(id, custom);
+    } catch {
+      showToast(
+        locale === 'ko'
+          ? '현재 상황을 저장하지 못했어요. 다시 시도해주세요.'
+          : 'Could not save the current context. Try again.',
+      );
+    } finally {
+      requestBusy.current = false;
+      setPreparing(false);
+    }
+  }
+
+  async function prepareRequestWithLocation(id: string, custom?: string): Promise<void> {
     if (!pack || pack.plan.id !== plan.id) return;
     if (
       pendingRequest &&
@@ -183,14 +214,55 @@ export function AiSection({ plan, runtime }: Props) {
       );
       return;
     }
-    const eventIds = eligibleIds(scopeKind);
+    const startingState = getStoreState();
+    if (liveContext?.gpsConsent) {
+      const lastKnown = liveContext.locationAttempt?.observation?.coarseLabel
+        ? liveContext.locationAttempt.observation
+        : (liveContext.locationAttempt?.lastKnown ??
+          (liveContext.place
+            ? {
+                source: 'manual' as const,
+                coarseLabel: liveContext.place,
+                observedAt: liveContext.confirmedAt ?? liveContext.updatedAt,
+              }
+            : undefined));
+      const attempt = await acquireLocation(true, { lastKnown });
+      const after = getStoreState();
+      if (
+        after.pack?.plan.id !== plan.id ||
+        after.pack.revision !== pack.revision ||
+        after.contextRevision !== startingState.contextRevision
+      ) {
+        showToast(format(locale, 'ai.request.stale'));
+        return;
+      }
+      await updateLiveContext(
+        {
+          ...liveContext,
+          updatedAt: new Date().toISOString(),
+          locationAttempt: toCoarseContext(attempt),
+        },
+        startingState.contextRevision,
+      );
+      setLocalObservation(plan.id, attempt.observation);
+    } else setLocalObservation(plan.id);
+    const fresh = getStoreState();
+    if (fresh.pack?.plan.id !== plan.id || fresh.pack.revision !== pack.revision) return;
+    if (
+      fresh.pendingRequest?.id !== startingState.pendingRequest?.id ||
+      fresh.pendingRequest?.updatedAt !== startingState.pendingRequest?.updatedAt
+    ) {
+      showToast(format(locale, 'ai.request.stale'));
+      return;
+    }
+    const eventIds = getAiScopeEventIds(plan, runtime, scopeKind, new Date(), fresh.liveContext);
     const requestId = crypto.randomUUID();
     const generatedAt = new Date().toISOString();
     const requestIdentity: AiRequestIdentity = {
       requestId,
       packId: plan.id,
       baseRevision: pack.revision,
-      contextRevision,
+      contextRevision: fresh.contextRevision,
       generatedAt,
       kind: scopeKind,
     };
@@ -202,6 +274,7 @@ export function AiSection({ plan, runtime }: Props) {
       locale,
       identity: requestIdentity,
       scopeEventIds: eventIds,
+      liveContext: fresh.liveContext,
     });
     const request: PendingRequest = {
       id: requestId,
@@ -441,6 +514,37 @@ export function AiSection({ plan, runtime }: Props) {
       });
       return;
     }
+    const impact = await prepareImpact({
+      before: plan,
+      proposed: outcome.plan,
+      planRevision: identity.baseRevision,
+      contextRevision: identity.contextRevision,
+      requestId: identity.requestId,
+      scopeEventIds: activeRequest.scopeEventIds ?? [],
+      eventIds: eligibleIds('remaining-change'),
+    });
+    const current = getStoreState();
+    if (
+      current.pack?.revision !== identity.baseRevision ||
+      current.contextRevision !== identity.contextRevision ||
+      current.pendingRequest?.id !== identity.requestId
+    ) {
+      setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] });
+      return;
+    }
+    if (impact.status !== 'verified') {
+      const message = impactMessage(impact, locale);
+      setReview({ ok: false, errors: [message] });
+      await updatePendingRequest({
+        ...activeRequest,
+        status: 'error',
+        answerText: raw,
+        responseFingerprint: fingerprint,
+        error: message,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
     await updatePendingRequest({
       ...activeRequest,
       status: 'review',
@@ -449,7 +553,7 @@ export function AiSection({ plan, runtime }: Props) {
       error: undefined,
       updatedAt: new Date().toISOString(),
     });
-    setReview({ ok: true, changes: outcome.applied, warnings, prepared: outcome });
+    setReview({ ok: true, changes: outcome.applied, warnings, prepared: outcome, impact });
   }
 
   function applyApproved(): void {
@@ -477,6 +581,7 @@ export function AiSection({ plan, runtime }: Props) {
         kind: identity.kind,
       },
       review.prepared.plan,
+      review.impact.snapshot,
     ).then((applied) => {
       if (!applied) {
         setReview({ ok: false, errors: [format(locale, 'ai.request.stale')] });
@@ -532,6 +637,24 @@ export function AiSection({ plan, runtime }: Props) {
           : 'Tell the app what happened and it drafts a note for your AI assistant. Paste the reply back — nothing changes until you approve it.'}
       </p>
 
+      {liveContext?.gpsConsent && (
+        <p className="hint-text">
+          {locale === 'ko'
+            ? '새 요청을 만들 때 현재 위치를 한 번 조회해요. 상황 수정에서 언제든 끌 수 있어요.'
+            : 'Each new request looks up your location once. Turn this off in your situation settings.'}
+        </p>
+      )}
+      {preparing && (
+        <p className="hint-text" role="status">
+          {locale === 'ko' ? '현재 상황을 확인하고 있어요…' : 'Checking your current context…'}
+        </p>
+      )}
+      {liveContext?.locationAttempt && (
+        <p className="hint-text" role="status">
+          {locationMessage(liveContext.locationAttempt, locale)}
+        </p>
+      )}
+
       <fieldset className="ai-scope" aria-label={locale === 'ko' ? '변경 범위' : 'Change scope'}>
         <legend className="eyebrow">{locale === 'ko' ? '변경 범위' : 'Change scope'}</legend>
         <div className="chip-row wrap">
@@ -562,6 +685,7 @@ export function AiSection({ plan, runtime }: Props) {
             type="button"
             className={`chip chip-btn ${situationId === s.id ? 'chip-selected' : ''}`}
             onClick={() => choose(s.id)}
+            disabled={preparing}
           >
             {format(locale, s.labelKey)}
           </button>
@@ -671,6 +795,7 @@ export function AiSection({ plan, runtime }: Props) {
                   <li key={i}>{changeLabel(locale, change)}</li>
                 ))}
               </ul>
+              <p className="hint-text">{impactMessage(review.impact, locale)}</p>
               {review.warnings.length > 0 && (
                 <p className="form-warning">{review.warnings.join(' ')}</p>
               )}

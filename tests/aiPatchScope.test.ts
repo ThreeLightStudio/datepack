@@ -15,6 +15,16 @@ function makeUndatedPlan(): DatePlan {
 }
 
 describe('AI replan scope', () => {
+  it('matches the displayed user-selected next destination while retaining downstream validation scope', () => {
+    const plan = makeUndatedPlan();
+    const now = new Date('2026-10-01T08:00:00');
+    const context = { nextPlaceId: 'timed-second' };
+    expect(getAiScopeEventIds(plan, null, 'next-change', now, context)).toEqual(['timed-second']);
+    expect(getAiScopeEventIds(plan, null, 'remaining-change', now, context)).toEqual([
+      'timed-second',
+      'unscheduled-first',
+    ]);
+  });
   it('includes unscheduled activities in explicit plan order for next and remaining scope', () => {
     const plan = makeUndatedPlan();
     const now = new Date('2026-09-29T08:00:00');
@@ -44,7 +54,8 @@ describe('AI replan scope', () => {
 
     expect(prompt).toContain('time unset');
     expect(prompt).toContain('id: unscheduled-first');
-    expect(prompt).not.toContain('id: timed-second');
+    expect(prompt).toContain('Journey context outside the edit scope (read-only; do not change)');
+    expect(prompt).toContain('id: timed-second');
   });
 
   it('tells the AI to use the explicit no-target first-stop operation for an empty plan', () => {

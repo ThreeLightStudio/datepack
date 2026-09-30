@@ -1873,3 +1873,19 @@ div.asset-placeholder,
   overflow-wrap: anywhere;
   font: var(--font-small);
 }
+.consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  min-height: 48px;
+  padding-block: var(--sp-3);
+  line-height: 1.5;
+  cursor: pointer;
+}
+.consent-row input {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin-top: 2px;
+  accent-color: var(--color-primary-deep);
+}
