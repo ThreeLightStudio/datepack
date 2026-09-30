@@ -5,6 +5,22 @@ import type { MessageKey } from './ko';
  * English date-planner would say it, keeping the same intent and tone.
  */
 export const en: Record<MessageKey, string> = {
+  'reorder.handle': 'Drag to reorder {title}',
+  'reorder.help': 'Drag or use the up and down arrow keys',
+  'reorder.up': 'Up',
+  'reorder.down': 'Down',
+  'reorder.upLabel': 'Move {title} up',
+  'reorder.downLabel': 'Move {title} down',
+  'reorder.review': 'Review new order',
+  'reorder.reviewHint':
+    'Check the new order and times. Apply once the journey and protected stops are verified.',
+  'reorder.adjust': 'Preview overlapping time adjustments',
+  'reorder.keep': 'Keep current plan',
+  'reorder.confirm': 'Apply this order',
+  'reorder.saved': 'Itinerary order saved.',
+  'reorder.stale': 'The plan or situation changed. Review the order again.',
+  'reorder.failed': 'Could not save the new order. Your current plan is preserved.',
+
   // app chrome
   'app.brand': 'DatePack',
   'app.undo': 'Undo',

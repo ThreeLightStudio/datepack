@@ -23,6 +23,7 @@ import { CheckIcon, EditIcon, EVENT_TYPE_ICONS, PlusIcon, SkipIcon } from '../..
 import { eventTypeLabel, format, formatDate, useLocale } from '../../i18n';
 import { useNow } from '../../hooks/useNow';
 import { computeDayContext, timeRangeLabel } from '../day/dayRuntime';
+import { usePlanReorder } from './usePlanReorder';
 
 function pointLabel(point: { time: string; dayOffset: 0 | 1 }, locale: 'ko' | 'en'): string {
   return `${point.time}${point.dayOffset ? (locale === 'ko' ? ' (다음 날)' : ' (next day)') : ''}`;
@@ -41,6 +42,7 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
   const [candidateTitle, setCandidateTitle] = useState('');
   const [candidateType, setCandidateType] = useState<DateEventType>('place');
   const ordered = sortEventsByOrder(plan.events);
+  const reorder = usePlanReorder(plan);
   const statusById = new Map(ctx.events.map((entry) => [entry.event.id, entry.status]));
   function addCandidate() {
     if (!candidateTitle.trim()) return;
@@ -146,8 +148,13 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
         <h2 id="selected-heading" className="section-title">
           {format(locale, 'p3.plan.selected')}
         </h2>
+        {ordered.length > 1 && (
+          <p id="reorder-help" className="hint-text">
+            {format(locale, 'reorder.help')}
+          </p>
+        )}
         {ordered.length ? (
-          <ol className="timeline">
+          <ol className="timeline" ref={reorder.list} aria-busy={reorder.busy}>
             {ordered.map((event, position) => {
               const status = statusById.get(event.id) ?? 'upcoming';
               const place = plan.places?.find((p) => p.id === event.placeId);
@@ -203,7 +210,11 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
                           ? '예정'
                           : 'Planned';
               return (
-                <li key={event.id} className="plan-event">
+                <li
+                  key={event.id}
+                  data-event-id={event.id}
+                  className={`plan-event${reorder.drop?.beforeId === event.id ? ' drop-before' : ''}${reorder.drop?.id === event.id ? ' is-dragging' : ''}${reorder.drop && reorder.drop.beforeId === null && position === ordered.length - 1 ? ' drop-after' : ''}`}
+                >
                   <button
                     type="button"
                     className={`tl-row tl-${status}`}
@@ -246,6 +257,7 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
                     </span>
                   </button>
                   <div className="event-plan-actions">
+                    {reorder.controls(event.id, position, event.title)}
                     <button type="button" className="link-btn" onClick={() => setEditing(event)}>
                       {ko ? '편집' : 'Edit'}
                     </button>
@@ -314,6 +326,9 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
           {ko ? '활동 추가' : 'Add activity'}
         </button>
       </section>
+      <p className="reorder-notice" role="status" aria-live="polite">
+        {reorder.notice}
+      </p>
 
       <section className="candidate-section" aria-labelledby="candidate-heading">
         <h2 id="candidate-heading" className="section-title">
@@ -435,6 +450,7 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
           onClose={() => setContextOpen(false)}
         />
       )}
+      {reorder.sheet}
     </div>
   );
 }

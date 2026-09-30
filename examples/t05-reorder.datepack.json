@@ -1,0 +1,150 @@
+{
+  "format": "datepack",
+  "version": "3.0",
+  "createdAt": "2026-09-30T23:00:00.000Z",
+  "updatedAt": "2026-09-30T23:00:00.000Z",
+  "generator": "T05 local UI fixture",
+  "plan": {
+    "id": "plan-t05-reorder-fixture",
+    "title": "T05 순서 변경 확인",
+    "date": "2026-10-01",
+    "availableFrom": { "dayOffset": 0, "time": "16:00" },
+    "mustEndBy": { "dayOffset": 0, "time": "19:30" },
+    "places": [
+      { "id": "venue", "name": "한 장소에서 함께" },
+      { "id": "cafe", "name": "공개 카페 fixture" },
+      { "id": "park", "name": "공개 공원 fixture" },
+      { "id": "restaurant", "name": "18시 예약 fixture" }
+    ],
+    "events": [
+      {
+        "id": "read",
+        "title": "책 고르기",
+        "order": 0,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 10
+      },
+      {
+        "id": "talk",
+        "title": "서로 고른 책 이야기",
+        "order": 1,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 20
+      },
+      {
+        "id": "coffee",
+        "title": "카페 들르기",
+        "order": 2,
+        "type": "cafe",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "16:40" },
+          "end": { "dayOffset": 0, "time": "17:00" }
+        },
+        "placeId": "cafe"
+      },
+      {
+        "id": "walk",
+        "title": "공원 산책",
+        "order": 3,
+        "type": "activity",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "17:10" },
+          "end": { "dayOffset": 0, "time": "17:25" }
+        },
+        "placeId": "park"
+      },
+      {
+        "id": "booking",
+        "title": "18시 고정 식사 예약",
+        "order": 4,
+        "type": "reservation",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "18:00" },
+          "end": { "dayOffset": 0, "time": "19:00" }
+        },
+        "placeId": "restaurant",
+        "protectedFields": ["time", "place", "content", "delete", "order"]
+      }
+    ]
+  },
+  "baselinePlan": {
+    "id": "plan-t05-reorder-fixture",
+    "title": "T05 순서 변경 확인",
+    "date": "2026-10-01",
+    "availableFrom": { "dayOffset": 0, "time": "16:00" },
+    "mustEndBy": { "dayOffset": 0, "time": "19:30" },
+    "places": [
+      { "id": "venue", "name": "한 장소에서 함께" },
+      { "id": "cafe", "name": "공개 카페 fixture" },
+      { "id": "park", "name": "공개 공원 fixture" },
+      { "id": "restaurant", "name": "18시 예약 fixture" }
+    ],
+    "events": [
+      {
+        "id": "read",
+        "title": "책 고르기",
+        "order": 0,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 10
+      },
+      {
+        "id": "talk",
+        "title": "서로 고른 책 이야기",
+        "order": 1,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 20
+      },
+      {
+        "id": "coffee",
+        "title": "카페 들르기",
+        "order": 2,
+        "type": "cafe",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "16:40" },
+          "end": { "dayOffset": 0, "time": "17:00" }
+        },
+        "placeId": "cafe"
+      },
+      {
+        "id": "walk",
+        "title": "공원 산책",
+        "order": 3,
+        "type": "activity",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "17:10" },
+          "end": { "dayOffset": 0, "time": "17:25" }
+        },
+        "placeId": "park"
+      },
+      {
+        "id": "booking",
+        "title": "18시 고정 식사 예약",
+        "order": 4,
+        "type": "reservation",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "18:00" },
+          "end": { "dayOffset": 0, "time": "19:00" }
+        },
+        "placeId": "restaurant",
+        "protectedFields": ["time", "place", "content", "delete", "order"]
+      }
+    ]
+  },
+  "experiences": [],
+  "revision": 0,
+  "assets": []
+}

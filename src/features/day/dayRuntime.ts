@@ -183,9 +183,7 @@ export function getRemainingPlanEvents(
   const next =
     eligible.find((view) => view.event.id === preferredEventId) ??
     eligible.find((view) => view.status === 'unknown-past' && view.includeInRemaining) ??
-    eligible.find((view) => view.event.id === context.next?.event.id) ??
-    eligible.find((view) => view.event.timing.kind === 'unscheduled') ??
-    (!context.isWithinPlanDays ? eligible[0] : undefined);
+    eligible[0];
   return next ? [next, ...eligible.filter((view) => view.event.id !== next.event.id)] : eligible;
 }
 

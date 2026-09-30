@@ -1,4 +1,5 @@
 import type { DateEvent, DatePlan, LocalPoint, ProtectedField } from '@datepack/core';
+import { sortEventsByOrder } from '@datepack/core';
 import { seoulPlanDate, seoulPointInstant } from './planTime';
 export const ANCHOR_BUFFER_MINUTES = 10;
 import {
@@ -84,7 +85,7 @@ function routeValue(plan: DatePlan) {
     plan.date,
     plan.availableFrom,
     plan.mustEndBy,
-    plan.events.map((e) => [
+    sortEventsByOrder(plan.events).map((e) => [
       e.id,
       e.order,
       e.timing,
@@ -96,9 +97,45 @@ function routeValue(plan: DatePlan) {
   ];
 }
 export function hasRouteImpact(before: DatePlan, proposed: DatePlan): boolean {
+  if (samePlaceUnscheduledReorder(before, proposed)) return false;
   return !same(routeValue(before), routeValue(proposed));
 }
+/** Only a permutation inside one venue's untimed block can keep the journey unchanged.
+ * Unknown venues, time windows and changes to any other field still need route evidence. */
+function samePlaceUnscheduledReorder(before: DatePlan, proposed: DatePlan): boolean {
+  const a = sortEventsByOrder(before.events),
+    b = sortEventsByOrder(proposed.events);
+  if (!same({ ...before, events: [] }, { ...proposed, events: [] }) || a.length !== b.length)
+    return false;
+  const strip = (event: DateEvent) => ({ ...event, order: 0 });
+  if (a.some((event) => !same(strip(event), strip(b.find((e) => e.id === event.id)!))))
+    return false;
+  const changed = a.flatMap((event, index) => (event.id !== b[index]?.id ? [index] : []));
+  if (!changed.length) return true;
+  const block = a.slice(changed[0], changed.at(-1)! + 1);
+  const placeId = block[0].placeId;
+  return Boolean(
+    placeId &&
+    before.places?.some((place) => place.id === placeId) &&
+    block.every(
+      (event) =>
+        event.placeId === placeId &&
+        event.timing.kind === 'unscheduled' &&
+        Number.isFinite(event.estimatedDurationMinutes) &&
+        event.estimatedDurationMinutes! >= 0,
+    ) &&
+    same(
+      block.map((e) => e.id).sort(),
+      b
+        .slice(changed[0], changed.at(-1)! + 1)
+        .map((e) => e.id)
+        .sort(),
+    ),
+  );
+}
 export function protectionReasons(before: DatePlan, proposed: DatePlan): string[] {
+  before = { ...before, events: sortEventsByOrder(before.events) };
+  proposed = { ...proposed, events: sortEventsByOrder(proposed.events) };
   const reasons = new Set<string>();
   for (const event of before.events) {
     const fields: readonly ProtectedField[] = event.fixed
@@ -195,6 +232,11 @@ export function validateImpact(input: ImpactInput): ImpactResult {
   return evaluate(input).result;
 }
 function evaluate(input: ImpactInput): { result: ImpactResult; missingLeg?: RouteLeg } {
+  input = {
+    ...input,
+    before: { ...input.before, events: sortEventsByOrder(input.before.events) },
+    proposed: { ...input.proposed, events: sortEventsByOrder(input.proposed.events) },
+  };
   const now = input.now ?? Date.now(),
     mode = input.mode ?? 'walking';
   const selected = input.eventIds ? new Set(input.eventIds) : undefined;
@@ -366,7 +408,7 @@ export function localImpactInput(input: ImpactInput): ImpactInput {
     ...input,
     observation: input.observation ?? getLocalObservation(input.before.id),
     places: input.places ?? localPlaces.get(input.before.id),
-    evidence: input.evidence ?? localEvidence.get(input.before.id),
+    evidence: input.evidence ?? localEvidence.get(input.before.id) ?? [],
   };
 }
 /** Fetches missing legs sequentially. Capability failures stop without making up durations. */

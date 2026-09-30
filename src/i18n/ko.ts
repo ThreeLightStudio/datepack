@@ -5,6 +5,22 @@
  * 원칙: 각 언어는 번역이 아니라 그 언어권에서 자연스러운 문장으로 "재생성"한다.
  */
 export const ko = {
+  'reorder.handle': '{title} 드래그로 순서 변경',
+  'reorder.help': '드래그하거나 위·아래 화살표 키로 이동',
+  'reorder.up': '위',
+  'reorder.down': '아래',
+  'reorder.upLabel': '{title} 위로 이동',
+  'reorder.downLabel': '{title} 아래로 이동',
+  'reorder.review': '순서 변경 확인',
+  'reorder.reviewHint':
+    '새 순서와 시간을 확인해주세요. 동선과 고정 조건이 검증되면 적용할 수 있어요.',
+  'reorder.adjust': '겹치는 시간 조정 미리보기',
+  'reorder.keep': '기존 일정 유지',
+  'reorder.confirm': '이 순서로 적용',
+  'reorder.saved': '일정 순서를 저장했어요.',
+  'reorder.stale': '계획이나 상황이 바뀌었어요. 다시 순서를 확인해주세요.',
+  'reorder.failed': '순서 변경을 저장하지 못했어요. 기존 일정은 유지돼요.',
+
   // app chrome
   'app.brand': 'DatePack',
   'app.undo': '되돌리기',

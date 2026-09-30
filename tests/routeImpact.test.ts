@@ -327,7 +327,7 @@ describe('full affected journey', () => {
       input.proposed.events[3],
       input.proposed.events[1],
       input.proposed.events[2],
-    ];
+    ].map((event, order) => ({ ...event, order }));
     expect(protectionReasons(input.before, input.proposed)).toContain('protected-order');
   });
   it('binds reviewed candidates to plan/context/scope/mode and rechecks time at apply', () => {

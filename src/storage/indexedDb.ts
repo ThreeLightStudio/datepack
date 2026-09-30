@@ -74,6 +74,10 @@ export type AiCommitGuard = {
   /** Memory-only check inside the transaction, after revision/context/request guards. */
   validateImpact?: (before: DatePlan) => boolean;
 };
+export type DirectPlanGuard = {
+  contextRevision: number;
+  validateImpact: (before: DatePlan) => boolean;
+};
 export type PendingRequestGuard = Pick<
   PendingRequest,
   | 'id'
@@ -423,6 +427,7 @@ export async function commitPlanChange(
   nextAssets?: DatePackAsset[],
   assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
   aiGuard?: AiCommitGuard,
+  directGuard?: DirectPlanGuard,
 ): Promise<DatePack> {
   const db = await getDb();
   const tx = db.transaction(['packsV3', 'device', 'assets'], 'readwrite');
@@ -448,6 +453,19 @@ export async function commitPlanChange(
   };
   validate(pack);
   const existing = (await tx.objectStore('device').get(planId)) ?? defaultDevice(planId);
+  if (directGuard) {
+    if (
+      (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !==
+      directGuard.contextRevision
+    ) {
+      abortReadWrite(tx);
+      throw new Error('context-revision-conflict');
+    }
+    if (!directGuard.validateImpact(row.pack.plan)) {
+      abortReadWrite(tx);
+      throw new Error('route-impact-conflict');
+    }
+  }
   if (aiGuard) {
     if (row.pack.revision !== aiGuard.baseRevision) {
       abortReadWrite(tx);

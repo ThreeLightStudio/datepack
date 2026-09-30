@@ -1025,7 +1025,72 @@ div.asset-placeholder,
 }
 
 .plan-event {
+  position: relative;
   margin-bottom: var(--sp-2);
+}
+
+.reorder-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.reorder-handle {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 24px;
+  border-radius: 8px;
+}
+.reorder-handle:active {
+  cursor: grabbing;
+}
+.reorder-handle:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.reorder-step {
+  min-height: 44px;
+  padding-inline: 8px;
+}
+.reorder-controls button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.plan-event.drop-before::before,
+.plan-event.drop-after::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  height: 3px;
+  background: var(--color-primary-deep);
+  border-radius: 3px;
+  z-index: 1;
+  pointer-events: none;
+}
+.plan-event.drop-before::before {
+  top: -2px;
+}
+.plan-event.drop-after::after {
+  bottom: -2px;
+}
+.plan-event.is-dragging {
+  background: var(--color-primary-light);
+}
+.reorder-preview {
+  padding-inline-start: 24px;
+  display: grid;
+  gap: 12px;
+}
+.reorder-preview .meta-line {
+  display: block;
+}
+.reorder-notice:empty {
+  display: none;
 }
 
 .section-title {

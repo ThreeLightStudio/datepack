@@ -51,8 +51,11 @@ import {
   localImpactInput,
   snapshotMatches,
   validateImpact,
+  prepareImpact,
+  type ImpactResult,
   type ValidationSnapshot,
 } from '../features/day/routeImpact';
+import { reorderPlan, adjustReorderedTimes } from '../features/plan/reorder';
 import { parseMemoryReply } from '../features/memories/aiMemory';
 import { getAiScopeEventIds } from '../features/ai/promptBuilder';
 import { t, getLocale, type I18nIssue } from '../i18n/core';
@@ -252,6 +255,95 @@ export async function updatePlan(
   if (!state.pack) return false;
   const plan = mutate(structuredClone(state.pack.plan));
   return commitCurrentPlan(label, plan);
+}
+
+export type ReorderReview = {
+  before: DatePlan;
+  proposed: DatePlan;
+  revision: number;
+  contextRevision: number;
+  impact: ImpactResult;
+};
+export async function prepareReorder(
+  eventId: string,
+  beforeId: string | null,
+): Promise<ReorderReview | null> {
+  if (!state.pack) return null;
+  const before = state.pack.plan;
+  const proposed = reorderPlan(before, eventId, beforeId);
+  if (!proposed) return null;
+  const revision = state.pack.revision,
+    contextRevision = state.contextRevision;
+  const impact = await prepareImpact({
+    before,
+    proposed,
+    planRevision: revision,
+    contextRevision,
+    phase: 'plan',
+  });
+  return { before, proposed, revision, contextRevision, impact };
+}
+export async function prepareReorderTimeAdjustment(
+  review: ReorderReview,
+): Promise<ReorderReview | null> {
+  const proposed = adjustReorderedTimes(review.proposed);
+  if (!proposed) return null;
+  const impact = await prepareImpact({
+    before: review.before,
+    proposed,
+    planRevision: review.revision,
+    contextRevision: review.contextRevision,
+    phase: 'plan',
+  });
+  return { ...review, proposed, impact };
+}
+export async function commitReviewedReorder(review: ReorderReview): Promise<boolean> {
+  const current = state.pack;
+  const check = (before: DatePlan): boolean => {
+    const age = Date.now() - Date.parse(review.impact.snapshot.evaluatedAt);
+    const input = localImpactInput({
+      before,
+      proposed: review.proposed,
+      planRevision: review.revision,
+      contextRevision: review.contextRevision,
+      phase: 'plan',
+    });
+    return (
+      age >= 0 &&
+      age <= 300_000 &&
+      snapshotMatches(review.impact.snapshot, input) &&
+      validateImpact(input).status === 'verified'
+    );
+  };
+  if (
+    !current ||
+    current.plan.id !== review.before.id ||
+    current.revision !== review.revision ||
+    state.contextRevision !== review.contextRevision ||
+    !check(current.plan)
+  ) {
+    showToast(t('reorder.stale'));
+    return false;
+  }
+  try {
+    const pack = await commitPlanChange(
+      current.plan.id,
+      review.revision,
+      t('undo.reorder'),
+      review.proposed,
+      undefined,
+      [],
+      undefined,
+      { contextRevision: review.contextRevision, validateImpact: check },
+    );
+    const device = await loadDeviceState(pack.plan.id);
+    setState({ pack, undoStack: device.undoStack });
+    showToast(t('reorder.saved'), { label: t('app.undo'), onClick: () => void undo() });
+    return true;
+  } catch (error) {
+    await refreshAfterConflict(error);
+    return false;
+  }
 }
 
 async function commitCurrentPlan(
