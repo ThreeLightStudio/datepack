@@ -2,7 +2,7 @@
 
 조사 버전 **1.0 · 2026-10-01**. 관찰 시각은 **05:50–05:56 KST**이며 아래 원본
 ISO 시각은 UTC다. 서버·중계·API 키·유료 서비스·사용자 계정을 추가하지 않는
-`decisions.json` v1의 4-B/5-A를 기준으로 판단했다. 공개 서울시청 인근 fixture만
+`decisions.json` v2의 4-B/5-A를 기준으로 판단했다. 공개 서울시청 인근 fixture만
 요청했으며 사용자 GPS나 개인 데이터는 조회하지 않았다.
 
 **전용 OSRM 도보 경로와 Transitous의 coarse 역지오코딩은 한국 fixture에서 HTTP와

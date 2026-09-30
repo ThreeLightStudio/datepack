@@ -79,6 +79,14 @@ request ID는 `request-rain-001`이다. 후보·장소 ID는 앱 fixture가 만�
 | A34 | ko/en, AI 없이 직접 계획·데이트·후기 사용                           | 번역 누락 없음, 기존 흐름 이용 가능, 공급자 장애가 메모 수정까지 차단하지 않음      | T06 UI                               |
 | A35 | 기본 provider 없이 오프라인 실행                                    | 입력·후기·초안 보존, 위치/경로 미확인 표시, 기존 일정 유지 흐름 정상                | T06 storage+device                   |
 
+### A36 구현 후 impeccable UI audit
+
+최신 `decisions.json` v2의 추가 지시에 따라 T06은 모든 UI 구현이 끝난 후
+impeccable 스킬로 desktop/mobile 배치, 접근성·반응형·성능·테마·구현 일관성을
+검증하고 detector 결과를 기록한다. 발견 사항의 수정과 확인 결과 또는 남은 제약을
+명시한다. 모바일 화면 크기의 배치 audit와 실제 iOS/Android PWA 검증을 구분한다.
+T01에서는 UI를 구현하지 않아 이 audit를 미리 완료했다고 주장하지 않는다.
+
 ## footer와 parser의 확인 기준
 
 공통 계약의 next-change JSON 예시를 대응 identity로 검사하고 `result`를 core
@@ -99,7 +107,7 @@ public reverse HTTP 및 로컬 브라우저 CORS다. 기본 OSRM host의 walking
 동일 응답도 HTTP control로 확인했다. 상세 입력·시각·결과는 서비스 조사와 증거 JSON에
 있다. Nominatim은 실제 GPS용으로 채택하지 않는다.
 
-위 A01–A35 제품 동작은 아직 T01 통과 목록이 아니다. GPS 권한/실기기, 도보의
+위 A01–A36 제품 동작은 아직 T01 통과 목록이 아니다. GPS 권한/실기기, 도보의
 현장 이동, 한국 transit 실제 route, production origin, iOS Safari·Android Chrome
 PWA, 외부 AI 대화의 footer 준수, OS 공유 시트는 후속 live/device 검증이다. T06는
 실제로 수행한 자동 검사·브라우저 행동·실기기 증거를 각각 보고하고 미수행은 미검증으로
