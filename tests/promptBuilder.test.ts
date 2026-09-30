@@ -98,7 +98,7 @@ describe('buildAiPrompt', () => {
     expect(prompt).toContain('위 목록에 없는 id는 절대 사용할 수 없습니다');
   });
 
-  it('keeps the cascade and anchoring rules in the instructions', () => {
+  it('keeps whole-journey checks within scope and never authorizes AI unlocking', () => {
     const prompt = buildAiPrompt({
       plan: makePlan(),
       runtime: null,
@@ -106,8 +106,10 @@ describe('buildAiPrompt', () => {
       locale: 'ko',
       now: NOW,
     });
-    expect(prompt).toContain('영향받는 모든 후속 일정의 move도 빠짐없이 포함하세요');
-    expect(prompt).toContain('fixed: true');
+    expect(prompt).toContain('현재 위치→새 후보→다음 활동→고정 예약 전체 영향 동선');
+    expect(prompt).toContain('범위 밖 후속 일정과 고정 예약은 읽기 전용');
+    expect(prompt).toContain('일반 승인이나 AI 대화에서 변경 요청은 고정 해제 승인이 아닙니다');
+    expect(prompt).not.toContain('fixed: true');
     const en = buildAiPrompt({
       plan: makePlan(),
       runtime: null,

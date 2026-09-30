@@ -3,7 +3,7 @@ import { Sheet } from '../../components/Sheet';
 import { CopyIcon, SparkleIcon } from '../../components/icons';
 import { buildCreatePrompt } from './createPromptBuilder';
 import type { DatePlan } from '@datepack/core';
-import { buildPlanFromDraft, createDatePack, parsePlanDraft, todayISO } from '@datepack/core';
+import { buildPlanFromDraft, createDatePack, parsePlanDraft } from '@datepack/core';
 import {
   applyAiPlan,
   createAiDraftPack,
@@ -14,6 +14,7 @@ import {
 import type { PendingRequest } from '../../storage/indexedDb';
 import { formatDate, format, useLocale } from '../../i18n';
 import { parseAiResponse, responseFingerprint, type AiRequestIdentity } from './exchange';
+import { timingLabel } from './timingPresentation';
 
 type Props = { open: boolean; onClose: () => void };
 type Review = { plan: DatePlan; warnings: string[] } | { errors: string[] } | null;
@@ -43,7 +44,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
   const locale = useLocale();
   const { pack, pendingRequest, contextRevision } = useStore();
   const [region, setRegion] = useState('');
-  const [date, setDate] = useState(todayISO());
+  const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [notes, setNotes] = useState('');
@@ -321,7 +322,9 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
           </label>
           <div className="field-row">
             <label className="field">
-              <span>{format(locale, 'create.date')}</span>
+              <span>
+                {format(locale, 'create.date')} ({locale === 'ko' ? '선택' : 'optional'})
+              </span>
               <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
             </label>
             <label className="field">
@@ -448,9 +451,15 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
                 <ul className="review-list">
                   {review.plan.events.map((event) => (
                     <li key={event.id}>
-                      {event.start} {event.title}
+                      {timingLabel(event.timing, locale)} {event.title}
                       {event.placeId
                         ? ` · ${review.plan.places?.find((place) => place.id === event.placeId)?.name ?? ''}`
+                        : ''}
+                      {event.estimatedDurationMinutes !== undefined
+                        ? ` · ${locale === 'ko' ? '체류' : 'stay'} ${event.estimatedDurationMinutes} ${locale === 'ko' ? '분' : 'min'}`
+                        : ''}
+                      {event.protectedFields?.length
+                        ? ` · ${locale === 'ko' ? '고정' : 'Protected'}: ${event.protectedFields.map((field) => ({ time: locale === 'ko' ? '시간' : 'time', place: locale === 'ko' ? '장소' : 'place', content: locale === 'ko' ? '내용' : 'content', delete: locale === 'ko' ? '삭제' : 'delete', order: locale === 'ko' ? '순서' : 'order' })[field]).join(' / ')}`
                         : ''}
                     </li>
                   ))}

@@ -9,6 +9,7 @@ import type {
 } from '@datepack/core';
 import { describePatch, parsePatch } from '@datepack/core';
 import { buildAiPrompt, getAiScopeEventIds, SITUATIONS } from './promptBuilder';
+import { timingLabel } from './timingPresentation';
 import {
   applyAiPlan,
   showToast,
@@ -34,15 +35,6 @@ import {
 type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
 
 type Stage = 'idle' | 'prompted';
-function timingLabel(timing: EventTiming, locale: 'ko' | 'en'): string {
-  const ko = locale === 'ko';
-  const point = (p: { dayOffset: 0 | 1; time: string }) =>
-    `${p.time}${p.dayOffset ? (ko ? ' (다음 날)' : ' (next day)') : ''}`;
-  if (timing.kind === 'unscheduled') return timing.label || (ko ? '시간 미정' : 'time unset');
-  if (timing.kind === 'window')
-    return `${point(timing.earliestStart)}–${point(timing.latestStart)}`;
-  return `${point(timing.start)}${timing.end ? `–${point(timing.end)}` : ''}`;
-}
 
 function detailLabel(locale: 'ko' | 'en', d: PatchChangeDetail): string {
   switch (d.field) {

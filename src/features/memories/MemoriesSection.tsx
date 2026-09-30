@@ -8,20 +8,11 @@ import {
   applyAiMemoryNote,
 } from '../../store/datepackStore';
 import type { PendingRequest } from '../../storage/indexedDb';
-import {
-  parseAiResponse,
-  responseContract,
-  responseFingerprint,
-  type AiRequestIdentity,
-} from '../ai/exchange';
+import { responseFingerprint, type AiRequestIdentity } from '../ai/exchange';
 import { useLocale, formatDate } from '../../i18n';
 import { AssetImage } from '../../components/AssetImage';
 import { buildExperienceShareText } from './shareText';
-
-function todayISO(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
+import { buildMemoryPrompt, parseMemoryReply } from './aiMemory';
 
 async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
@@ -48,7 +39,7 @@ export function MemoriesSection() {
   const [title, setTitle] = useState('');
   const [eventId, setEventId] = useState('');
   const [placeName, setPlaceName] = useState('');
-  const [occurredOn, setOccurredOn] = useState(pack?.plan.date ?? '');
+  const [occurredOn, setOccurredOn] = useState('');
   const [time, setTime] = useState('');
   const [outcome, setOutcome] = useState<Experience['outcome']>('note');
   const [note, setNote] = useState('');
@@ -88,24 +79,22 @@ export function MemoriesSection() {
         generatedAt: pendingRequest.generatedAt,
         kind: 'memory-edit',
       };
-      const parsed = parseAiResponse(pendingRequest.answerText, identity);
-      const result =
-        parsed.ok && parsed.response.result && typeof parsed.response.result === 'object'
-          ? (parsed.response.result as Record<string, unknown>)
-          : null;
       const experience = pack.experiences.find((item) => item.id === payload.experienceId);
+      const parsed = parseMemoryReply(
+        pendingRequest.answerText,
+        identity,
+        experience,
+        payload.originalText,
+      );
       if (
-        experience &&
-        result?.experienceId === payload.experienceId &&
-        typeof result.editedText === 'string' &&
-        experience?.note === payload.originalText &&
+        parsed.ok &&
         pack.revision === pendingRequest.baseRevision &&
         contextRevision === pendingRequest.contextRevision
       ) {
         setAiReview({
-          experienceId: experience.id,
-          originalText: experience.note ?? '',
-          editedText: result.editedText,
+          experienceId: parsed.experienceId,
+          originalText: parsed.originalText,
+          editedText: parsed.editedText,
         });
       } else if (pendingRequest.status === 'review') {
         setAiReview({
@@ -180,7 +169,7 @@ export function MemoriesSection() {
         recordedAt: new Date().toISOString(),
         ...(occurredOn ? { occurredOn } : {}),
         ...(time ? { timing: { kind: 'exact', at: { dayOffset: 0, time } } } : {}),
-        ...(note.trim() ? { note: note.trim() } : {}),
+        ...(note ? { note } : {}),
         ...(registered.length ? { assetIds: registered.map(({ asset }) => asset.id) } : {}),
         source: { kind: 'user' },
       };
@@ -259,19 +248,7 @@ export function MemoriesSection() {
       generatedAt,
       kind: 'memory-edit',
     };
-    const prompt = [
-      ko
-        ? '선택한 기록 문장을 읽기 편하게 다듬어주세요. 아래 사실만 사용하고, 방문·대화·감정·시간을 새로 만들거나 추측하지 마세요. 확인이 필요한 부분은 결과에 추가하지 말고 원문을 유지할 수 있게 해주세요.'
-        : 'Polish the selected memory text for readability. Use only the facts below. Do not invent or infer visits, conversations, feelings, or times. Do not add facts that need confirmation.',
-      '',
-      `${ko ? '기록 제목' : 'Memory title'}: ${experience.title}`,
-      `${ko ? '원문' : 'Original text'}: ${experience.note}`,
-      '',
-      ko
-        ? '최종 답안은 설명이나 마크다운 없이 아래 DatePack Response 봉투 하나로 반환하세요. editedText에는 다듬은 문장만 넣으세요.'
-        : 'Return one DatePack Response envelope with no commentary or markdown. Put only the polished wording in editedText.',
-      responseContract(identity, { experienceId: experience.id, editedText: '...' }),
-    ].join('\n');
+    const prompt = buildMemoryPrompt(experience, identity, locale);
     const request: PendingRequest = {
       id,
       planId: identity.packId,
@@ -421,44 +398,22 @@ export function MemoriesSection() {
       );
       return;
     }
-    const parsed = parseAiResponse(aiReply, identity);
+    const experience = activePack.experiences.find((item) => item.id === aiTargetId);
+    const parsed = parseMemoryReply(aiReply, identity, experience, payload?.originalText);
     if (!parsed.ok) {
       await fail(
         parsed.reason === 'mismatch'
           ? ko
-            ? '다른 요청의 답안이에요.'
-            : 'This reply belongs to another request.'
-          : ko
-            ? '요청 식별 정보가 없거나 답안 형식이 올바르지 않아요.'
-            : 'Request identifiers are missing or the reply format is invalid.',
-      );
-      return;
-    }
-    const result = parsed.response.result;
-    if (!result || typeof result !== 'object' || Array.isArray(result)) {
-      await fail(ko ? '다듬은 문장을 찾을 수 없어요.' : 'No edited text was found.');
-      return;
-    }
-    const body = result as Record<string, unknown>;
-    if (
-      body.experienceId !== payload?.experienceId ||
-      typeof body.editedText !== 'string' ||
-      !body.editedText.trim()
-    ) {
-      await fail(
-        ko
-          ? '기록 ID가 다르거나 다듬은 문장이 비어 있어요.'
-          : 'The memory id does not match or the edited text is empty.',
-      );
-      return;
-    }
-    const experience = activePack.experiences.find((item) => item.id === aiTargetId);
-    if (!experience || experience.note !== payload?.originalText) {
-      await fail(
-        ko
-          ? '원문이 요청 이후 바뀌었어요. 새 요청을 만들어주세요.'
-          : 'The original text changed. Start a new request.',
-        'stale',
+            ? '다른 요청이나 기록의 답안이에요.'
+            : 'This reply belongs to another request or memory.'
+          : parsed.reason === 'stale'
+            ? ko
+              ? '원문이 요청 이후 바뀌었어요. 새 요청을 만들어주세요.'
+              : 'The original text changed. Start a new request.'
+            : ko
+              ? '요청문의 결과 형식으로 다시 답해주세요. 경험 ID와 다듬은 문장만 필요해요.'
+              : 'Use the result format from the request: only the memory id and edited wording.',
+        parsed.reason === 'stale' ? 'stale' : 'error',
       );
       return;
     }
@@ -471,9 +426,9 @@ export function MemoriesSection() {
       updatedAt: new Date().toISOString(),
     });
     setAiReview({
-      experienceId: aiTargetId,
-      originalText: experience.note ?? '',
-      editedText: body.editedText.trim(),
+      experienceId: parsed.experienceId,
+      originalText: parsed.originalText,
+      editedText: parsed.editedText,
     });
   }
 

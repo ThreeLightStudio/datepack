@@ -56,8 +56,8 @@ describe('create prompt builder', () => {
 
   it('allows a one-stop, half-day, or empty starter plan in English', () => {
     const prompt = buildCreatePrompt({ region: 'Seoul', locale: 'en' });
-    expect(prompt).toContain('One stop or a half-day outing is fine');
-    expect(prompt).toContain('empty starter plan with events: [] is okay');
+    expect(prompt).toContain('One stop or a half-day is fine');
+    expect(prompt).toContain('an empty events array is also allowed');
     expect(prompt).not.toContain('build a full-day date plan');
     expect(prompt).toContain('Date: Undecided');
   });

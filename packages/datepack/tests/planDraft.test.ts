@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildPlanFromDraft, parsePlanDraft } from '../src/planDraft';
 import { validateDatePack } from '../src/validate';
+import { readDatePack } from '../src/read';
+import { writeDatePack } from '../src/write';
+import { localizeIssues } from '../src/i18n/core';
 
 const validDraft = {
   type: 'datepack.plan',
@@ -120,6 +123,146 @@ describe('parsePlanDraft', () => {
 });
 
 describe('buildPlanFromDraft', () => {
+  it('preserves modern timing, duration, protection and array order through a portable roundtrip', async () => {
+    const events = [
+      { title: '미정', protectedFields: ['content', 'order'] },
+      {
+        title: '다음 날',
+        timing: {
+          kind: 'exact',
+          start: { dayOffset: 1, time: '0:20' },
+          end: { dayOffset: 1, time: '01:00' },
+        },
+        estimatedDurationMinutes: 40,
+        protectedFields: ['time', 'place', 'content', 'delete', 'order'],
+        place: '공개 식당',
+      },
+      {
+        title: '시간대',
+        timing: {
+          kind: 'window',
+          earliestStart: { dayOffset: 0, time: '23:40' },
+          latestStart: { dayOffset: 1, time: '00:10' },
+        },
+        estimatedDurationMinutes: 20,
+      },
+      { title: '호환 시각', start: '9:30', end: '10:00' },
+      { title: '시각 없음', timing: { kind: 'unscheduled', label: '만나서 정하기' } },
+    ];
+    const parsed = parsePlanDraft(
+      JSON.stringify({ type: 'datepack.plan', version: 1, title: '미정 날짜', events }),
+      { allowUndated: true },
+    );
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.errors));
+    const pack = buildPlanFromDraft(parsed.draft);
+    expect(validateDatePack(pack).ok).toBe(true);
+    expect(pack.plan.date).toBeUndefined();
+    expect(pack.plan.events.map((e) => [e.title, e.order])).toEqual(
+      events.map((e, i) => [e.title, i]),
+    );
+    expect(pack.plan.events[0].timing).toEqual({ kind: 'unscheduled' });
+    expect(pack.plan.events[1]).toMatchObject({
+      timing: { kind: 'exact', start: { dayOffset: 1, time: '00:20' } },
+      estimatedDurationMinutes: 40,
+      protectedFields: events[1].protectedFields,
+    });
+    expect(pack.plan.events[2].timing).toEqual(events[2].timing);
+    const portable = await writeDatePack(pack, () => null);
+    const read = await readDatePack(portable.blob);
+    expect(read.pack.plan.date).toBeUndefined();
+    expect(
+      read.pack.plan.events.map((e) => [
+        e.title,
+        e.timing,
+        e.protectedFields,
+        e.estimatedDurationMinutes,
+        e.order,
+      ]),
+    ).toEqual(
+      pack.plan.events.map((e) => [
+        e.title,
+        e.timing,
+        e.protectedFields,
+        e.estimatedDurationMinutes,
+        e.order,
+      ]),
+    );
+    expect(read.pack.baselinePlan.events).toEqual(read.pack.plan.events);
+  });
+
+  it('rejects contradictory, malformed and unsupported event data with localizable correction errors', () => {
+    const invalidEvents = [
+      { title: 'A', end: '11:00' },
+      { title: 'A', start: '23:40', end: '00:10' },
+      { title: 'A', start: '11:00', timing: { kind: 'unscheduled' } },
+      {
+        title: 'A',
+        start: '11:00',
+        timing: { kind: 'exact', start: { dayOffset: 0, time: '12:00' } },
+      },
+      {
+        title: 'A',
+        timing: {
+          kind: 'window',
+          earliestStart: { dayOffset: 1, time: '01:00' },
+          latestStart: { dayOffset: 0, time: '23:00' },
+        },
+      },
+      { title: 'A', timing: { kind: 'exact', start: { dayOffset: 2, time: '01:00' } } },
+      { title: 'A', timing: { kind: 'unscheduled', latitude: 37.5 } },
+      {
+        title: 'A',
+        timing: { kind: 'exact', start: { dayOffset: 0, time: '01:00', longitude: 127 } },
+      },
+      { title: 'A', estimatedDurationMinutes: -1 },
+      { title: 'A', estimatedDurationMinutes: '20' },
+      { title: 'A', protectedFields: ['fixed'] },
+      { title: 'A', fixed: true },
+      { title: 'A', route: { status: 'verified' } },
+      { title: 'A', note: { text: 'ignored' } },
+    ];
+    for (const event of invalidEvents) {
+      const parsed = parsePlanDraft(JSON.stringify({ ...validDraft, events: [event] }));
+      expect(parsed.ok, JSON.stringify(event)).toBe(false);
+      if (parsed.ok) continue;
+      for (const locale of ['ko', 'en'] as const)
+        expect(
+          localizeIssues(locale, parsed.errors).every((message) => !message.startsWith('err.')),
+        ).toBe(true);
+    }
+    expect(parsePlanDraft(JSON.stringify({ ...validDraft, routeStatus: 'verified' })).ok).toBe(
+      false,
+    );
+    expect(
+      parsePlanDraft(JSON.stringify({ ...validDraft, constraints: { must: [], hidden: true } })).ok,
+    ).toBe(false);
+  });
+
+  it('accepts agreeing legacy aliases with explicit next-day timing without losing dayOffset', () => {
+    const parsed = parsePlanDraft(
+      JSON.stringify({
+        ...validDraft,
+        events: [
+          {
+            title: 'Late',
+            start: '23:40',
+            end: '0:10',
+            timing: {
+              kind: 'exact',
+              start: { dayOffset: 0, time: '23:40' },
+              end: { dayOffset: 1, time: '00:10' },
+            },
+          },
+        ],
+      }),
+    );
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.errors));
+    expect(validateDatePack(buildPlanFromDraft(parsed.draft)).ok).toBe(true);
+    expect(buildPlanFromDraft(parsed.draft).plan.events[0].timing).toMatchObject({
+      end: { dayOffset: 1, time: '00:10' },
+    });
+  });
+
   it('builds a valid DatePack: generated ids, linked places, preserved event order', () => {
     const parsed = parsePlanDraft(JSON.stringify(validDraft));
     expect(parsed.ok).toBe(true);

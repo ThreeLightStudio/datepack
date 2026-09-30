@@ -104,4 +104,13 @@ export const en: Record<DatePackIssueKey, string> = {
   'err.planDraft.placeString': 'events[{index}].place must be a string.',
   'err.planDraft.constraints': 'constraints must/prefer/avoid must be arrays of strings.',
   'err.planDraft.memo': 'memo must be a string.',
+  'err.planDraft.timingInvalid':
+    'events[{index}].timing is invalid or contradicts start/end. Use dayOffset for the next day.',
+  'err.planDraft.durationInvalid':
+    'events[{index}].estimatedDurationMinutes must be a number, 0 or more.',
+  'err.planDraft.protectionInvalid':
+    'events[{index}].protectedFields accepts only time/place/content/delete/order.',
+  'err.planDraft.note': 'events[{index}].note must be a string.',
+  'err.planDraft.unsupportedField':
+    'Unsupported field "{field}". Return the result format from the request.',
 };

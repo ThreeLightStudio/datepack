@@ -1,4 +1,4 @@
-import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
+import type { DatePackRuntimeState, DatePlan, EventTiming } from '@datepack/core';
 import type { LiveContext } from '../../storage/indexedDb';
 import { getRemainingPlanEvents } from '../day/dayRuntime';
 import { formatTime } from '@datepack/core';
@@ -7,7 +7,7 @@ import { computeDayContext, type DayEventView } from '../day/dayRuntime';
 import type { Locale } from '../../i18n/core';
 import type { MessageKey } from '../../i18n/ko';
 import type { AiRequestIdentity } from './exchange';
-import { responseContract } from './exchange';
+import { conversationGuide, resultFooterGuide } from './conversation';
 
 export type Situation = { id: string; labelKey: MessageKey };
 
@@ -113,6 +113,8 @@ export function buildAiPrompt(input: {
   const L = locale === 'ko' ? koText : enText;
 
   const lines: string[] = [];
+  lines.push(conversationGuide(locale));
+  lines.push('');
   lines.push(
     locale === 'ko'
       ? '도보와 대중교통을 균형 있게 비교하되 확인되지 않은 대중교통을 도보보다 낫다고 단정하지 마세요. 자동차·택시는 사용자가 명시한 경우에만 제안하세요. AI가 적은 이동 시간이나 verified 표시는 경로 근거가 아닙니다.'
@@ -127,6 +129,16 @@ export function buildAiPrompt(input: {
           ? '계획 날짜 미정'
           : 'Plan date undecided',
     );
+  lines.push(
+    locale === 'ko'
+      ? `계획: ${input.plan.title} · ${input.plan.date ?? '날짜 미정'}`
+      : `Plan: ${input.plan.title} · ${input.plan.date ?? 'date undecided'}`,
+  );
+  lines.push(
+    locale === 'ko'
+      ? '계획·GPS·시각만으로 방문·완료·감정이나 새 경험을 추정하지 마세요. 현재 시각은 예정 날짜·시간을 대신하지 않습니다.'
+      : 'Do not infer visits, completion, feelings, or new experiences from the plan, GPS, or clock. Current time does not replace the planned date or timing.',
+  );
   lines.push('');
   if (input.liveContext) {
     const live = input.liveContext;
@@ -147,8 +159,8 @@ export function buildAiPrompt(input: {
         );
       lines.push(
         locale === 'ko'
-          ? '이 위치로 방문·완료나 경로 검증을 추정하지 마세요.'
-          : 'Do not infer visits, completion or verified routes from this location.',
+          ? '이 위치로 방문·완료나 경로 검증을 추정하지 마세요. 실패 뒤 마지막 확인 지역은 현재 위치가 아니며 관찰 시각을 그대로 유지하세요.'
+          : 'Do not infer visits, completion or verified routes from this location. After a failed attempt, the last observed area is not the current location; keep its observation time unchanged.',
       );
     }
     lines.push('');
@@ -167,6 +179,10 @@ export function buildAiPrompt(input: {
     )
     .filter((v) => !allowed || allowed.has(v.event.id));
 
+  lines.push(
+    `${locale === 'ko' ? '수정 가능한 target id (이 목록만 사용)' : 'Editable target ids (use only this list)'}: ${remaining.map((v) => v.event.id).join(', ') || (locale === 'ko' ? '없음' : 'none')}`,
+  );
+  lines.push('');
   if (settled.length > 0) {
     lines.push(L.settledHeader);
     for (const view of settled) {
@@ -178,7 +194,7 @@ export function buildAiPrompt(input: {
 
   if (ctx.current) {
     lines.push(L.nowHeader);
-    lines.push(stopLine(ctx.current, locale));
+    lines.push(stopLine(ctx.current, locale, input.plan));
     lines.push('');
   }
 
@@ -186,7 +202,7 @@ export function buildAiPrompt(input: {
     lines.push(L.remainingHeader);
     for (const view of remaining) {
       if (ctx.current && view.event.id === ctx.current.event.id) continue;
-      lines.push(stopLine(view, locale));
+      lines.push(stopLine(view, locale, input.plan));
     }
     lines.push('');
   }
@@ -200,7 +216,7 @@ export function buildAiPrompt(input: {
           ? '변경 범위 밖 동선 맥락 (읽기 전용 · 수정 금지)'
           : 'Journey context outside the edit scope (read-only; do not change)',
       );
-      for (const view of readOnly) lines.push(stopLine(view, locale));
+      for (const view of readOnly) lines.push(stopLine(view, locale, input.plan));
       lines.push('');
     }
   }
@@ -263,18 +279,15 @@ export function buildAiPrompt(input: {
     );
   }
   lines.push('');
-  if (input.identity) {
-    lines.push(
-      locale === 'ko'
-        ? '최종 답안은 설명이나 마크다운 없이 DatePack Response 봉투 하나로 반환하세요. result에는 아래 Patch JSON을 넣으세요. 새 장소를 제안할 때 place에 지도 검색 이름을 적고, 실제 영업 여부를 확인하지 못하면 미확인이라고 표시하세요.'
-        : 'Return one DatePack Response envelope with no commentary or markdown. Put the Patch JSON below inside result. For a new stop, include place as a searchable venue name; mark opening hours unverified when you could not confirm them.',
-    );
-    lines.push(
-      responseContract(input.identity, { type: 'datepack.patch', version: 1, operations: [] }),
-    );
-    lines.push('');
-  }
   lines.push(PATCH_SCHEMA_HINT[locale]);
+  lines.push('');
+  lines.push(
+    resultFooterGuide(
+      locale,
+      { type: 'datepack.patch', version: 1, operations: [] },
+      input.identity,
+    ),
+  );
   return lines.join('\n');
 }
 
@@ -300,7 +313,7 @@ export function getAiScopeEventIds(
  * invents targets and every patch fails to apply. Times are the effective
  * ones (runtime delay included) so the replan starts from reality.
  */
-function stopLine(view: DayEventView, locale: Locale): string {
+function stopLine(view: DayEventView, locale: Locale, plan?: DatePlan): string {
   const delay = view.delayedByMinutes;
   const start = promptTiming(view, locale, delay);
   const end =
@@ -308,13 +321,37 @@ function stopLine(view: DayEventView, locale: Locale): string {
       ? `–${formatTime(view.endMinutes + delay)}${view.event.timing.kind === 'exact' && view.event.timing.end?.dayOffset ? (locale === 'ko' ? ' (다음 날)' : ' (next day)') : ''}`
       : '';
   const tags = [`id: ${view.event.id}`, view.event.type];
-  if (view.event.protectedFields?.length) tags.push(locale === 'ko' ? '보호됨' : 'protected');
+  if (view.event.fixed || view.event.protectedFields?.length)
+    tags.push(locale === 'ko' ? '보호됨' : 'protected');
   if (delay > 0) tags.push(locale === 'ko' ? `지연 ${delay}분` : `delayed ${delay} min`);
-  return `- ${start}${end} ${view.event.title} (${tags.join(', ')})${planBNote(view)}`;
+  const place = plan?.places?.find((p) => p.id === view.event.placeId);
+  const duration = view.event.estimatedDurationMinutes;
+  return `- ${start}${end} ${view.event.title} (${tags.join(', ')})${planBNote(view)}${place ? ` · ${place.name} (placeId: ${place.id})` : ''}${duration !== undefined ? ` · ${locale === 'ko' ? '체류' : 'stay'} ${duration} min` : ''} · ${locale === 'ko' ? '저장된 예정 시각 (지연과 별도)' : 'Stored planned timing (separate from delay)'}: ${JSON.stringify(promptTimingData(view.event.timing))}`;
+}
+
+/** Never serialize an event/provider object; select only the supported timing fields. */
+function promptTimingData(timing: EventTiming): EventTiming {
+  if (timing.kind === 'unscheduled')
+    return { kind: 'unscheduled', ...(timing.label !== undefined ? { label: timing.label } : {}) };
+  const point = (value: { dayOffset: 0 | 1; time: string }) => ({
+    dayOffset: value.dayOffset,
+    time: value.time,
+  });
+  if (timing.kind === 'exact')
+    return {
+      kind: 'exact',
+      start: point(timing.start),
+      ...(timing.end ? { end: point(timing.end) } : {}),
+    };
+  return {
+    kind: 'window',
+    earliestStart: point(timing.earliestStart),
+    latestStart: point(timing.latestStart),
+  };
 }
 
 function promptTiming(view: DayEventView, locale: Locale, delay = 0): string {
-  if (view.startMinutes !== null)
+  if (view.event.timing.kind === 'exact' && view.startMinutes !== null)
     return `${formatTime(view.startMinutes + delay)}${view.event.timing.kind === 'exact' && view.event.timing.start.dayOffset ? (locale === 'ko' ? ' (다음 날)' : ' (next day)') : ''}`;
   if (view.event.timing.kind === 'window') {
     const from = view.event.timing.earliestStart;
@@ -359,18 +396,18 @@ const koText: PromptText = {
   mustHeader: 'Must (절대 지켜야 함):',
   preferHeader: 'Prefer (가능하면):',
   avoidHeader: 'Avoid (피하기):',
-  fixedHeader: '고정 일정 (사용자가 확정 — 사용자가 명시적으로 요청할 때만 변경):',
+  fixedHeader: '고정 일정의 보호 조건 (AI 변경·해제 금지; 사용자 직접 편집 필요):',
   planBHeader: '현재 Plan B:',
   variableHeader: '현재 변수:',
   instructions: [
     '위 변수를 반영해 남은 일정만 수정해주세요. 완료/건너뜀 처리된 일정은 변경하지 마세요.',
     '목록의 순서는 계획의 명시적 순서입니다. 시간이 미정인 일정도 포함되며, 다음 일정 범위는 목록의 첫 항목입니다.',
     'target으로는 위에 적힌 id만 사용하세요. id를 절대 지어내지 마세요.',
-    '고정 일정과 Must 조건은 유지해주세요. 다만 사용자가 고정 일정 자체의 변경(재예매 등)을 요청하면 그대로 반영하고, 고정 일정이 당겨지거나 늦어지면 나머지 일정도 그에 맞게 재배치하세요.',
-    '한 일정의 시간 변경이 다른 일정에 영향을 준다면, 영향받는 모든 후속 일정의 move도 빠짐없이 포함하세요. 일부만 고치고 끝내지 마세요.',
-    '수정 후 일정끼리 겹치면 안 되고, 각 일정은 직전 일정 종료 + 이동 시간(travelMinutes) 이후에 시작해야 합니다.',
-    '사용자가 특정 장소나 시간을 확정했다고 하면 해당 일정을 fixed: true로 지정하고, 그 일정을 중심으로 나머지 일정을 배치하세요.',
-    '새로 추가하거나 시간을 옮긴 일정은 실제로 지도에서 검색되는 장소명으로, 해당 시간에 영업 중이고 브레이크타임이나 라스트오더에 걸리지 않는지 확인해주세요.',
+    '고정 조건과 Must는 유지하세요. 보호된 time/place/content/delete/order 필드와 고정 예약은 변경·삭제·해제하거나 삭제 후 재생성하지 마세요. 일반 승인이나 AI 대화에서 변경 요청은 고정 해제 승인이 아닙니다. 해제가 필요하면 사용자가 앱에서 해당 일정을 직접 편집하도록 안내하세요.',
+    '한 활동만 바꿔도 현재 위치→새 후보→다음 활동→고정 예약 전체 영향 동선을 고려하세요. 수정 가능한 target 범위 안에서만 변경하세요. 범위 밖 후속 일정과 고정 예약은 읽기 전용이며 move를 만들지 마세요. 범위 안에서 안전한 후보가 없으면 기존 일정을 유지하세요.',
+    '겹침·체류·대기·걷는 부담·환승과 예약 도착 10분 여유를 고려하세요. AI travelMinutes·직선거리·route/status/verified 표시는 검증 근거가 아닙니다. 경로를 확인하지 못하면 검증 가능한 다른 후보를 우선 제안하고 없으면 기존 일정 유지. 예약 도착 불가가 확인된 후보는 승인받아도 적용하지 마세요.',
+    '미정 날짜·시각, window, dayOffset, 체류 시간과 명시적 순서를 유지하세요. 모르는 시간을 가짜 HH:mm이나 0분으로 채우지 마세요. 기존 보호 설정을 수정하지 마세요. 사용자가 앱에서 직접 고정을 바꾼 경우 새 요청이 필요합니다.',
+    '새 장소는 지도에서 검색되는 공개 이름을 place에 쓰세요. 영업·브레이크타임·라스트오더를 실제로 확인한 경우에만 확인됐다고 설명하고, 확인 못한 부분은 미확인이라고 표시하세요.',
     '',
     '최종 답안의 형식은 아래 DatePack Response 안내를 따르세요. 중간 대화에서는 JSON을 만들지 않아도 됩니다.',
   ],
@@ -387,18 +424,19 @@ const enText: PromptText = {
   mustHeader: 'Must (non-negotiable):',
   preferHeader: 'Nice to have:',
   avoidHeader: 'Avoid:',
-  fixedHeader: 'Locked stops (user-confirmed — change only if the user explicitly asks):',
+  fixedHeader:
+    'Locked stops and protected conditions (AI cannot change or unlock; require direct user editing):',
   planBHeader: 'Plan B already on file:',
   variableHeader: 'What changed:',
   instructions: [
     'Replan only the stops that are still ahead. Leave completed and skipped stops untouched.',
     'The list follows the plan’s explicit order, including stops with no time set. The first listed stop is the Next stop scope.',
     'Use only the ids listed above as targets — never invent one.',
-    'Keep the locked stops and the Must rules. If the user explicitly asks to change a locked stop itself (e.g. a rebooked train), apply that — and when a locked stop moves earlier or later, reschedule the stops around it to match.',
-    'When one stop shifts and others are affected, include a move for every affected later stop — never leave any out.',
-    'After replanning, no stops may overlap, and each stop must start after the previous stop ends plus its travel time (travelMinutes).',
-    'When the user says a place or time is confirmed, mark that stop fixed: true and lay out the rest of the day around it.',
-    'Any stop you add or reschedule must use a real venue name searchable on maps, actually be open at its new time, and steer clear of break time and last order.',
+    'Keep protected conditions and Must rules. Never change, remove, unlock, or delete and recreate protected time/place/content/delete/order fields or fixed bookings. Ordinary approval or an AI chat request does not unlock them. If unlocking is needed, ask the user to edit that stop directly in the app.',
+    'Even for one changed stop, consider the full affected journey: current location → candidate → next stop → fixed booking. Change only editable target ids. Downstream stops outside the scope and fixed bookings are read-only; do not emit moves for them. Keep the existing plan when no safe candidate fits the scope.',
+    'Consider overlap, stay and wait durations, walking burden, transfers, and a 10-minute booking arrival buffer. AI travelMinutes, straight-line distance, or route/status/verified labels are not route evidence. Prefer another verifiable candidate when a route cannot be checked; otherwise keep the existing plan. Never apply a candidate confirmed unable to reach the booking, even after approval.',
+    'Preserve undecided dates and times, windows, dayOffset, stay duration, and explicit order. Never fill unknown times with fake HH:mm or zero minutes. Never edit existing protection. Direct user changes to protection in the app require a new request.',
+    'Use a public venue name searchable on maps in place for new venues. Claim checked opening hours, break time, and last order only when actually checked; explain everything else as unverified.',
     '',
     'Follow the DatePack Response envelope below for the final answer. You do not need to emit JSON during discussion.',
   ],
