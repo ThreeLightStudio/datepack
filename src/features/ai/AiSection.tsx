@@ -5,6 +5,7 @@ import type {
   PatchChange,
   PatchChangeDetail,
   PatchOutcome,
+  EventTiming,
 } from '@datepack/core';
 import { describePatch, parsePatch } from '@datepack/core';
 import { buildAiPrompt, getAiScopeEventIds, SITUATIONS } from './promptBuilder';
@@ -33,9 +34,24 @@ import {
 type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
 
 type Stage = 'idle' | 'prompted';
+function timingLabel(timing: EventTiming, locale: 'ko' | 'en'): string {
+  const ko = locale === 'ko';
+  const point = (p: { dayOffset: 0 | 1; time: string }) =>
+    `${p.time}${p.dayOffset ? (ko ? ' (다음 날)' : ' (next day)') : ''}`;
+  if (timing.kind === 'unscheduled') return timing.label || (ko ? '시간 미정' : 'time unset');
+  if (timing.kind === 'window')
+    return `${point(timing.earliestStart)}–${point(timing.latestStart)}`;
+  return `${point(timing.start)}${timing.end ? `–${point(timing.end)}` : ''}`;
+}
 
 function detailLabel(locale: 'ko' | 'en', d: PatchChangeDetail): string {
   switch (d.field) {
+    case 'timing':
+      return `${locale === 'ko' ? '시간' : 'Time'}: ${d.from ? timingLabel(JSON.parse(d.from) as EventTiming, locale) : ''} → ${d.to ? timingLabel(JSON.parse(d.to) as EventTiming, locale) : ''}`;
+    case 'place':
+      return `${locale === 'ko' ? '장소' : 'Place'}: ${d.from ?? ''} → ${d.to ?? ''}`;
+    case 'duration':
+      return `${locale === 'ko' ? '체류 시간' : 'Duration'}: ${d.from ?? (locale === 'ko' ? '미정' : 'unset')} → ${d.to} ${locale === 'ko' ? '분' : 'min'}`;
     case 'start':
       return format(locale, 'change.field.start', { from: d.from ?? '', to: d.to ?? '' });
     case 'end':
@@ -64,6 +80,8 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
   const label = (() => {
     switch (change.op) {
       case 'move':
+        if (change.toTiming)
+          return `${change.title} · ${change.fromTiming ? timingLabel(change.fromTiming, locale) : ''} → ${timingLabel(change.toTiming, locale)}`;
         return format(locale, 'change.move', {
           title: change.title,
           from: change.from ?? '',
@@ -79,7 +97,9 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
           {
             title: change.title,
             newTitle: change.newTitle,
-            time: change.newStart ?? (locale === 'ko' ? '시간 미정' : 'time unset'),
+            time: change.newTiming
+              ? timingLabel(change.newTiming, locale)
+              : (change.newStart ?? (locale === 'ko' ? '시간 미정' : 'time unset')),
           },
         );
         return change.newPlace
@@ -89,7 +109,9 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
       case 'insertFirst': {
         const inserted = format(locale, 'change.insertFirst', {
           newTitle: change.newTitle,
-          time: change.newStart ?? (locale === 'ko' ? '시간 미정' : 'time unset'),
+          time: change.newTiming
+            ? timingLabel(change.newTiming, locale)
+            : (change.newStart ?? (locale === 'ko' ? '시간 미정' : 'time unset')),
         });
         return change.newPlace
           ? `${inserted} · ${locale === 'ko' ? '장소' : 'Place'}: ${change.newPlace}`

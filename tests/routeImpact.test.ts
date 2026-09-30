@@ -18,7 +18,7 @@ import {
 } from '../src/features/day/routeProvider';
 
 function fixture(): ImpactInput {
-  const now = new Date('2026-10-01T16:40:00').getTime();
+  const now = new Date('2026-10-01T16:40:00+09:00').getTime();
   const before: DatePlan = {
     id: 'route-plan',
     title: 'Date',
@@ -107,6 +107,93 @@ function fixture(): ImpactInput {
   };
 }
 describe('full affected journey', () => {
+  it('matches the rain A/B/C contract with ten-minute booking slack and every downstream leg', () => {
+    const a = fixture();
+    a.evidence![2].durationSeconds = 900;
+    const resultA = validateImpact(a);
+    expect(resultA.status).toBe('verified');
+    expect(resultA.anchorArrivals.at(-1)).toMatchObject({
+      rawArrivalAt: '2026-10-01T08:45:00.000Z',
+      arrivalAt: '2026-10-01T08:55:00.000Z',
+      bufferMinutes: 10,
+    });
+    const b = fixture();
+    b.before.events[0].estimatedDurationMinutes =
+      b.proposed.events[0].estimatedDurationMinutes = 30;
+    [1500, 900, 1200].forEach((duration, i) => {
+      b.evidence![i].durationSeconds = duration;
+    });
+    const resultB = validateImpact(b);
+    expect(resultB).toMatchObject({ status: 'impossible', reasonCodes: ['anchor-late'] });
+    expect(resultB.anchorArrivals.at(-1)?.arrivalAt).toBe('2026-10-01T09:30:00.000Z');
+    const c = fixture();
+    c.evidence = c.evidence!.slice(0, 2);
+    expect(validateImpact(c)).toMatchObject({ status: 'unverified', reasonCodes: ['missing-leg'] });
+  });
+  it('rounds each route leg upward and rejects 17:55 or 18:00 arrivals with an 18:00 booking', () => {
+    const input = fixture();
+    input.evidence![2].durationSeconds = 1200;
+    expect(validateImpact(input)).toMatchObject({ status: 'verified' }); // raw 17:50 + slack = 18:00
+    input.evidence![2].durationSeconds = 1200.001;
+    expect(validateImpact(input)).toMatchObject({
+      status: 'impossible',
+      reasonCodes: ['anchor-late'],
+    });
+    expect(validateImpact(input).anchorArrivals.at(-1)?.rawArrivalAt).toBe(
+      '2026-10-01T08:51:00.000Z',
+    );
+    for (const seconds of [1500, 1800]) {
+      input.evidence![2].durationSeconds = seconds;
+      expect(validateImpact(input).status).toBe('impossible');
+    }
+    input.evidence![2].durationSeconds = 600;
+    input.evidence![0].durationSeconds = 600.001;
+    input.evidence![1].durationSeconds = 600.001;
+    expect(validateImpact(input).anchorArrivals.at(-1)?.rawArrivalAt).toBe(
+      '2026-10-01T08:42:00.000Z',
+    );
+  });
+  it('interprets Seoul deadlines and day offsets independently of UTC or overseas device time zones', () => {
+    const original = process.env.TZ;
+    try {
+      for (const zone of ['UTC', 'America/Los_Angeles']) {
+        process.env.TZ = zone;
+        const input = fixture();
+        expect(validateImpact(input).status).toBe('verified');
+        expect(validateImpact(input).anchorArrivals.at(-1)?.deadlineAt).toBe(
+          '2026-10-01T09:00:00.000Z',
+        );
+        input.before.events[2].timing = input.proposed.events[2].timing = {
+          kind: 'exact',
+          start: { dayOffset: 1, time: '00:10' },
+          end: { dayOffset: 1, time: '00:30' },
+        };
+        input.before.mustEndBy = input.proposed.mustEndBy = { dayOffset: 1, time: '01:00' };
+        const now = Date.parse('2026-10-01T14:50:00Z'); // 23:50 Seoul, same Korean plan day
+        input.now = now;
+        input.observation!.observedAt = new Date(now).toISOString();
+        input.places!.forEach((place) => {
+          place.resolvedAt = new Date(now).toISOString();
+        });
+        input.evidence!.forEach((e, i) => {
+          e.fetchedAt = new Date(now).toISOString();
+          e.durationSeconds = 60;
+          if (i === 0) e.fromKey = `location:${input.observation!.observedAt}`;
+        });
+        input.before.events[0].estimatedDurationMinutes =
+          input.proposed.events[0].estimatedDurationMinutes = 0;
+        input.before.events[1].estimatedDurationMinutes =
+          input.proposed.events[1].estimatedDurationMinutes = 0;
+        expect(validateImpact(input).status).toBe('verified');
+        expect(validateImpact(input).anchorArrivals.at(-1)?.deadlineAt).toBe(
+          '2026-10-01T15:10:00.000Z',
+        );
+      }
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
   it('keeps all changes unapplied when a downstream leg fails; avoids I/O for text-only edits', async () => {
     const input = fixture();
     const now = input.now!;
@@ -142,8 +229,8 @@ describe('full affected journey', () => {
     expect(result.evidenceIds).toHaveLength(3);
     expect(result.anchorArrivals.at(-1)).toMatchObject({
       eventId: 'reservation',
-      arrivalAt: new Date('2026-10-01T17:40:00').toISOString(),
-      deadlineAt: new Date('2026-10-01T18:00:00').toISOString(),
+      arrivalAt: new Date('2026-10-01T17:50:00+09:00').toISOString(),
+      deadlineAt: new Date('2026-10-01T18:00:00+09:00').toISOString(),
     });
     input.before.events[0].estimatedDurationMinutes = 45;
     input.proposed.events[0].estimatedDurationMinutes = 45;

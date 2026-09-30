@@ -41,7 +41,10 @@ function plan(): DatePlan {
     ],
   };
 }
-const at = (hour: number, minute: number) => new Date(2026, 8, 28, hour, minute);
+const at = (hour: number, minute: number) =>
+  new Date(
+    `2026-09-28T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+09:00`,
+  );
 
 describe('dayRuntime', () => {
   it('preserves manual order even when clock times disagree', () => {
@@ -126,17 +129,29 @@ describe('dayRuntime', () => {
         timing: { kind: 'exact', start: { dayOffset: 1, time: '00:20' } },
       }),
     ];
-    const beforeStart = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 0, 5));
+    const beforeStart = computeDayContext(
+      p,
+      emptyRuntime('p'),
+      new Date('2026-09-29T00:05:00+09:00'),
+    );
     expect(beforeStart.isToday).toBe(false);
     expect(beforeStart.isWithinPlanDays).toBe(true);
     expect(beforeStart.next?.event.id).toBe('after-midnight');
     expect(beforeStart.events[0].status).toBe('upcoming');
 
-    const afterStart = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 0, 21));
+    const afterStart = computeDayContext(
+      p,
+      emptyRuntime('p'),
+      new Date('2026-09-29T00:21:00+09:00'),
+    );
     expect(afterStart.isWithinPlanDays).toBe(true);
     expect(afterStart.events[0].status).toBe('unknown-past');
     expect(afterStart.overdueUnsettled.map((view) => view.event.id)).toEqual(['after-midnight']);
-    const lateNextDay = computeDayContext(p, emptyRuntime('p'), new Date(2026, 8, 29, 23, 0));
+    const lateNextDay = computeDayContext(
+      p,
+      emptyRuntime('p'),
+      new Date('2026-09-29T23:00:00+09:00'),
+    );
     expect(lateNextDay.isWithinPlanDays).toBe(false);
     expect(lateNextDay.events[0].status).toBe('unknown-past');
     expect(lateNextDay.next).toBeNull();

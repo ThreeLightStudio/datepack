@@ -27,8 +27,8 @@ const reasons: Record<string, [string, string]> = {
     'Route evidence is stale or does not match this journey.',
   ],
   'anchor-late': [
-    '이 동선으로는 정해진 시작 시각에 도착할 수 없어요.',
-    'This journey cannot meet a scheduled start time.',
+    '10분 도착 여유를 포함하면 정해진 시작 시각에 맞출 수 없어요.',
+    'This journey cannot meet a scheduled start with the ten-minute arrival buffer.',
   ],
   'end-late': ['이 동선은 정해진 종료 시각을 넘겨요.', 'This journey exceeds the end deadline.'],
   'date-unknown': [

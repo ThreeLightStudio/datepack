@@ -32,7 +32,7 @@ describe('explicit re-inclusion in AI planning', () => {
       runtime: runtime(true),
       situationId: 'rain',
       locale: 'en',
-      now: new Date(2026, 8, 28, 14, 0),
+      now: new Date('2026-09-28T14:00:00+09:00'),
     });
     expect(prompt).toContain('Still ahead:');
     expect(prompt).toContain('id: late-lunch');
@@ -45,7 +45,7 @@ describe('explicit re-inclusion in AI planning', () => {
       runtime: runtime(false),
       situationId: 'rain',
       locale: 'en',
-      now: new Date(2026, 8, 28, 14, 0),
+      now: new Date('2026-09-28T14:00:00+09:00'),
     });
     expect(prompt).not.toContain('id: late-lunch');
   });

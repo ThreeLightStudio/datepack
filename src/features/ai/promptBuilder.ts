@@ -1,7 +1,8 @@
 import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import type { LiveContext } from '../../storage/indexedDb';
 import { getRemainingPlanEvents } from '../day/dayRuntime';
-import { formatTime, nowLabel, todayISO } from '@datepack/core';
+import { formatTime } from '@datepack/core';
+import { PLAN_TIME_ZONE, seoulMinuteOfDay, seoulPlanDate } from '../day/planTime';
 import { computeDayContext, type DayEventView } from '../day/dayRuntime';
 import type { Locale } from '../../i18n/core';
 import type { MessageKey } from '../../i18n/ko';
@@ -64,10 +65,12 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
 - op는 replace / move / remove / insertBefore / insertAfter / insertFirst 중 하나입니다.
 - target은 위에 적힌 event id 앞에 "event:"를 붙인 문자열입니다. (예: "event:abc123") 위 목록에 없는 id는 절대 사용할 수 없습니다.
 - insertFirst는 일정이 하나도 없는 빈 계획에서만 사용하며 target을 넣지 않습니다. 첫 활동의 시각을 모르면 start를 생략할 수 있습니다.
-- replace의 value로 쓸 수 있는 필드: title, start, end, type(place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed(true|false).
+- replace의 value로 쓸 수 있는 필드: title, start, end, timing, type(place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, place, estimatedDurationMinutes. 기존 보호 설정은 변경할 수 없습니다.
 - start와 end는 24시간 HH:mm 형식입니다. (예: "09:30")
 - travelMinutes는 그 일정 장소까지 가는 이동 시간(분)입니다.
-- insertBefore/insertAfter에는 title과 start(HH:mm)가 필요합니다. insertFirst는 title만으로 추가할 수 있습니다. 장소가 새로 생기면 place에 장소 이름도 적으세요.`,
+- 모든 삽입에는 title이 필요하고, 시각이 미정이면 start를 생략하세요. 장소가 새로 생기거나 바뀌면 place에 검색 가능한 이름을 적으세요. place와 placeId를 동시에 쓰지 마세요.
+- timing은 {"kind":"unscheduled"}, {"kind":"exact","start":{"dayOffset":0,"time":"16:40"}}, 또는 {"kind":"window","earliestStart":{"dayOffset":0,"time":"16:40"},"latestStart":{"dayOffset":1,"time":"00:20"}} 형식입니다. dayOffset은 0 또는 1이며, start/end도 함께 적으면 exact timing과 일치해야 합니다. 날짜·시각을 추측해서 만들지 마세요.
+- estimatedDurationMinutes는 음수가 아닌 체류 시간입니다. 신규 활동에만 protectedFields 배열(time/place/content/delete/order)을 지정할 수 있습니다.`,
   en: `Patch JSON shape:
 {
   "type": "datepack.patch",
@@ -84,10 +87,12 @@ const PATCH_SCHEMA_HINT: Record<Locale, string> = {
 - op is one of replace / move / remove / insertBefore / insertAfter / insertFirst.
 - target is "event:" followed by one of the event ids listed above (e.g. "event:abc123"). Never use an id that is not in the list above.
 - Use insertFirst only when the plan has no stops, and omit target. The first stop's start may be omitted when its time is undecided.
-- Allowed replace value fields: title, start, end, type (place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, fixed (true|false).
+- Allowed replace value fields: title, start, end, timing, type (place|meal|cafe|transport|reservation|activity|note), note, travelMinutes, placeId, place, estimatedDurationMinutes. Never change existing protection settings.
 - start and end use 24-hour HH:mm (e.g. "09:30").
 - travelMinutes is the travel time, in minutes, to reach that stop's place.
-- insertBefore/insertAfter need a title and start (HH:mm). insertFirst needs a title; its start may be omitted. Include place with a searchable venue name when adding a place.`,
+- All inserts require title; omit start when time is unset. Use place with a searchable venue name for new or changed venues. Do not supply both place and placeId.
+- timing supports {"kind":"unscheduled"}, {"kind":"exact","start":{"dayOffset":0,"time":"16:40"}}, or {"kind":"window","earliestStart":{"dayOffset":0,"time":"16:40"},"latestStart":{"dayOffset":1,"time":"00:20"}}. dayOffset is 0 or 1. Legacy start/end must agree with exact timing if supplied together. Do not invent dates or times.
+- estimatedDurationMinutes is a nonnegative stay duration. Only new activities can specify protectedFields (time/place/content/delete/order).`,
 };
 
 export function buildAiPrompt(input: {
@@ -104,7 +109,7 @@ export function buildAiPrompt(input: {
   const locale = input.locale ?? 'ko';
   const now = input.now ?? new Date();
   const ctx = computeDayContext(input.plan, input.runtime, now);
-  const isToday = input.plan.date === todayISO(now);
+  const isToday = input.plan.date === seoulPlanDate(now.getTime());
   const L = locale === 'ko' ? koText : enText;
 
   const lines: string[] = [];
@@ -113,7 +118,7 @@ export function buildAiPrompt(input: {
       ? '도보와 대중교통을 균형 있게 비교하되 확인되지 않은 대중교통을 도보보다 낫다고 단정하지 마세요. 자동차·택시는 사용자가 명시한 경우에만 제안하세요. AI가 적은 이동 시간이나 verified 표시는 경로 근거가 아닙니다.'
       : 'Compare walking and transit in balance; do not favor unverified transit. Suggest car or taxi only when explicitly requested. AI travel estimates or a verified label are not route evidence.',
   );
-  lines.push(L.currentTime(nowLabel(now)));
+  lines.push(`${L.currentTime(formatTime(seoulMinuteOfDay(now.getTime())))} (${PLAN_TIME_ZONE})`);
   if (!isToday)
     lines.push(
       input.plan.date

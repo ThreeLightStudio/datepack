@@ -6,6 +6,7 @@ import {
   isValidTiming,
   isValidLocalPoint,
   localPointMinutes,
+  normalizeTime,
 } from './utils/time';
 import { isLegacyDatePlan, isV3DatePlan } from './migration';
 import type { DatePackIssue } from './i18n/core';
@@ -408,61 +409,90 @@ export function validatePatch(raw: unknown): PatchValidation {
       return;
     }
     const v = value as Record<string, unknown>;
-    if (op.op === 'insertBefore' || op.op === 'insertAfter' || op.op === 'insertFirst') {
+    const inserting =
+      op.op === 'insertBefore' || op.op === 'insertAfter' || op.op === 'insertFirst';
+    const allowedFields =
+      op.op === 'move'
+        ? ['start', 'end', 'timing']
+        : [
+            'title',
+            'start',
+            'end',
+            'timing',
+            'type',
+            'note',
+            'travelMinutes',
+            'place',
+            'placeId',
+            'estimatedDurationMinutes',
+            ...(inserting ? ['protectedFields'] : ['fixed']),
+          ];
+    if (Object.keys(v).some((key) => !allowedFields.includes(key)))
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (op.op === 'move' && Object.keys(v).length === 0)
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (inserting) {
       if (typeof v.title !== 'string' || v.title.trim().length === 0) {
         errors.push({ key: 'err.patch.needTitle', params: { index } });
       }
-      if (
-        op.op !== 'insertFirst' &&
-        !isValidTime(typeof v.start === 'string' ? v.start : undefined)
-      ) {
-        errors.push({ key: 'err.patch.needStart', params: { index } });
-      }
-      if (v.start !== undefined && v.start !== null && !isValidTime(v.start as string)) {
-        errors.push({ key: 'err.patch.badTime', params: { index, field: 'start' } });
-      }
-      if (v.end !== undefined && v.end !== null && !isValidTime(v.end as string)) {
-        errors.push({ key: 'err.patch.badTime', params: { index, field: 'end' } });
-      }
-      if (
-        v.type !== undefined &&
-        !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string)
-      ) {
-        errors.push({ key: 'err.patch.badType', params: { index, value: String(v.type) } });
-      }
-      if (v.place !== undefined && (typeof v.place !== 'string' || !v.place.trim())) {
-        errors.push({ key: 'err.patch.noValue', params: { index } });
-      }
-      return;
     }
-    // replace / move: any provided time fields must be valid
+    // Absence of time is intentional. Explicit timing and legacy aliases must agree.
     for (const field of ['start', 'end'] as const) {
-      if (v[field] !== undefined && v[field] !== null && !isValidTime(v[field] as string)) {
+      if (v[field] !== undefined && !isValidTime(v[field] as string)) {
         errors.push({ key: 'err.patch.badTime', params: { index, field } });
       }
     }
+    if (v.timing !== undefined) {
+      if (!isValidTiming(v.timing))
+        errors.push({ key: 'err.patch.badTime', params: { index, field: 'timing' } });
+      else {
+        for (const field of ['start', 'end'] as const) {
+          if (v[field] === undefined) continue;
+          if (
+            v.timing.kind !== 'exact' ||
+            !v.timing[field] ||
+            !isValidTime(v[field] as string) ||
+            normalizeTime(v[field] as string) !== normalizeTime(v.timing[field]!.time)
+          )
+            errors.push({ key: 'err.patch.badTime', params: { index, field: 'timing' } });
+        }
+      }
+    } else if (inserting && v.end !== undefined && v.start === undefined) {
+      errors.push({ key: 'err.patch.needStart', params: { index } });
+    }
+    for (const field of ['travelMinutes', 'estimatedDurationMinutes'] as const) {
+      if (
+        v[field] !== undefined &&
+        (typeof v[field] !== 'number' || !Number.isFinite(v[field]) || v[field] < 0)
+      )
+        errors.push({ key: 'err.patch.badTravel', params: { index } });
+    }
+    for (const field of ['place', 'placeId'] as const) {
+      if (v[field] !== undefined && (typeof v[field] !== 'string' || !v[field].trim()))
+        errors.push({ key: 'err.patch.noValue', params: { index } });
+    }
+    if (v.place !== undefined && v.placeId !== undefined)
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (v.note !== undefined && typeof v.note !== 'string')
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (v.title !== undefined && (typeof v.title !== 'string' || !v.title.trim()))
+      errors.push({ key: 'err.patch.needTitle', params: { index } });
+    if (v.type !== undefined && !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string))
+      errors.push({ key: 'err.patch.badType', params: { index, value: String(v.type) } });
+    if (
+      v.protectedFields !== undefined &&
+      (!Array.isArray(v.protectedFields) ||
+        v.protectedFields.some(
+          (field) => !['time', 'place', 'content', 'delete', 'order'].includes(field),
+        ))
+    )
+      errors.push({ key: 'err.patch.noValue', params: { index } });
     if (op.op === 'replace') {
       if (Object.keys(v).length === 0) {
         warnings.push({ key: 'err.patch.emptyReplace', params: { index } });
       }
       if (v.fixed !== undefined && typeof v.fixed !== 'boolean') {
         errors.push({ key: 'err.patch.badFixed', params: { index } });
-      }
-      if (
-        v.type !== undefined &&
-        v.type !== null &&
-        !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string)
-      ) {
-        errors.push({ key: 'err.patch.badType', params: { index, value: String(v.type) } });
-      }
-      if (
-        v.travelMinutes !== undefined &&
-        v.travelMinutes !== null &&
-        (typeof v.travelMinutes !== 'number' ||
-          !Number.isFinite(v.travelMinutes) ||
-          v.travelMinutes < 0)
-      ) {
-        errors.push({ key: 'err.patch.badTravel', params: { index } });
       }
     }
   });

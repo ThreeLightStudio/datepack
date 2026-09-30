@@ -44,7 +44,7 @@ function runtimeWith(
 }
 
 // 2026-09-28 14:00 — the plan's own date, so the day view is live.
-const NOW = new Date(2026, 8, 28, 14, 0);
+const NOW = new Date('2026-09-28T14:00:00+09:00');
 
 describe('buildAiPrompt', () => {
   it('lists remaining stops with their ids so the AI can target them', () => {
@@ -84,7 +84,7 @@ describe('buildAiPrompt', () => {
     expect(prompt).toContain('- 15:15–16:15 카페 (id: event-cafe, cafe, 지연 15분)');
   });
 
-  it('documents the fixed field and the id rule in the schema hint', () => {
+  it('documents supported timing/place fields, immutable protection and scoped IDs in the schema hint', () => {
     const prompt = buildAiPrompt({
       plan: makePlan(),
       runtime: null,
@@ -92,7 +92,9 @@ describe('buildAiPrompt', () => {
       locale: 'ko',
       now: NOW,
     });
-    expect(prompt).toContain('fixed(true|false)');
+    expect(prompt).toContain('기존 보호 설정은 변경할 수 없습니다');
+    expect(prompt).toContain('estimatedDurationMinutes');
+    expect(prompt).toContain('시각이 미정이면 start를 생략하세요');
     expect(prompt).toContain('위 목록에 없는 id는 절대 사용할 수 없습니다');
   });
 
@@ -113,7 +115,7 @@ describe('buildAiPrompt', () => {
       locale: 'en',
       now: NOW,
     });
-    expect(en).toContain('fixed (true|false)');
+    expect(en).toContain('Never change existing protection settings');
     expect(en).toContain('Never use an id that is not in the list above');
   });
 });

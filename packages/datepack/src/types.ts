@@ -154,6 +154,9 @@ export type DatePackPatchReplaceValue = Partial<{
   note: string;
   travelMinutes: number;
   placeId: string;
+  place: string;
+  timing: EventTiming;
+  estimatedDurationMinutes: number;
   fixed: boolean;
 }>;
 export type DatePackPatchNewEvent = {
@@ -166,10 +169,13 @@ export type DatePackPatchNewEvent = {
   place?: string;
   placeId?: string;
   travelMinutes?: number;
+  timing?: EventTiming;
+  estimatedDurationMinutes?: number;
+  protectedFields?: ProtectedField[];
 };
 export type DatePackPatchOperation =
   | { op: 'replace'; target: string; value: DatePackPatchReplaceValue }
-  | { op: 'move'; target: string; value: { start?: string; end?: string } }
+  | { op: 'move'; target: string; value: { start?: string; end?: string; timing?: EventTiming } }
   | { op: 'remove'; target: string }
   | { op: 'insertBefore'; target: string; value: DatePackPatchNewEvent }
   | { op: 'insertAfter'; target: string; value: DatePackPatchNewEvent }

@@ -1,4 +1,6 @@
 import type { DateEvent, DatePlan, LocalPoint, ProtectedField } from '@datepack/core';
+import { seoulPlanDate, seoulPointInstant } from './planTime';
+export const ANCHOR_BUFFER_MINUTES = 10;
 import {
   getLocalObservation,
   observationReason,
@@ -35,7 +37,13 @@ export type ImpactResult = {
   evidenceIds: string[];
   affectedEventIds: string[];
   reasonCodes: string[];
-  anchorArrivals: Array<{ eventId: string; arrivalAt: string; deadlineAt: string }>;
+  anchorArrivals: Array<{
+    eventId: string;
+    arrivalAt: string;
+    deadlineAt: string;
+    rawArrivalAt: string;
+    bufferMinutes: number;
+  }>;
 };
 export type ImpactInput = {
   before: DatePlan;
@@ -145,14 +153,7 @@ function scopeReason(input: ImpactInput): string | undefined {
   }
   return undefined;
 }
-const pointMinutes = (p: LocalPoint) =>
-  p.dayOffset * 1440 + Number(p.time.slice(0, 2)) * 60 + Number(p.time.slice(3));
-function pointInstant(date: string, p: LocalPoint): number {
-  const midnight = new Date(`${date}T00:00:00`);
-  midnight.setDate(midnight.getDate() + p.dayOffset);
-  midnight.setHours(Math.floor((pointMinutes(p) % 1440) / 60), pointMinutes(p) % 60, 0, 0);
-  return midnight.getTime();
-}
+const pointInstant = (date: string, p: LocalPoint) => seoulPointInstant(date, p);
 function resolved(input: ImpactInput, event: DateEvent, now: number): ResolvedPlace | undefined {
   const place = input.proposed.places?.find((p) => p.id === event.placeId);
   if (!place) return undefined;
@@ -267,8 +268,7 @@ function evaluate(input: ImpactInput): { result: ImpactResult; missingLeg?: Rout
   const date = input.proposed.date;
   if (!date) return fail('date-unknown');
   const planPhase = input.phase === 'plan';
-  const localToday = new Date(now);
-  const today = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`;
+  const today = seoulPlanDate(now);
   if (!planPhase && date !== today) return fail('date-mismatch');
   const observation = input.observation;
   if (!planPhase) {
@@ -300,7 +300,7 @@ function evaluate(input: ImpactInput): { result: ImpactResult; missingLeg?: Rout
         return { result, missingLeg: leg };
       }
       result.evidenceIds.push(evidence.id);
-      clock += evidence.durationSeconds * 1000;
+      clock += Math.ceil(evidence.durationSeconds / 60) * 60_000;
     } else if (event.timing.kind === 'unscheduled' && !input.proposed.availableFrom)
       return fail('time-unknown');
     const timing = event.timing;
@@ -315,12 +315,23 @@ function evaluate(input: ImpactInput): { result: ImpactResult; missingLeg?: Rout
       );
       if (!Number.isFinite(earliest) || !Number.isFinite(latest)) return fail('time-unknown');
       if (planPhase && !from && !input.proposed.availableFrom) clock = earliest;
+      const bufferMinutes =
+        from &&
+        (timing.kind === 'exact' ||
+          event.fixed ||
+          event.type === 'reservation' ||
+          event.protectedFields?.includes('time'))
+          ? ANCHOR_BUFFER_MINUTES
+          : 0;
+      const bufferedArrival = clock + bufferMinutes * 60_000;
       result.anchorArrivals.push({
         eventId: event.id,
-        arrivalAt: new Date(clock).toISOString(),
+        arrivalAt: new Date(bufferedArrival).toISOString(),
+        rawArrivalAt: new Date(clock).toISOString(),
+        bufferMinutes,
         deadlineAt: new Date(latest).toISOString(),
       });
-      if (clock > latest) return fail('anchor-late', 'impossible');
+      if (bufferedArrival > latest) return fail('anchor-late', 'impossible');
       clock = Math.max(clock, earliest);
     }
     const duration =

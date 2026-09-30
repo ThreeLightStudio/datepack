@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDatePack, createEvent } from '@datepack/core';
+import { createDatePack, createEvent, describePatch, parsePatch } from '@datepack/core';
 import {
   closeStorage,
   loadDeviceState,
@@ -13,6 +13,7 @@ import {
 import { applyAiPlan, getStoreState, initStore, dismissToast } from '../src/store/datepackStore';
 import { clearRouteMemory } from '../src/features/day/routeImpact';
 import { clearLocalObservations } from '../src/features/day/location';
+import { parseAiResponse } from '../src/features/ai/exchange';
 
 beforeEach(async () => {
   await closeStorage();
@@ -59,6 +60,72 @@ async function reviewedRequest() {
   return { pack, request };
 }
 describe('AI impact application boundary', () => {
+  it('keeps parsed modern place/timing/new-event inputs intact through review and blocks their unverified commit', async () => {
+    const { pack, request } = await reviewedRequest();
+    const identity = {
+      requestId: request.id,
+      packId: request.planId,
+      baseRevision: request.baseRevision,
+      contextRevision: request.contextRevision,
+      generatedAt: request.generatedAt,
+      kind: request.kind,
+    };
+    const envelope = parseAiResponse(
+      JSON.stringify({
+        ...identity,
+        type: 'datepack.response',
+        version: 2,
+        result: {
+          type: 'datepack.patch',
+          version: 1,
+          operations: [
+            {
+              op: 'replace',
+              target: 'cafe',
+              value: {
+                place: 'New public cafe',
+                estimatedDurationMinutes: 20,
+                timing: {
+                  kind: 'window',
+                  earliestStart: { dayOffset: 0, time: '16:50' },
+                  latestStart: { dayOffset: 0, time: '17:20' },
+                },
+              },
+            },
+            {
+              op: 'insertAfter',
+              target: 'cafe',
+              value: {
+                title: 'Bookstore',
+                place: 'Public bookstore',
+                timing: { kind: 'unscheduled' },
+                estimatedDurationMinutes: 10,
+                protectedFields: ['content'],
+              },
+            },
+          ],
+        },
+      }),
+      identity,
+    );
+    if (!envelope.ok) throw new Error('Expected the response identity to match');
+    const parsed = parsePatch(JSON.stringify(envelope.response.result));
+    if (!parsed.ok) throw new Error('Expected the extended response to parse');
+    const outcome = describePatch(pack.plan, parsed.patch);
+    expect(outcome.canApply).toBe(true);
+    expect(outcome.plan.events[0].timing.kind).toBe('window');
+    expect(outcome.plan.events[1]).toMatchObject({
+      timing: { kind: 'unscheduled' },
+      protectedFields: ['content'],
+      estimatedDurationMinutes: 10,
+    });
+    expect(outcome.plan.places?.find((p) => p.id === outcome.plan.events[0].placeId)?.name).toBe(
+      'New public cafe',
+    );
+    expect(await applyAiPlan(request, outcome.plan)).toBe(false);
+    expect((await loadPack(pack.plan.id))?.plan).toEqual(pack.plan);
+    expect((await loadDeviceState(pack.plan.id)).undoStack).toHaveLength(0);
+  });
   it('preserves pack, pending answer and undo when place changes have no real route evidence', async () => {
     const { pack, request } = await reviewedRequest();
     const proposed = structuredClone(pack.plan);

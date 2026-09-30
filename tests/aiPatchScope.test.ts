@@ -15,9 +15,41 @@ function makeUndatedPlan(): DatePlan {
 }
 
 describe('AI replan scope', () => {
+  it('selects Seoul current/remaining events on a UTC device without reviving earlier plans', () => {
+    const plan: DatePlan = {
+      id: 'seoul',
+      title: 'Seoul date',
+      date: '2026-10-01',
+      events: [
+        createEvent({ id: 'morning', order: 0, title: 'Morning', start: '09:00' }),
+        createEvent({ id: 'current', order: 1, title: 'Cafe', start: '16:00', end: '17:00' }),
+        createEvent({ id: 'booking', order: 2, title: 'Dinner', start: '18:00', fixed: true }),
+      ],
+    };
+    const now = new Date('2026-10-01T07:40:00Z');
+    const zone = process.env.TZ;
+    try {
+      process.env.TZ = 'UTC';
+      expect(now.getHours()).toBe(7);
+      expect(getAiScopeEventIds(plan, null, 'next-change', now)).toEqual(['booking']);
+      expect(getAiScopeEventIds(plan, null, 'remaining-change', now)).toEqual(['booking']);
+      expect(
+        getAiScopeEventIds(plan, null, 'next-change', now, { nextPlaceId: 'current' }),
+      ).toEqual(['current']);
+      expect(
+        getAiScopeEventIds(plan, null, 'remaining-change', now, { nextPlaceId: 'current' }),
+      ).toEqual(['current', 'booking']);
+      const prompt = buildAiPrompt({ plan, runtime: null, now, situationId: 'rain', locale: 'en' });
+      expect(prompt).toContain('16:40');
+      expect(prompt).toContain('Asia/Seoul');
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
+  });
   it('matches the displayed user-selected next destination while retaining downstream validation scope', () => {
     const plan = makeUndatedPlan();
-    const now = new Date('2026-10-01T08:00:00');
+    const now = new Date('2026-10-01T08:00:00+09:00');
     const context = { nextPlaceId: 'timed-second' };
     expect(getAiScopeEventIds(plan, null, 'next-change', now, context)).toEqual(['timed-second']);
     expect(getAiScopeEventIds(plan, null, 'remaining-change', now, context)).toEqual([
@@ -27,7 +59,7 @@ describe('AI replan scope', () => {
   });
   it('includes unscheduled activities in explicit plan order for next and remaining scope', () => {
     const plan = makeUndatedPlan();
-    const now = new Date('2026-09-29T08:00:00');
+    const now = new Date('2026-09-29T08:00:00+09:00');
     expect(getAiScopeEventIds(plan, null, 'next-change', now)).toEqual(['unscheduled-first']);
     expect(getAiScopeEventIds(plan, null, 'remaining-change', now)).toEqual([
       'unscheduled-first',
@@ -41,14 +73,14 @@ describe('AI replan scope', () => {
       plan,
       null,
       'next-change',
-      new Date('2026-09-29T08:00:00'),
+      new Date('2026-09-29T08:00:00+09:00'),
     );
     const prompt = buildAiPrompt({
       plan,
       runtime: null,
       situationId: 'rain',
       locale: 'en',
-      now: new Date('2026-09-29T08:00:00'),
+      now: new Date('2026-09-29T08:00:00+09:00'),
       scopeEventIds,
     });
 
