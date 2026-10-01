@@ -31,7 +31,7 @@ export const en: Record<MessageKey, string> = {
 
   // empty state
   'empty.tagline': 'Plan less. Be together.',
-  'fallback.packTitle': 'New date',
+  'fallback.packTitle': 'New outing',
   'empty.namePlaceholder': 'Date name (e.g. Our day out)',
   'empty.create': 'Create the date',
   'empty.openFile': 'Open a .datepack.json file',
@@ -92,7 +92,7 @@ export const en: Record<MessageKey, string> = {
   'planb.aiJump': 'Tell us what happened → replan',
 
   // plan view
-  'plan.editMeta': 'Edit date details',
+  'plan.editMeta': 'Edit outing details',
   'plan.add': 'Add a stop',
   'plan.status.current': 'Now',
   'plan.status.skipped': 'Skipped',
@@ -248,7 +248,7 @@ export const en: Record<MessageKey, string> = {
   'create.btn': 'Plan it with AI',
   'create.btn.sub': 'Work out the plan by chatting with your AI, then bring the result here.',
   'create.title': 'Plan it with AI',
-  'create.step1': '1. Describe the date',
+  'create.step1': '1. Describe the outing',
   'create.region': 'Area · neighborhood',
   'create.region.ph': 'e.g. Seongsu-dong, Seoul',
   'create.date': 'Date',
@@ -268,7 +268,7 @@ export const en: Record<MessageKey, string> = {
   'create.check': 'Review the plan',
   'create.review.head': '"{title}" · {date}',
   'create.review.events': '{count} stops',
-  'create.review.apply': 'Start this date',
+  'create.review.apply': 'Save the plan',
   'create.review.cancel': 'Cancel',
   'create.review.error': "That reply won't work",
   'create.toast.download': 'Download .datepack.json',
@@ -300,7 +300,7 @@ export const en: Record<MessageKey, string> = {
   'toast.skipped': 'Skipped.',
   'toast.delayed': '{minutes} minutes of grace added.',
   'toast.planb.on': 'Switched to Plan B.',
-  'toast.pack.created': 'New date created ♡',
+  'toast.pack.created': 'New outing created ♡',
   'toast.pack.imported': 'Opened "{title}"{warn}',
   'toast.pack.exported': '.datepack.json downloaded.',
   'toast.pack.exportedPartial': 'Saved (some images were missing and left out)',
@@ -313,7 +313,7 @@ export const en: Record<MessageKey, string> = {
   'undo.edit': 'edit stop',
   'undo.delete': 'delete stop',
   'undo.reorder': 'reorder',
-  'undo.meta': 'date details',
+  'undo.meta': 'outing details',
   'undo.photo': 'add photo',
   'undo.photoRemove': 'remove photo',
   'undo.cover': 'change cover',

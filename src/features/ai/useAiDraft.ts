@@ -4,15 +4,24 @@ import { savePendingAnswer } from '../../store/datepackStore';
 
 const drafts = new Map<string, Record<string, string>>();
 const queues = new Map<string, Promise<unknown>>();
+const subscribers = new Map<string, Set<(value: Record<string, string>) => void>>();
+function publish(key: string, value: Record<string, string>): void {
+  drafts.set(key, value);
+  subscribers.get(key)?.forEach((notify) => notify(value));
+}
 
 /** Local cache keeps unsaved input through navigation; IndexedDB survives restart. */
 export function useAiForm<T extends Record<string, string>>(key: string, initial: T) {
-  const [value, setValue] = useState<T>(() => (drafts.get(key) as T | undefined) ?? initial);
+  const [value, setValue] = useState<T>(() => ({ ...initial, ...drafts.get(key) }) as T);
   const [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
+    const notify = (next: Record<string, string>) => setValue({ ...initial, ...next } as T);
+    const listeners = subscribers.get(key) ?? new Set();
+    listeners.add(notify);
+    subscribers.set(key, listeners);
     const cached = drafts.get(key) as T | undefined;
-    setValue(cached ?? initial);
+    setValue({ ...initial, ...cached });
     void loadAiFormDraft(key)
       .then((stored) => {
         if (!active || drafts.has(key)) return;
@@ -22,7 +31,7 @@ export function useAiForm<T extends Record<string, string>>(key: string, initial
           Object.values(stored).every((v) => typeof v === 'string')
         ) {
           const restored = { ...initial, ...stored } as T;
-          drafts.set(key, restored);
+          publish(key, restored);
           setValue(restored);
         }
       })
@@ -31,10 +40,12 @@ export function useAiForm<T extends Record<string, string>>(key: string, initial
       });
     return () => {
       active = false;
+      listeners.delete(notify);
+      if (!listeners.size) subscribers.delete(key);
     };
   }, [key]);
   function persist(next: T): void {
-    drafts.set(key, next);
+    publish(key, next);
     setValue(next);
     const write = (queues.get(key) ?? Promise.resolve())
       .catch(() => undefined)
@@ -48,7 +59,7 @@ export function useAiForm<T extends Record<string, string>>(key: string, initial
   return {
     value,
     change: (field: keyof T, text: string) =>
-      persist({ ...(drafts.get(key) ?? value), [field]: text } as T),
+      persist({ ...initial, ...(drafts.get(key) ?? value), [field]: text } as T),
     error,
     retry: () => persist(value),
   };

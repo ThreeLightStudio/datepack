@@ -57,7 +57,17 @@ export type DatePackManifest = {
   generator?: string;
 };
 export type PlanConstraints = { must?: string[]; prefer?: string[]; avoid?: string[] };
+/** User-selected outing brief. Budget is a total ceiling, never verified spending. */
+export type OutingConditions = {
+  party?: 'solo' | 'together';
+  region?: string;
+  budget?: { currency: 'KRW'; amount: number; basis: 'total' | 'per-person' };
+  nearby?: boolean;
+  singleStop?: boolean;
+  durationMinutes?: number;
+};
 export type DatePlan = {
+  outingConditions?: OutingConditions;
   id: string;
   title: string;
   /** Local YYYY-MM-DD; omit when the date is not known yet. */

@@ -571,6 +571,14 @@ export async function applyAiPlan(
   };
   const replan = request.kind === 'next-change' || request.kind === 'remaining-change';
   const checkImpact = (before: DatePlan): boolean => {
+    if (
+      request.kind === 'create' &&
+      (JSON.stringify(before.outingConditions) !== JSON.stringify(plan.outingConditions) ||
+        JSON.stringify(before.availableFrom) !== JSON.stringify(plan.availableFrom) ||
+        JSON.stringify(before.mustEndBy) !== JSON.stringify(plan.mustEndBy) ||
+        (before.date && before.date !== plan.date))
+    )
+      return false;
     if (protectionReasons(before, plan).length) return false;
     if (!replan) return true;
     const allowed = getAiScopeEventIds(
@@ -1008,8 +1016,13 @@ export async function applyPatchWithUndo(
 // Pack lifecycle
 // ---------------------------------------------------------------------------
 
-export async function createNewPack(title: string, date: string): Promise<void> {
+export async function createNewPack(
+  title: string,
+  date: string,
+  brief: Partial<Pick<DatePlan, 'outingConditions' | 'availableFrom' | 'mustEndBy'>> = {},
+): Promise<void> {
   const pack = createDatePack({
+    ...brief,
     title: title.trim() || t('fallback.packTitle'),
     ...(date ? { date } : {}),
   });
@@ -1190,7 +1203,10 @@ export async function switchPack(packId: string): Promise<void> {
   });
   showToast(
     t('toast.pack.switched', {
-      title: document.plan?.title ?? document.meta.title ?? t('fallback.packTitle'),
+      title:
+        document.kind === 'memories'
+          ? (document.meta.title ?? (getLocale() === 'ko' ? '기록' : 'Memories'))
+          : document.plan.title,
     }),
   );
 }

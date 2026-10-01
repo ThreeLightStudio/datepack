@@ -3,8 +3,12 @@ import type {
   OutingDatePack,
   EventTiming,
   PlanConstraints,
+  OutingConditions,
+  LocalPoint,
   ProtectedField,
 } from './types';
+import { isValidOutingConditions } from './outingConditions';
+import { isValidLocalPoint, localPointMinutes } from './utils/time';
 import { DATE_EVENT_TYPES } from './types';
 import { createEvent, createPlace } from './create';
 import { makeManifest } from './schema';
@@ -33,6 +37,9 @@ export type PlanDraftEvent = {
 };
 
 export type PlanDraft = {
+  outingConditions?: OutingConditions;
+  availableFrom?: LocalPoint;
+  mustEndBy?: LocalPoint;
   title: string;
   date?: string; // YYYY-MM-DD; omitted for an undated plan
   memo?: string;
@@ -73,7 +80,18 @@ function validatePlanDraft(
   const obj = raw as Record<string, unknown>;
   rejectUnknownFields(
     obj,
-    ['type', 'version', 'title', 'date', 'memo', 'constraints', 'events'],
+    [
+      'type',
+      'version',
+      'title',
+      'date',
+      'memo',
+      'constraints',
+      'events',
+      'outingConditions',
+      'availableFrom',
+      'mustEndBy',
+    ],
     '',
     errors,
   );
@@ -101,6 +119,15 @@ function validatePlanDraft(
     errors.push({ key: 'err.planDraft.memo' });
   }
 
+  if (obj.outingConditions !== undefined && !isValidOutingConditions(obj.outingConditions))
+    errors.push({ key: 'err.plan.outingConditions' });
+  for (const point of [obj.availableFrom, obj.mustEndBy])
+    if (point !== undefined && !isValidLocalPoint(point))
+      errors.push({ key: 'err.planDraft.badDate' });
+  if (isValidLocalPoint(obj.availableFrom) && isValidLocalPoint(obj.mustEndBy)) {
+    const span = localPointMinutes(obj.mustEndBy)! - localPointMinutes(obj.availableFrom)!;
+    if (span < 0 || span > 1440) errors.push({ key: 'err.planDraft.badDate' });
+  }
   const constraints = validateConstraints(obj.constraints);
   if (constraints === false) errors.push({ key: 'err.planDraft.constraints' });
 
@@ -214,6 +241,9 @@ function validatePlanDraft(
       title: (obj.title as string).trim(),
       ...(typeof obj.date === 'string' && obj.date ? { date: obj.date } : {}),
       memo: typeof obj.memo === 'string' && obj.memo.trim() ? obj.memo.trim() : undefined,
+      outingConditions: obj.outingConditions as OutingConditions | undefined,
+      availableFrom: obj.availableFrom as LocalPoint | undefined,
+      mustEndBy: obj.mustEndBy as LocalPoint | undefined,
       constraints: constraints || undefined,
       events: obj.events.map((event) => eventFromRaw(event as Record<string, unknown>)),
     },
@@ -341,6 +371,9 @@ export function buildPlanFromDraft(draft: PlanDraft): OutingDatePack {
     title: draft.title,
     date: draft.date,
     memo: draft.memo,
+    outingConditions: draft.outingConditions,
+    availableFrom: draft.availableFrom,
+    mustEndBy: draft.mustEndBy,
     constraints: draft.constraints,
     events,
     places: [...places.values()],

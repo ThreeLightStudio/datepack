@@ -21,6 +21,8 @@ function fail(errors: DatePackIssue[], warnings: DatePackIssue[] = []): Validati
   return { ok: false, errors, warnings };
 }
 
+import { isValidOutingConditions } from './outingConditions';
+
 export function validatePlan(plan: unknown): ValidationResult {
   if (typeof plan !== 'object' || plan === null) {
     return fail([{ key: 'err.read.badPlan' }]);
@@ -133,6 +135,8 @@ export function validatePlan(plan: unknown): ValidationResult {
       if (point !== undefined && !isValidLocalPoint(point))
         errors.push({ key: 'err.plan.badDate', params: { field } });
     };
+    if (p.outingConditions !== undefined && !isValidOutingConditions(p.outingConditions))
+      errors.push({ key: 'err.plan.outingConditions' });
     checkPoint(p.availableFrom, 'availableFrom');
     checkPoint(p.mustEndBy, 'mustEndBy');
     if (

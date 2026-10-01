@@ -1,8 +1,13 @@
+import type { DatePlan } from '@datepack/core';
+import { conditionsText } from '../outing/conditions';
 import type { Locale } from '../../i18n/core';
 import type { AiRequestIdentity } from './exchange';
 import { conversationGuide, resultFooterGuide } from './conversation';
 
-export type CreatePromptInput = {
+export type CreatePromptInput = Pick<
+  DatePlan,
+  'outingConditions' | 'availableFrom' | 'mustEndBy'
+> & {
   /** Where the date happens — city, neighborhood, venue… */
   region: string;
   date?: string; // YYYY-MM-DD; omit while undecided
@@ -45,8 +50,8 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
 
   lines.push(
     locale === 'ko'
-      ? '아래 조건으로 데이트 계획을 저와 함께 논의하며 만들어주는 데이트 플래너가 되어주세요.'
-      : "You're my date planner — help me shape an outing by discussing it together.",
+      ? '아래 조건으로 외출 계획을 함께 만들어주세요.'
+      : 'Help me shape an outing using this brief.',
   );
   lines.push('');
 
@@ -68,6 +73,31 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
   if (timeRange) {
     lines.push(`- ${locale === 'ko' ? '시간대' : 'Time window'}: ${timeRange}`);
   }
+  const brief = conditionsText(input, locale === 'ko');
+  if (brief) lines.push(`- ${brief}`);
+  if (input.outingConditions?.singleStop)
+    lines.push(
+      locale === 'ko'
+        ? '한 곳만 방문하는 계획을 제안하세요. 이동이나 메모를 제외하고 방문 장소를 늘리지 마세요.'
+        : 'Propose only one visited venue. Do not add more venues beyond travel or notes.',
+    );
+  if (input.outingConditions?.nearby)
+    lines.push(
+      locale === 'ko'
+        ? '입력한 지역 안이나 가까운 곳을 우선하고 짧은 이동을 선호하세요. 실제 이동 시간은 확인되지 않았다면 추정이라고 표시하세요.'
+        : 'Prefer short travel within or near the supplied area. Label unverified travel time as an estimate.',
+    );
+  if (input.outingConditions?.party === 'solo')
+    lines.push(
+      locale === 'ko'
+        ? '혼자 하는 외출입니다. 상대방·동행자·합류 정보는 질문하지 마세요.'
+        : 'This is a solo outing. Do not ask about a partner, companions, or meeting up.',
+    );
+  lines.push(
+    locale === 'ko'
+      ? '예산과 이동·소요 시간은 제안 기준입니다. 확인되지 않은 비용이나 시간을 확정된 사실로 쓰지 마세요.'
+      : 'Budget and travel/duration are proposal constraints. Do not claim unverified costs or times as facts.',
+  );
   if (input.notes?.trim()) {
     lines.push(`- ${locale === 'ko' ? '추가 요청' : 'Requests'}: ${input.notes.trim()}`);
   }
@@ -82,6 +112,11 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
   );
   lines.push('');
   lines.push(PLAN_SCHEMA_HINT[locale]);
+  lines.push(
+    locale === 'ko'
+      ? 'outingConditions는 아래 예시의 사용자 조건을 그대로 유지하세요. availableFrom/mustEndBy는 dayOffset과 time으로 표시하며 사용자 입력을 바꾸지 마세요.'
+      : 'Keep outingConditions as supplied below. availableFrom/mustEndBy use dayOffset and time; preserve the user inputs.',
+  );
   lines.push('');
   lines.push(
     resultFooterGuide(
@@ -91,6 +126,9 @@ export function buildCreatePrompt(input: CreatePromptInput): string {
         version: 1,
         title: '...',
         ...(input.date ? { date: input.date } : {}),
+        ...(input.outingConditions ? { outingConditions: input.outingConditions } : {}),
+        ...(input.availableFrom ? { availableFrom: input.availableFrom } : {}),
+        ...(input.mustEndBy ? { mustEndBy: input.mustEndBy } : {}),
         events: [],
       },
       input.identity,

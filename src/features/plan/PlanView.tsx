@@ -17,6 +17,7 @@ import {
 } from '../../store/datepackStore';
 import { EventEditorSheet } from '../editor/EventEditorSheet';
 import { PlanMetaSheet } from '../editor/PlanMetaSheet';
+import { conditionsText } from '../outing/conditions';
 import { CurrentContextSheet } from '../day/CurrentContextSheet';
 import { useStore } from '../../store/datepackStore';
 import { CheckIcon, EditIcon, EVENT_TYPE_ICONS, PlusIcon, SkipIcon } from '../../components/icons';
@@ -85,11 +86,12 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
             type="button"
             className="icon-btn framed"
             onClick={() => setMetaOpen(true)}
-            aria-label={ko ? '데이트 정보 편집' : 'Edit date details'}
+            aria-label={ko ? '외출 정보 편집' : 'Edit outing details'}
           >
             <EditIcon width={17} height={17} />
           </button>
         </div>
+        {conditionsText(plan, ko) && <p className="meta-line">{conditionsText(plan, ko)}</p>}
         {plan.memo && <p className="sub-line">{plan.memo}</p>}
         {plan.availableFrom || plan.mustEndBy ? (
           <p className="meta-line">
@@ -99,23 +101,25 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
           </p>
         ) : null}
       </header>
-      <section className="meeting-summary">
-        <div>
-          <p className="eyebrow">{format(locale, 'p3.meeting')}</p>
-          <strong>
-            {plan.meeting?.placeId
-              ? plan.places?.find((p) => p.id === plan.meeting?.placeId)?.name
-              : format(locale, 'p3.meeting.unset')}
-          </strong>
-          {plan.meeting?.locationNote && <p className="sub-line">{plan.meeting.locationNote}</p>}
-          {plan.meeting?.timing?.kind === 'exact' && (
-            <p className="meta-line">{plan.meeting.timing.start.time}</p>
-          )}
-        </div>
-        <button type="button" className="btn btn-soft" onClick={() => setMetaOpen(true)}>
-          {ko ? '수정' : 'Edit'}
-        </button>
-      </section>
+      {plan.outingConditions?.party !== 'solo' && (
+        <section className="meeting-summary">
+          <div>
+            <p className="eyebrow">{format(locale, 'p3.meeting')}</p>
+            <strong>
+              {plan.meeting?.placeId
+                ? plan.places?.find((p) => p.id === plan.meeting?.placeId)?.name
+                : format(locale, 'p3.meeting.unset')}
+            </strong>
+            {plan.meeting?.locationNote && <p className="sub-line">{plan.meeting.locationNote}</p>}
+            {plan.meeting?.timing?.kind === 'exact' && (
+              <p className="meta-line">{plan.meeting.timing.start.time}</p>
+            )}
+          </div>
+          <button type="button" className="btn btn-soft" onClick={() => setMetaOpen(true)}>
+            {ko ? '수정' : 'Edit'}
+          </button>
+        </section>
+      )}
       <section className="context-summary">
         <div>
           <p className="eyebrow">{ko ? '마지막으로 알려준 상황' : 'Last situation you shared'}</p>
@@ -406,7 +410,7 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
       </section>
       {plan.constraints && (
         <section className="constraint-box">
-          <p className="eyebrow">{ko ? '데이트 약속' : 'Date preferences'}</p>
+          <p className="eyebrow">{ko ? '외출 약속' : 'Date preferences'}</p>
           <div className="chip-row wrap">
             {(plan.constraints.must ?? []).map((x) => (
               <span className="chip" key={`m${x}`}>

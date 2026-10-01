@@ -1,3 +1,4 @@
+import { conditionsText } from '../outing/conditions';
 import { useRef, useState } from 'react';
 import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { addEventAssets, useStore } from '../../store/datepackStore';
@@ -5,13 +6,18 @@ import { version as APP_VERSION } from '../../../package.json';
 import { REPO_URL } from '../../app/meta';
 import { AssetImage } from '../../components/AssetImage';
 import { EditIcon, PlusIcon } from '../../components/icons';
-import { AiSection } from '../ai/AiSection';
+
 import { PlanMetaSheet } from '../editor/PlanMetaSheet';
 import { useLocale } from '../../i18n';
 
-type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null; onOpenCreate: () => void };
+type Props = {
+  plan: DatePlan;
+  runtime: DatePackRuntimeState | null;
+  onOpenCreate: () => void;
+  onOpenAi: () => void;
+};
 
-export function DetailsView({ plan, runtime }: Props) {
+export function DetailsView({ plan, runtime, onOpenAi }: Props) {
   const locale = useLocale();
   const { pack: selectedPack } = useStore();
   const [metaOpen, setMetaOpen] = useState(false);
@@ -35,7 +41,7 @@ export function DetailsView({ plan, runtime }: Props) {
             type="button"
             className="icon-btn framed"
             onClick={() => setMetaOpen(true)}
-            aria-label={ko ? '데이트 정보 편집' : 'Edit date details'}
+            aria-label={ko ? '외출 정보 편집' : 'Edit outing details'}
           >
             <EditIcon width={17} height={17} />
           </button>
@@ -77,7 +83,12 @@ export function DetailsView({ plan, runtime }: Props) {
         {plan.memo && <p className="sub-line">{plan.memo}</p>}
       </section>
 
-      <AiSection plan={plan} runtime={runtime} />
+      <section className="details-section">
+        <p className="meta-line">{conditionsText(plan, ko)}</p>
+        <button type="button" className="btn btn-soft" onClick={onOpenAi}>
+          {ko ? 'AI로 다시 계획하기' : 'Replan with AI'}
+        </button>
+      </section>
 
       {import.meta.env.DEV && (
         <section className="details-section debug-section">

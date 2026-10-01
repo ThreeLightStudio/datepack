@@ -108,6 +108,7 @@ export const ko = {
   'err.planDraft.typeInvalid': 'events[{index}].type "{value}"은(는) 알 수 없는 종류입니다.',
   'err.planDraft.travelInvalid': 'events[{index}].travelMinutes는 0 이상의 숫자여야 합니다.',
   'err.planDraft.placeString': 'events[{index}].place는 문자열이어야 합니다.',
+  'err.plan.outingConditions': '혼자·함께, 지역, 원화 예산과 소요 시간을 확인해주세요.',
   'err.planDraft.constraints': 'constraints의 must/prefer/avoid는 문자열 배열이어야 합니다.',
   'err.planDraft.memo': 'memo는 문자열이어야 합니다.',
   'err.planDraft.timingInvalid':

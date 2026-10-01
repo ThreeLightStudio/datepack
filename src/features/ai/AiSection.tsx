@@ -798,7 +798,10 @@ export function AiSection({ plan, runtime }: Props) {
                 ? 'AI 요청문 — 복사해서 AI에게 보내주세요'
                 : 'The note — copy it over to your AI assistant'}
             </p>
-            <pre>{prompt}</pre>
+            <details>
+              <summary>{locale === 'ko' ? 'AI에 보낼 요청문 보기' : 'Review request text'}</summary>
+              <pre>{prompt}</pre>
+            </details>
             <div className="action-row">
               <button
                 type="button"

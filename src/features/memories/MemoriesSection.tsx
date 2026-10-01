@@ -12,7 +12,7 @@ import type { PendingRequest } from '../../storage/indexedDb';
 import { responseFingerprint, type AiRequestIdentity } from '../ai/exchange';
 import { useLocale } from '../../i18n';
 import { copyRequestText } from '../ai/clipboard';
-import { useAnswerSave, recoverAnswer } from '../ai/useAiDraft';
+import { useAiForm, useAnswerSave, recoverAnswer } from '../ai/useAiDraft';
 import { DraftSaveError, RequestHelp } from '../ai/RequestHelp';
 import { buildMemoryPrompt, parseMemoryReply } from './aiMemory';
 async function copyText(text: string): Promise<void> {
@@ -24,6 +24,7 @@ export function MemoriesSection({ experience }: { experience: Experience }) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const { document: pack, pendingRequest, contextRevision } = useStore();
+  const form = useAiForm(`memory:${pack?.id ?? ''}`, { experienceId: '', requestId: '', note: '' });
   const answerSave = useAnswerSave(pendingRequest);
   const checking = useRef(0);
   const [aiTargetId, setAiTargetId] = useState<string | null>(null);
@@ -50,6 +51,20 @@ export function MemoriesSection({ experience }: { experience: Experience }) {
     setAiReply(recoverAnswer(pendingRequest));
     setAiReview(null);
   }, [pendingRequest?.id, pack?.id]);
+
+  useEffect(() => {
+    if (
+      pendingRequest?.kind !== 'memory-edit' ||
+      form.value.requestId !== pendingRequest.id ||
+      form.value.experienceId !== experience.id ||
+      !form.value.note ||
+      pendingRequest.answerText ||
+      ['applied', 'cancelled'].includes(pendingRequest.status)
+    )
+      return;
+    setAiReply(form.value.note);
+    answerSave.save(form.value.note);
+  }, [form.value.requestId, form.value.note, pendingRequest?.id]);
 
   useEffect(() => {
     if (
@@ -345,6 +360,7 @@ export function MemoriesSection({ experience }: { experience: Experience }) {
   }
   return (
     <section className="memory-ai-task">
+      {form.error && <DraftSaveError retry={form.retry} />}
       <h2>{ko ? 'AI로 문장 다듬기' : 'Polish text with AI'}</h2>
       <p className="memory-note">{experience.note}</p>
       <button
@@ -406,6 +422,9 @@ export function MemoriesSection({ experience }: { experience: Experience }) {
                 value={aiReply}
                 onChange={(event) => {
                   checking.current++;
+                  form.change('experienceId', experience.id);
+                  form.change('requestId', pendingRequest.id);
+                  form.change('note', event.target.value);
                   setAiReply(event.target.value);
                   setAiReview(null);
                   answerSave.save(event.target.value);

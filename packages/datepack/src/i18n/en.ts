@@ -102,6 +102,7 @@ export const en: Record<DatePackIssueKey, string> = {
   'err.planDraft.typeInvalid': 'events[{index}].type "{value}" is unknown.',
   'err.planDraft.travelInvalid': 'events[{index}].travelMinutes must be a number, 0 or more.',
   'err.planDraft.placeString': 'events[{index}].place must be a string.',
+  'err.plan.outingConditions': 'Check party, region, KRW budget and duration.',
   'err.planDraft.constraints': 'constraints must/prefer/avoid must be arrays of strings.',
   'err.planDraft.memo': 'memo must be a string.',
   'err.planDraft.timingInvalid':

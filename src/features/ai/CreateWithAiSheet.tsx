@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sheet } from '../../components/Sheet';
+import { initialOutingForm, outingBrief, conditionsText } from '../outing/conditions';
+import { OutingFields } from '../outing/OutingFields';
 import { CopyIcon, SparkleIcon } from '../../components/icons';
 import { buildCreatePrompt } from './createPromptBuilder';
 import type { DatePlan } from '@datepack/core';
@@ -37,20 +38,8 @@ type Review = { plan: DatePlan; warnings: string[] } | { errors: string[] } | nu
 export function CreateWithAiSheet({ open, onClose }: Props) {
   const locale = useLocale();
   const { pack, pendingRequest, contextRevision } = useStore();
-  const form = useAiForm('create', {
-    region: '',
-    date: '',
-    startTime: '',
-    endTime: '',
-    notes: '',
-    importText: '',
-    mode: 'request',
-  });
-  const { region, date, startTime, endTime, notes } = form.value;
-  const setRegion = (v: string) => form.change('region', v);
-  const setDate = (v: string) => form.change('date', v);
-  const setStartTime = (v: string) => form.change('startTime', v);
-  const setEndTime = (v: string) => form.change('endTime', v);
+  const form = useAiForm('create', initialOutingForm);
+  const { region, date, notes } = form.value;
   const setNotes = (v: string) => form.change('notes', v);
   const answerSave = useAnswerSave(pendingRequest?.kind === 'create' ? pendingRequest : null);
   const checking = useRef(0);
@@ -58,6 +47,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
   const [replyText, setReplyText] = useState('');
   const [review, setReview] = useState<Review>(null);
   const [busy, setBusy] = useState(false);
+  const [inputError, setInputError] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -132,14 +122,28 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
 
   async function makePrompt(): Promise<void> {
     if (!region.trim()) {
+      setInputError(format(locale, 'create.err.region'));
       showToast(format(locale, 'create.err.region'));
       return;
     }
+    if (busy) return;
+    try {
+      outingBrief(form.value);
+    } catch {
+      setInputError(
+        locale === 'ko'
+          ? '예산, 소요 시간과 시작·마감을 확인해주세요.'
+          : 'Check budget, duration and the time window.',
+      );
+      return;
+    }
+    setInputError('');
     setBusy(true);
     try {
       // The empty draft and its first request share one durable transaction.
       const draftPack = createDatePack({
-        title: locale === 'ko' ? '새 데이트' : 'New date',
+        ...outingBrief(form.value),
+        title: form.value.title.trim() || (locale === 'ko' ? '새 외출' : 'New outing'),
         ...(date ? { date } : {}),
       });
       const requestId = crypto.randomUUID();
@@ -155,8 +159,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
       const nextPrompt = buildCreatePrompt({
         region,
         date,
-        startTime: startTime || undefined,
-        endTime: endTime || undefined,
+        ...outingBrief(form.value),
         notes: notes || undefined,
         locale,
         identity: requestIdentity,
@@ -291,7 +294,16 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
       return;
     }
     const draftPack = buildPlanFromDraft(parsed.draft);
-    const proposed = { ...draftPack.plan, id: identity.packId };
+    // Preview uses the user's persisted brief even if AI changes or omits it.
+
+    const proposed = {
+      ...draftPack.plan,
+      id: pack.plan.id,
+      date: pack.plan.date ?? draftPack.plan.date,
+      outingConditions: structuredClone(pack.plan.outingConditions),
+      availableFrom: pack.plan.availableFrom,
+      mustEndBy: pack.plan.mustEndBy,
+    };
     if (!restoring)
       await updatePendingRequest(
         {
@@ -369,13 +381,16 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
       // An existing plan draft is a new local import, never an answer to a prior request.
       const blank = createDatePack({
         title: review.plan.title,
+        outingConditions: review.plan.outingConditions,
+        availableFrom: review.plan.availableFrom,
+        mustEndBy: review.plan.mustEndBy,
         ...(review.plan.date ? { date: review.plan.date } : {}),
       });
       const id = crypto.randomUUID();
       const stamp = new Date().toISOString();
       const localIdentity: AiRequestIdentity = {
         requestId: id,
-        packId: blank.plan.id,
+        packId: blank.id,
         baseRevision: 0,
         contextRevision: 0,
         generatedAt: stamp,
@@ -388,7 +403,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
       if (!result.ok) return;
       const request: PendingRequest = {
         id,
-        planId: blank.plan.id,
+        planId: blank.id,
         kind: 'create',
         status: 'ready',
         input:
@@ -445,7 +460,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title={format(locale, 'create.title')}>
+    <section className="ai-create-task">
       {!identity && form.value.mode !== 'import' && (
         <>
           <p className="sub-line">{format(locale, 'create.btn.sub')}</p>
@@ -460,40 +475,17 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
             {locale === 'ko' ? '이미 만든 AI 계획 가져오기' : 'Import an existing AI plan'}
           </button>
           <p className="eyebrow">{format(locale, 'create.step1')}</p>
-          <label className="field">
-            <span>{format(locale, 'create.region')}</span>
-            <input
-              value={region}
-              onChange={(event) => setRegion(event.target.value)}
-              placeholder={format(locale, 'create.region.ph')}
-            />
-          </label>
-          <div className="field-row">
-            <label className="field">
-              <span>
-                {format(locale, 'create.date')} ({locale === 'ko' ? '선택' : 'optional'})
-              </span>
-              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-            </label>
-            <label className="field">
-              <span>{format(locale, 'create.time')}</span>
-              <input
-                type="time"
-                value={startTime}
-                onChange={(event) => setStartTime(event.target.value)}
-                aria-label={locale === 'ko' ? '시작 시각' : 'Start time'}
-              />
-            </label>
-            <label className="field">
-              <span>{format(locale, 'create.time')}</span>
-              <input
-                type="time"
-                value={endTime}
-                onChange={(event) => setEndTime(event.target.value)}
-                aria-label={locale === 'ko' ? '종료 시각' : 'End time'}
-              />
-            </label>
-          </div>
+          <OutingFields value={form.value} change={form.change} disabled={busy} />
+          <p className="hint-text">
+            {locale === 'ko'
+              ? 'AI 요청에는 지역이 필요해요. 나머지 조건은 선택이에요.'
+              : 'AI requests need an area. Other conditions are optional.'}
+          </p>
+          {inputError && (
+            <p className="form-error" role="alert">
+              {inputError}
+            </p>
+          )}
           <label className="field">
             <span>{format(locale, 'create.notes')}</span>
             <textarea
@@ -519,8 +511,8 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
         <>
           <p className="hint-text">
             {locale === 'ko'
-              ? 'datepack.plan 형식의 기존 계획을 새 데이트로 가져와요. 현재 데이트는 따로 보관돼요. 요청에 대한 답안은 해당 요청에서 확인하세요.'
-              : 'Import a datepack.plan draft as a new date. Your current date stays saved separately. Review request replies in their original request.'}
+              ? '기존 AI 계획을 새 외출로 가져와요. 요청에 대한 답안은 해당 요청에서 확인하세요.'
+              : 'Import a datepack.plan draft as a new outing. Review request replies in their original request.'}
           </p>
           <label className="field">
             <span>{locale === 'ko' ? '기존 AI 계획' : 'Existing AI plan'}</span>
@@ -561,7 +553,10 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
           <RequestHelp />
           <div className="prompt-box">
             <p className="eyebrow">{format(locale, 'create.prompt.eyebrow')}</p>
-            <pre>{prompt}</pre>
+            <details>
+              <summary>{locale === 'ko' ? 'AI에 보낼 요청문 보기' : 'Review request text'}</summary>
+              <pre>{prompt}</pre>
+            </details>
             <div className="action-row">
               <button
                 type="button"
@@ -644,6 +639,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
                   : 'Date undecided',
             })}
           </p>
+          <p className="hint-text">{conditionsText(review.plan, locale === 'ko')}</p>
           <p className="hint-text">
             {format(locale, 'create.review.events', { count: review.plan.events.length })}
           </p>
@@ -725,6 +721,6 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
           </button>
         </div>
       )}
-    </Sheet>
+    </section>
   );
 }

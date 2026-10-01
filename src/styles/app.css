@@ -2286,3 +2286,78 @@ div.asset-placeholder,
   display: grid;
   gap: var(--sp-3);
 }
+
+/* Brief inputs share the app's existing form rhythm. */
+.outing-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+.outing-fields legend {
+  font-size: 16px;
+  font-weight: 650;
+  margin-bottom: 14px;
+}
+.outing-times summary {
+  cursor: pointer;
+  font-size: 14px;
+  padding-block: 12px;
+}
+.outing-times[open] {
+  display: grid;
+  gap: 14px;
+}
+.ai-task-screen {
+  padding-bottom: 40px;
+}
+.ai-task-screen > .plan-title {
+  margin-block: 20px 24px;
+}
+.ai-task-screen .ai-section {
+  margin-top: 0;
+}
+.ai-task-screen pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ai-task-screen .action-row {
+  flex-wrap: wrap;
+}
+.ai-task-screen .action-row > button {
+  min-width: 0;
+  white-space: normal;
+}
+.ai-task-screen textarea {
+  width: 100%;
+}
+.ai-task-screen h1,
+.ai-task-screen .review-head {
+  overflow-wrap: anywhere;
+}
+.outing-details summary {
+  cursor: pointer;
+  padding-block: 10px;
+  font-size: 14px;
+}
+.outing-details[open] > .field,
+.outing-details[open] > .field-row {
+  margin-block: 14px;
+}
+.title-row > .plan-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.title-row > .icon-btn {
+  flex-shrink: 0;
+}
+.view,
+.app-content,
+.field {
+  min-width: 0;
+}
+.meta-line {
+  overflow-wrap: anywhere;
+}

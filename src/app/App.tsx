@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   createNewPack,
+  getStoreState,
   dismissToast,
   initStore,
   refreshLibrary,
@@ -22,9 +23,23 @@ import { RecordHub, type RecordHubHandle } from '../features/memories/RecordHub'
 import { TabBar } from '../components/TabBar';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { BetaBanner } from '../components/BetaBanner';
-import { Sheet } from '../components/Sheet';
+import { initialOutingForm, outingBrief } from '../features/outing/conditions';
+import { OutingFields } from '../features/outing/OutingFields';
+import { useAiForm } from '../features/ai/useAiDraft';
+import { DraftSaveError } from '../features/ai/RequestHelp';
+import { AiSection } from '../features/ai/AiSection';
+import { MemoriesSection } from '../features/memories/MemoriesSection';
+import type { RecordKey } from '../features/memories/recordLibrary';
+import { Sheet, afterSheetsClose, sheetReturnFocus } from '../components/Sheet';
 import type { TabId, ViewId } from './routes';
 import { DotsIcon, HeartIcon, UndoIcon } from '../components/icons';
+
+type AiTask = {
+  historyId: string;
+  kind: 'create' | 'plan' | 'memory';
+  origin: ViewId;
+  key?: RecordKey;
+};
 
 export default function App() {
   const store = useStore();
@@ -34,27 +49,49 @@ export default function App() {
   const viewRef = useRef(view);
   const [menuOpen, setMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [aiCreateOpen, setAiCreateOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [date, setDate] = useState('');
+  const [task, setTask] = useState<AiTask | null>(null);
+  const taskRef = useRef<AiTask | null>(null);
+  const taskExit = useRef<ViewId | null>(null);
+  const taskPositions = useRef(new Map<string, number>());
+  const createForm = useAiForm('create', initialOutingForm);
+  const { title, date } = createForm.value;
+  const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
-  const [resumeTarget, setResumeTarget] = useState('');
+
   const recordsRef = useRef<RecordHubHandle>(null);
   const positions = useRef(new Map<ViewId, { top: number; focus: HTMLElement | null }>());
-  const primary: TabId = view === 'today' || view === 'details' ? 'plan' : view;
+  const primary: TabId =
+    view === 'ai'
+      ? task?.origin === 'records'
+        ? 'records'
+        : task?.origin === 'home'
+          ? 'home'
+          : 'plan'
+      : view === 'today' || view === 'details'
+        ? 'plan'
+        : view;
 
   function openView(next: ViewId) {
     if (next === viewRef.current) return;
-    positions.current.set(viewRef.current, {
-      top: window.scrollY,
-      focus: document.activeElement as HTMLElement | null,
-    });
+    if (next !== 'ai')
+      positions.current.set(viewRef.current, {
+        top: window.scrollY,
+        focus: document.activeElement as HTMLElement | null,
+      });
     viewRef.current = next;
     setView(next);
     requestAnimationFrame(() => {
       const saved = positions.current.get(next);
       window.scrollTo({ top: saved?.top ?? 0 });
       if (saved?.focus?.isConnected) saved.focus.focus({ preventScroll: true });
+      else if (saved?.focus) {
+        const label = saved.focus.getAttribute('aria-label');
+        const text = saved.focus.textContent;
+        const restored = [...document.querySelectorAll<HTMLElement>('button')].find((el) =>
+          label ? el.getAttribute('aria-label') === label : el.textContent === text,
+        );
+        restored?.focus({ preventScroll: true });
+      }
     });
   }
   async function openPlan(id: string, today = false) {
@@ -67,16 +104,54 @@ export default function App() {
       );
     }
   }
+  function taskKey(value: AiTask) {
+    const current = getStoreState();
+    if (value.kind === 'memory') return `memory:${value.key?.packId}:${value.key?.experienceId}`;
+    if (value.kind === 'create')
+      return `create:${current.pendingRequest?.kind === 'create' ? current.pendingRequest.id : 'form'}`;
+    return `plan:${current.document?.id}`;
+  }
+  function openTask(kind: AiTask['kind'], key?: RecordKey) {
+    const origin = taskRef.current?.origin ?? viewRef.current;
+    if (!taskRef.current)
+      positions.current.set(origin, {
+        top: window.scrollY,
+        focus: sheetReturnFocus() ?? (document.activeElement as HTMLElement | null),
+      });
+    afterSheetsClose(() => {
+      const next = {
+        kind,
+        origin,
+        key,
+        historyId: taskRef.current?.historyId ?? crypto.randomUUID(),
+      };
+      if (!taskRef.current)
+        history.pushState({ ...history.state, datepackTask: next.historyId }, '');
+      taskRef.current = next;
+      setTask(next);
+      positions.current.set('ai', {
+        top: taskPositions.current.get(taskKey(next)) ?? 0,
+        focus: null,
+      });
+      openView('ai');
+      requestAnimationFrame(() =>
+        document.getElementById('ai-task-title')?.focus({ preventScroll: true }),
+      );
+    });
+  }
+  function closeTask() {
+    if (taskRef.current && history.state?.datepackTask === taskRef.current.historyId)
+      history.back();
+  }
   function openPlanAi() {
-    setResumeTarget('ai-section');
-    openView('details');
+    openTask('plan');
   }
   async function resumeActivity(activity?: LibraryActivity) {
     try {
       if (activity) await switchPack(activity.packId);
       const request = activity?.request ?? store.pendingRequest;
       if (request?.kind === 'create') {
-        setAiCreateOpen(true);
+        openTask('create');
         return;
       }
       if (request?.kind === 'memory-edit') {
@@ -97,16 +172,20 @@ export default function App() {
       );
     }
   }
-  async function makePlan(chosenDate = date) {
+  async function makePlan() {
     if (creating) return;
     setCreating(true);
     try {
-      await createNewPack(title, chosenDate);
+      await createNewPack(title, date, outingBrief(createForm.value));
       setCreateOpen(false);
-      setTitle('');
-      setDate('');
-      openView('plan');
+
+      afterSheetsClose(() => openView('plan'));
     } catch {
+      setCreateError(
+        ko
+          ? '날짜, 예산(0 이상), 소요 시간(1~1440분), 시작·마감을 확인해주세요. 저장 실패 시 입력은 유지돼요.'
+          : 'Check date, nonnegative budget, duration (1–1440 min), and time window. Input is kept if saving fails.',
+      );
       showToast(
         ko
           ? '계획을 저장하지 못했어요. 입력은 그대로예요.'
@@ -117,6 +196,10 @@ export default function App() {
     }
   }
   useEffect(() => {
+    const restoredHistory = { ...history.state };
+    delete restoredHistory.datepackTask;
+    delete restoredHistory.datepackSheet;
+    history.replaceState(restoredHistory, '');
     void initStore();
   }, []);
   useEffect(() => {
@@ -130,12 +213,22 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
   useEffect(() => {
-    if (view !== 'details' || !resumeTarget) return;
-    const target = document.getElementById(resumeTarget);
-    target?.scrollIntoView({ block: 'start' });
-    target?.focus();
-    setResumeTarget('');
-  }, [view, resumeTarget]);
+    const onBack = () => {
+      if (!taskRef.current || history.state?.datepackTask === taskRef.current.historyId) return;
+      const previous = taskRef.current;
+      taskPositions.current.set(taskKey(previous), window.scrollY);
+      const destination = taskExit.current ?? previous.origin;
+      const returningToRecord = !taskExit.current && previous.key;
+      taskExit.current = null;
+      taskRef.current = null;
+      setTask(null);
+      openView(destination);
+      if (returningToRecord)
+        requestAnimationFrame(() => recordsRef.current?.openRecord(previous.key!));
+    };
+    window.addEventListener('popstate', onBack);
+    return () => window.removeEventListener('popstate', onBack);
+  }, []);
 
   if (store.status === 'loading')
     return (
@@ -187,10 +280,45 @@ export default function App() {
             </button>
           </div>
         )}
-        {view !== 'home' && (
+        {view !== 'home' && view !== 'ai' && (
           <RequestResume onResume={() => void resumeActivity()} onToday={() => openView('today')} />
         )}
         <div className="app-content">
+          {view === 'ai' && task && (
+            <div className="view ai-task-screen">
+              <button type="button" className="btn btn-ghost" onClick={closeTask}>
+                {ko ? '돌아가기 · 입력은 보관돼요' : 'Back · input is kept'}
+              </button>
+              <h1 id="ai-task-title" className="plan-title" tabIndex={-1}>
+                {task.kind === 'create'
+                  ? ko
+                    ? 'AI와 외출 만들기'
+                    : 'Plan an outing with AI'
+                  : task.kind === 'memory'
+                    ? ko
+                      ? '기록 문장 다듬기'
+                      : 'Polish memory wording'
+                    : ko
+                      ? 'AI로 다시 계획하기'
+                      : 'Replan with AI'}
+              </h1>
+              {task.kind === 'create' && <CreateWithAiSheet open onClose={closeTask} />}
+              {task.kind === 'plan' && store.pack && (
+                <AiSection key={store.pack.id} plan={store.pack.plan} runtime={store.runtime} />
+              )}
+              {task.kind === 'memory' &&
+                task.key &&
+                (() => {
+                  const doc = store.document?.id === task.key.packId ? store.document : null;
+                  const record = doc?.experiences.find((e) => e.id === task.key?.experienceId);
+                  return record ? (
+                    <MemoriesSection key={`${doc!.id}:${record.id}`} experience={record} />
+                  ) : (
+                    <p>{ko ? '기록을 다시 열어주세요.' : 'Reopen the memory.'}</p>
+                  );
+                })()}
+            </div>
+          )}
           {view === 'home' && (
             <HomeView
               onCreate={() => setCreateOpen(true)}
@@ -288,6 +416,7 @@ export default function App() {
                       plan={store.pack.plan}
                       runtime={store.runtime}
                       onOpenCreate={() => setCreateOpen(true)}
+                      onOpenAi={openPlanAi}
                     />
                   )}
                 </>
@@ -298,9 +427,10 @@ export default function App() {
             ref={recordsRef}
             visible={view === 'records'}
             onOpenTask={() => openView('records')}
+            onOpenAi={(key) => openTask('memory', key)}
           />
         </div>
-        <TabBar current={primary} onSelect={openView} />
+        {view !== 'ai' && <TabBar current={primary} onSelect={openView} />}
         {store.toast && (
           <div className="toast" role="status">
             <span>{store.toast.message}</span>
@@ -325,7 +455,12 @@ export default function App() {
         onClose={() => setMenuOpen(false)}
         onPlanTools={() => {
           setMenuOpen(false);
-          openView('details');
+          afterSheetsClose(() => {
+            if (taskRef.current) {
+              taskExit.current = 'details';
+              closeTask();
+            } else openView('details');
+          });
         }}
       />
       <Sheet
@@ -340,7 +475,7 @@ export default function App() {
           className="btn btn-primary"
           onClick={() => {
             setCreateOpen(false);
-            setAiCreateOpen(true);
+            openTask('create');
           }}
         >
           {ko ? 'AI와 계획 만들기' : 'Plan with AI'}
@@ -354,9 +489,7 @@ export default function App() {
           className="form create-plan-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const chosenDate = String(new FormData(event.currentTarget).get('plan-date') ?? '');
-            setDate(chosenDate);
-            void makePlan(chosenDate);
+            void makePlan();
           }}
         >
           <h3>{ko ? '직접 만들기' : 'Make your own'}</h3>
@@ -364,21 +497,18 @@ export default function App() {
             <span>{ko ? '계획 이름 (선택)' : 'Plan name (optional)'}</span>
             <input
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => createForm.change('title', event.target.value)}
               maxLength={160}
               disabled={creating}
             />
           </label>
-          <label className="field">
-            <span>{ko ? '날짜 (선택)' : 'Date (optional)'}</span>
-            <input
-              type="date"
-              name="plan-date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              disabled={creating}
-            />
-          </label>
+          <OutingFields value={createForm.value} change={createForm.change} disabled={creating} />
+          {createForm.error && <DraftSaveError retry={createForm.retry} />}
+          {createError && (
+            <p className="form-error" role="alert">
+              {createError}
+            </p>
+          )}
           <button type="submit" className="btn btn-soft" disabled={creating}>
             {creating
               ? ko
@@ -390,7 +520,6 @@ export default function App() {
           </button>
         </form>
       </Sheet>
-      <CreateWithAiSheet open={aiCreateOpen} onClose={() => setAiCreateOpen(false)} />
     </main>
   );
 }

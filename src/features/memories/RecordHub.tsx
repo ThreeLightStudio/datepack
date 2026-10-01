@@ -16,7 +16,6 @@ import { Sheet } from '../../components/Sheet';
 import { CameraIcon, NoteIcon } from '../../components/icons';
 import { formatDate, useLocale } from '../../i18n';
 import { copyRequestText } from '../ai/clipboard';
-import { MemoriesSection } from './MemoriesSection';
 import { buildExperienceShareText } from './shareText';
 import {
   collectRecords,
@@ -43,7 +42,6 @@ type Panel =
   | 'share'
   | 'viewer'
   | 'delete'
-  | 'ai'
   | null;
 type Draft = {
   original?: RecordSummary;
@@ -70,10 +68,12 @@ export function RecordHub({
   visible,
   ref,
   onOpenTask,
+  onOpenAi,
 }: {
   visible: boolean;
   ref: Ref<RecordHubHandle>;
   onOpenTask: () => void;
+  onOpenAi: (key: RecordKey) => void;
 }) {
   const { savedDocuments, savedPacks } = useStore();
   const locale = useLocale();
@@ -109,9 +109,6 @@ export function RecordHub({
   const [includeNotes, setIncludeNotes] = useState(true);
   const [viewerId, setViewerId] = useState('');
   const [limit, setLimit] = useState(24);
-  useEffect(() => {
-    if (!visible && panel === 'ai') setPanel(null);
-  }, [visible, panel]);
 
   function open(next: Panel) {
     setError('');
@@ -171,9 +168,9 @@ export function RecordHub({
     openRecord,
     resumeAi: (key) => {
       restoreRecordFocus.current = true;
-      onOpenTask();
       setTarget(key);
-      open('ai');
+      setPanel(null);
+      onOpenAi(key);
     },
   }));
 
@@ -409,8 +406,8 @@ export function RecordHub({
     if (!record) return;
     try {
       await switchPack(record.packId);
-      onOpenTask();
-      open('ai');
+      setPanel(null);
+      onOpenAi({ packId: record.packId, experienceId: record.experienceId });
     } catch {
       setError(
         ko ? '기록을 열지 못했어요. 다시 시도해주세요.' : 'Could not open this memory. Try again.',
@@ -427,7 +424,6 @@ export function RecordHub({
     share: ko ? '기록 공유' : 'Share memories',
     viewer: ko ? '사진 크게 보기' : 'View photo',
     delete: ko ? '기록 삭제' : 'Delete memory',
-    ai: ko ? '기록 문장 다듬기' : 'Polish memory wording',
   };
   const linkPlan = savedPacks.find(({ pack }) => pack.id === linkPlanId)?.pack;
 
@@ -519,14 +515,7 @@ export function RecordHub({
         </div>
       )}
 
-      {panel === 'ai' ? (
-        <div className="record-task-screen">
-          <button type="button" className="btn btn-ghost" onClick={() => open('detail')}>
-            {ko ? '기록으로 돌아가기' : 'Back to memory'}
-          </button>
-          {record && <MemoriesSection key={recordKey(record)} experience={record.experience} />}
-        </div>
-      ) : (
+      {
         <Sheet
           open={panel !== null}
           title={panel ? titles[panel] : ''}
@@ -1153,7 +1142,7 @@ export function RecordHub({
             )}
           </div>
         </Sheet>
-      )}
+      }
     </>
   );
 }

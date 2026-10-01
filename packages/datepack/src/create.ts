@@ -2,6 +2,8 @@ import type {
   DateEvent,
   OutingDatePack,
   DatePlan,
+  OutingConditions,
+  LocalPoint,
   EventTiming,
   Place,
   Experience,
@@ -61,11 +63,20 @@ export function createPlace(name: string, mapQuery?: string): Place {
   return { id: createId('place'), name, mapQuery: mapQuery ?? name };
 }
 
-export function createDatePack(input: { title: string; date?: string }): OutingDatePack {
+export function createDatePack(input: {
+  title: string;
+  date?: string;
+  outingConditions?: OutingConditions;
+  availableFrom?: LocalPoint;
+  mustEndBy?: LocalPoint;
+}): OutingDatePack {
   const plan: DatePlan = {
     id: createId('plan'),
     title: input.title,
     date: input.date,
+    outingConditions: input.outingConditions,
+    availableFrom: input.availableFrom,
+    mustEndBy: input.mustEndBy,
     events: [],
     places: [],
     candidates: [],

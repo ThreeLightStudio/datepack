@@ -1,3 +1,4 @@
+import { conditionsText } from '../outing/conditions';
 import type { DatePackRuntimeState, DatePlan, EventTiming } from '@datepack/core';
 import type { LiveContext } from '../../storage/indexedDb';
 import { getRemainingPlanEvents } from '../day/dayRuntime';
@@ -221,6 +222,24 @@ export function buildAiPrompt(input: {
     }
   }
 
+  const brief = conditionsText(input.plan, locale === 'ko');
+  if (brief) lines.push(brief);
+  if (input.plan.outingConditions?.party === 'solo')
+    lines.push(
+      locale === 'ko'
+        ? '혼자 하는 외출입니다. 동행자나 합류 정보를 묻지 마세요.'
+        : 'Solo outing: do not ask about companions or meeting up.',
+    );
+  if (input.plan.outingConditions?.singleStop)
+    lines.push(
+      locale === 'ko' ? '방문 장소는 한 곳만 유지하세요.' : 'Keep just one visited venue.',
+    );
+  if (input.plan.outingConditions?.nearby)
+    lines.push(
+      locale === 'ko'
+        ? '짧고 가까운 이동을 우선하세요. 확인되지 않은 이동 시간은 추정으로 표시하세요.'
+        : 'Prefer short nearby travel. Label unverified travel time as an estimate.',
+    );
   const constraint = input.plan.constraints;
   if (constraint?.must?.length) {
     lines.push(L.mustHeader);

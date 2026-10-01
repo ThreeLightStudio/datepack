@@ -3,6 +3,7 @@
  * Read, write, validate and patch portable .datepack.json documents.
  */
 export * from './types';
+export * from './outingConditions';
 export * from './schema';
 export * from './assets';
 export * from './create';

@@ -15,8 +15,55 @@ const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const activeSheets = new Set<symbol>();
+const sheetBackdrops = new Map<symbol, HTMLElement | null>();
+const originalInert = new Map<HTMLElement, boolean>();
+let originalOverflow = '';
+function syncSheetBackground(): void {
+  if (!activeSheets.size) {
+    document.body.style.overflow = originalOverflow;
+    originalInert.forEach((inert, node) => {
+      node.inert = inert;
+    });
+    originalInert.clear();
+    return;
+  }
+  const top = sheetBackdrops.get([...activeSheets].at(-1)!);
+  document.body.style.overflow = 'hidden';
+  for (const node of Array.from(document.body.children) as HTMLElement[]) {
+    if (!originalInert.has(node)) originalInert.set(node, node.inert);
+    node.inert = node !== top;
+  }
+}
 const SHEET_HISTORY_KEY = 'datepackSheet';
 let returnFocus: HTMLElement | null = null;
+export function sheetReturnFocus(): HTMLElement | null {
+  return activeSheets.size ? returnFocus : null;
+}
+const transitions: Array<() => void> = [];
+let sheetBackPending = false;
+/** Leave the sheet's history entry before adding a task entry. */
+export function afterSheetsClose(action: () => void): void {
+  transitions.push(action);
+  requestAnimationFrame(finishSheets);
+}
+function finishSheets(): void {
+  if (activeSheets.size) return;
+  if (sheetBackPending) return;
+  if (history.state?.[SHEET_HISTORY_KEY]) {
+    sheetBackPending = true;
+    window.addEventListener(
+      'popstate',
+      () => {
+        sheetBackPending = false;
+        finishSheets();
+      },
+      { once: true },
+    );
+    history.back();
+    return;
+  }
+  transitions.splice(0).forEach((action) => action());
+}
 
 /** Bottom sheet constrained to the 430px canvas.
  *  Manages focus: moves focus in on open, traps Tab, restores focus on close. */
@@ -36,30 +83,30 @@ export function Sheet({ open, title, onClose, children, restoreFocus }: SheetPro
     if (!open) return;
     const sheet = sheetRef.current;
     const owner = Symbol();
+    if (!activeSheets.size) originalOverflow = document.body.style.overflow;
     activeSheets.add(owner);
+    sheetBackdrops.set(owner, backdropRef.current);
+    if (activeSheets.size === 1) returnFocus = document.activeElement as HTMLElement | null;
     if (!history.state?.[SHEET_HISTORY_KEY]) {
-      returnFocus = document.activeElement as HTMLElement | null;
       history.pushState({ ...history.state, [SHEET_HISTORY_KEY]: true }, '');
     }
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const background = Array.from(document.body.children).filter(
-      (node) => node !== backdropRef.current,
-    ) as HTMLElement[];
-    const inertBefore = background.map((node) => node.inert);
-    background.forEach((node) => {
-      node.inert = true;
-    });
+    syncSheetBackground();
     sheet?.focus();
-    const onBack = () => closeRef.current();
+    const top = () => [...activeSheets].at(-1) === owner;
+    const onBack = () => {
+      if (top()) closeRef.current();
+    };
 
     const onKey = (e: KeyboardEvent) => {
+      if (!top()) return;
       if (e.key === 'Escape') {
         closeRef.current();
         return;
       }
       if (e.key !== 'Tab' || !sheet) return;
-      const focusables = [...sheet.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      const focusables = [...sheet.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (node) => node.getClientRects().length > 0,
+      );
       if (focusables.length === 0) return;
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
@@ -79,14 +126,27 @@ export function Sheet({ open, title, onClose, children, restoreFocus }: SheetPro
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('popstate', onBack);
       activeSheets.delete(owner);
-      document.body.style.overflow = overflow;
-      background.forEach((node, index) => {
-        node.inert = inertBefore[index];
-      });
+      sheetBackdrops.delete(owner);
+      syncSheetBackground();
       // A same-render transition between sheets reuses one history entry.
       requestAnimationFrame(() => {
         if (activeSheets.size) return;
-        if (history.state?.[SHEET_HISTORY_KEY]) history.back();
+        if (transitions.length) {
+          finishSheets();
+          return;
+        }
+        if (history.state?.[SHEET_HISTORY_KEY] && !sheetBackPending) {
+          sheetBackPending = true;
+          window.addEventListener(
+            'popstate',
+            () => {
+              sheetBackPending = false;
+              finishSheets();
+            },
+            { once: true },
+          );
+          history.back();
+        }
         if (restoreRef.current?.()) return;
         if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
         else
