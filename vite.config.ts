@@ -4,20 +4,20 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'node:path';
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, isPreview }) => ({
   root: resolve(import.meta.dirname),
   // GitHub Pages serves project sites from /<repo>/ — dev keeps the root.
-  base: command === 'build' ? '/datepack/' : '/',
+  base: command === 'build' || isPreview ? '/datepack/' : '/',
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       manifest: {
-        name: 'DatePack — 지금, 더 좋은 하루를 함께',
+        name: 'DatePack — 외출 계획과 남긴 순간',
         short_name: 'DatePack',
         description:
-          '데이트 전체가 파일 하나로. 로컬 퍼스트 데이트 플래너. / The whole date lives in one file.',
+          '혼자 또는 함께하는 외출과 사진 기록. / Local-first outing plans and photo memories.',
         lang: 'ko',
         display: 'standalone',
         // Relative to the manifest URL, so the app also works from /datepack/.

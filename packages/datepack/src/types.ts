@@ -57,7 +57,7 @@ export type DatePackManifest = {
   generator?: string;
 };
 export type PlanConstraints = { must?: string[]; prefer?: string[]; avoid?: string[] };
-/** User-selected outing brief. Budget is a total ceiling, never verified spending. */
+/** User-selected outing brief. Budget is a total or per-person ceiling in KRW, never verified spending. */
 export type OutingConditions = {
   party?: 'solo' | 'together';
   region?: string;
@@ -98,7 +98,7 @@ export type DateEvent = {
   protectedFields?: ProtectedField[];
   estimatedDurationMinutes?: number;
   planB?: PlanB;
-  /** @deprecated Runtime compatibility aliases for the v1/v2 app and patch adapter. Not written by v3. */
+  /** @deprecated Runtime compatibility aliases for the v1/v2 app and patch adapter. Not written to portable files. */
   start?: string;
   end?: string;
   fixed?: boolean;

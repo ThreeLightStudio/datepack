@@ -86,13 +86,19 @@ export async function writeDatePack(pack: DatePack, loadBlob: BlobLoader): Promi
   return { blob, filename: exportFilename(pack), missingAssetIds };
 }
 
-/** Drop in-memory v1/v2 compatibility aliases before they reach a v3 file. */
+/** Drop in-memory v1/v2 compatibility aliases before they reach the portable file. */
 function serializablePlan(plan: DatePlan): DatePlan {
   return {
     ...plan,
     events: plan.events.map((event) => {
-      const { start: _start, end: _end, fixed: _fixed, travelMinutes: _travel, ...v3Event } = event;
-      return v3Event;
+      const {
+        start: _start,
+        end: _end,
+        fixed: _fixed,
+        travelMinutes: _travel,
+        ...portableEvent
+      } = event;
+      return portableEvent;
     }),
   };
 }

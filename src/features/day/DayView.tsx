@@ -100,7 +100,12 @@ export function DayView({ plan, runtime, onOpenAi, onOpenPlan }: Props) {
             </p>
           )}
         </div>
-        <button type="button" className="btn btn-soft" onClick={() => setContextOpen(true)}>
+        <button
+          type="button"
+          className="btn btn-soft"
+          data-context-trigger
+          onClick={() => setContextOpen(true)}
+        >
           {format(locale, 'p3.day.context.update')}
         </button>
       </section>

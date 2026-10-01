@@ -1,22 +1,20 @@
 # DatePack AI 왕복과 검증 계약
 
-계약 버전 **1.0 · 2026-10-01 · Asia/Seoul**. 기준 구현은
-`48a20a35b8e2297fe3109d80d6399d1a949889eb`, 권위 결정은
-`datepack-ai-flow-20261001`의 `decisions.json` v2다. 제품 결정은 v1에서 확정되었고
-v2는 구현 마무리의 impeccable UI 검증을 T06에 추가했다. 이 문서는 T02–T06의
-구현·검토 기준이며, 여기 적은 추가 API가 이미 구현되었다는 뜻은 아니다.
-이 계약과 과거 설계 문서의 제안이 충돌하면 이 계약을 따른다.
+계약 **2.0 · 앱/코어 0.4.0 · 파일 4.0 · 2026-10-02 (Asia/Seoul)**.
+승인된 U01–U04 계획과 검토된 누적 구현이 기준이다. AI 봉투 버전은 그대로
+`datepack.response` v2, 생성 draft는 `datepack.plan` v1, patch는 v1이다.
+이 문서는 현행 경계이며 T01–T07 과거 설계보다 우선한다.
 
 공개 서비스의 실제 가능 범위는 [서비스 조사](public-map-feasibility.md),
 관찰할 결과는 [수용 시나리오](ai-flow-acceptance.md)에 연결한다.
 
 ## 세 단계와 사용자 반응
 
-| 단계   | 기준 맥락                                                         | AI가 할 일                               | 자동으로 만들면 안 되는 사실                   |
-| ------ | ----------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
-| 계획   | 예정 지역·날짜·가능 시간·취향·고정 조건                           | 필요한 정보만 묻고 기본 추천 하나를 제안 | 미정 날짜·시각, 확정되지 않은 예약             |
-| 데이트 | 새 요청의 현재 시각·최근 위치·현재 활동·사용자가 정한 다음 목적지 | 다음 활동 또는 남은 계획을 제안          | GPS에 근거한 방문·완료·건너뜀·감정             |
-| 후기   | 사용자가 확인한 실제 경험과 원문                                  | 사실을 보존하며 표현을 정리              | 계획을 실제 경험으로 전환, 없는 대화·감정·방문 |
+| 단계 | 기준 맥락                                                         | AI가 할 일                               | 자동으로 만들면 안 되는 사실                   |
+| ---- | ----------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| 계획 | 예정 지역·날짜·가능 시간·취향·고정 조건                           | 필요한 정보만 묻고 기본 추천 하나를 제안 | 미정 날짜·시각, 확정되지 않은 예약             |
+| 외출 | 새 요청의 현재 시각·최근 위치·현재 활동·사용자가 정한 다음 목적지 | 다음 활동 또는 남은 계획을 제안          | GPS에 근거한 방문·완료·건너뜀·감정             |
+| 후기 | 사용자가 확인한 실제 경험과 원문                                  | 사실을 보존하며 표현을 정리              | 계획을 실제 경험으로 전환, 없는 대화·감정·방문 |
 
 AI는 승인·거절·다른 제안·사용자의 직접 조작에 반응한다. 승인 전에는 후보이며
 현재 일정에 자동 반영하지 않는다. 승인 후 AI 답변 말미에 DatePack 결과와
@@ -27,23 +25,36 @@ AI는 승인·거절·다른 제안·사용자의 직접 조작에 반응한다.
 상대방 승인 상태를 추가하지 않는다. 각자 출발·만남·대기·마무리·귀가는 세 단계의
 맥락으로 표현하며 별도 필수 화면이나 완료 입력 절차를 만들지 않는다.
 
-## 현재 구현과 필요한 확장
+## 문서·조건·기기 경계
 
-| 경계        | 시작 구현                                                                                      | 후속 구현 계약                                                       |
-| ----------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 휴대용 파일 | `DatePack` 3.0, `timing` exact/window/unscheduled, `order`, `protectedFields`, 원문/editedNote | 파일 3.0 유지. 위치·동의·증거·AI 초안은 기기 상태에 둔다             |
-| AI 왕복     | `datepack.response` v2의 6개 식별값과 `result`                                                 | 봉투와 식별 규칙 유지. 아래 footer와 parser 확장 확인                |
-| 최초 계획   | `datepack.plan` v1, `start` 필수, 날짜 생략 옵션 있음                                          | 미정 시각을 허용하도록 parser/type/builder/미리보기까지 함께 확장    |
-| 일정 변경   | `datepack.patch` v1, 보호 검사·scope 검사·입력 시간 충돌 검사                                  | 전체 영향 동선 증거와 적용 직전 재검사 추가                          |
-| 장소        | `Place`에 이름/검색어만 있음                                                                   | 검색어는 좌표가 아니다. 별도의 기기 전용 장소 해석 결과 필요         |
-| 위치        | `LiveContext`의 직접 입력과 revision                                                           | 동의·요청별 GPS·coarse 변환·실패 상태 추가                           |
-| 저장        | `PendingRequest`, IndexedDB의 revision/context/request guard                                   | 답안 입력 중 저장, 전역 재개, 검증 snapshot, 원자적 적용과 실패 복원 |
-| 지도        | `mapBridgeUrl`의 검색 링크                                                                     | 지도 열기는 길찾기 증거 또는 도착 검증이 아니다                      |
+- `DatePack` 4.0은 outing/memories union. outing만 plan/originalPlan을 갖고
+  재계획 API를 사용한다. 독립 기록에는 없는 일정·동행 맥락을 만들지 않는다.
+- response의 `packId`는 **문서 ID**다. 실제 plan/patch는 `pack.plan.id`를
+  사용한다. 복사본에서 두 ID가 달라도 요청·답안·revision 검사가 동작한다.
+- `DatePlan.outingConditions`는 party?, region?, durationMinutes?(1–1440),
+  nearby?, singleStop?, budget?를 저장한다. 예산은 KRW의 음이 아닌 안전한 정수와
+  basis=`total | per-person`이다. 금액 0도 허용하며 확인된 지출을 뜻하지 않는다.
+- 직접 생성과 AI 생성/재계획은 같은 조건을 사용한다. 빠른 조건 기본값은 120분,
+  10,000원이며 편집할 수 있다. 혼자 조건은 합류·동행자 답변을 요구하지 않는다.
+  미정 날짜·정확한 시각을 채워 넣지 않으며, availableFrom/mustEndBy는 선택이다.
+- 생성 답안에서 사용자 조건·날짜·시간을 변경/생략해도 사용자 초안을 유지한다.
+  store guard가 조건 교체를 재검사한다. 기존 가져온 AI 계획은 새 draft로 검사해
+  별도 request identity를 만들고 현재 파일/계획을 덮지 않는다.
+- 파일 reader는 4.x만 허용한다. 기존 3.0 로컬 자료의 변환은 별도 경계다.
+  사진·정확 좌표·개인 출발·runtime·요청·초안은 휴대 문서 밖 기기 상태에 둔다.
+- 새 기록 입력은 record-form:new, 편집은 record-form:edit:<documentId>:<experienceId>,
+  legacy 복원은 record-form:legacy:<documentId>. 기존 memory:<documentId 또는 planId>는
+  읽기 복원 대상으로 보존한다. 답안은 ai-form:memory-answer:<documentId>에 분리한다.
+  답안-only legacy 입력을 새 기록으로 해석하지 않고 request/experience를 대조한다.
+- 기록 문장 요청에는 선택한 원문만 보낸다. `note`, 사진, 연결, occurredOn/timing,
+  recordedAt을 AI가 변경할 수 없다. `editedNote`는 별도 저장하며 원문을 보존한다.
+- 장문 요청·검토는 전용 화면이고 짧은 작업은 시트다. 닫기/뒤로/탭/재실행은 저장된
+  요청과 입력의 재개이며 취소·적용과 다르다. 새로운 미저장 사진은 앱 종료 후 재선택한다.
 
-현행 코드 경계는 `packages/datepack/src/{types,planDraft,patch,json}.ts`,
+공유 코드 경계는 `packages/datepack/src/{types,planDraft,patch,json}.ts`,
 `src/features/ai/{exchange,promptBuilder,createPromptBuilder}.ts`,
-`src/storage/indexedDb.ts`, `src/features/day/{dayRuntime,nextDestination}.ts`다.
-이 문서는 타입·프롬프트만 고쳐 parser/저장 경계가 따라오지 않는 구현을 허용하지 않는다.
+`src/storage/indexedDb.ts`, `src/features/memories/recordDrafts.ts`,
+`src/features/day/{dayRuntime,nextDestination}.ts`다. parser/타입/저장 경계를 함께 유지한다.
 
 ## 보호와 변경 범위
 
@@ -76,7 +87,7 @@ AI는 승인·거절·다른 제안·사용자의 직접 조작에 반응한다.
 기술적 권한과 앱 동의를 함께 확인한다. 허용해도 `watchPosition`을 사용하지 않는다.
 후기나 예정 지역을 다루는 계획 요청에는 현재 GPS를 필수로 요청하지 않는다.
 
-데이트의 새 요청·다시 만들기마다 `getCurrentPosition`을 한 번 호출한다. initial
+외출의 새 요청·다시 만들기마다 `getCurrentPosition`을 한 번 호출한다. initial
 권장 옵션은 `maximumAge: 0`, `timeout: 10000`, `enableHighAccuracy: false`다.
 기술적 기본값은 사용자 정책 변경이 아니며 실기기 근거로 조정할 수 있다. 실패,
 거부, timeout, offline, 지원 안 됨을 각각 저장하고 성공으로 표시하지 않는다.
@@ -136,10 +147,10 @@ GPS 실패 시 “마지막 확인: 명동, 16:40 · 현재 위치 조회 실패
 근거가 필요 없는 텍스트 편집·같은 장소에서의 메모 수정은 경로 공급자 장애 때문에
 막지 않는다. “영향 없음”을 순서/장소/시간/보호 조건 비교로 설명할 수 있어야 한다.
 
-## 후속 작업에서 구현할 내부 API
+## 기기 전용 위치·영향 API
 
-아래는 기기 전용 제안 인터페이스다. 공급자 원응답이나 정확 좌표를 `DatePack`에
-추가하지 않는다. T02는 이름을 조정할 수 있으나 필드의 의미와 실패 구분을 보존한다.
+아래는 검증 의미를 설명하는 인터페이스다. 실제 이름은 코드 타입을 참조한다.
+공급자 원응답이나 정확 좌표를 DatePack에 추가하지 않는다.
 
 ```ts
 type RouteState = 'verified' | 'unverified' | 'impossible';
@@ -183,7 +194,7 @@ type RouteEvidence = {
   attribution: string;
 };
 type ValidationSnapshot = {
-  planId: string;
+  planId: string; // document ID in the existing snapshot API
   planRevision: number;
   contextRevision: number;
   requestId?: string;
@@ -260,15 +271,8 @@ memory-edit=`{ experienceId, editedText }`다. 식별값 6개는 앱이 만들�
 `place`/`timing`을 대상으로 한다. 기존 HH:mm 입력을 계속 받고, 두 형식이 모순되면
 거부한다. 시간 없음은 unscheduled, window와 dayOffset은 손실 없이 다루며 명시적
 배열 순서를 유지한다. parser가 보호 조건을 안전하게 받고 앱에서 다시 검사한다.
-확장 구현 전에는 지원하지 않는 JSON을 프롬프트에서 요구하지 않는다. 기존 parser가
-조용히 버리는 미지원 필드로 성공을 주장하지 않는다. 확장 후에도 AI의 보호 해제는 금지한다.
-
-T02가 공유 patch 타입·parser·적용/보호 경계의 place/timing 및 새 이벤트 입력을 맡고,
-T03은 그 검토된 경계 위에서 `PlanDraft`의 미정 시각/보호 조건과 프롬프트를 확장한다.
-공유 `packages/datepack/src/types.ts` 변경은 직렬로 인계한다. T05의 순서 API는 AI
-patch에 없는 reorder operation을 임의로 만들어 넣지 않고 공통 검증을 거친 직접 조작으로
-처리한다. T04는 기기 상태·초안 보존을 맡는다. 실제 파일 소유권은 오케스트레이터가
-선행 결과 검토 후 확정한다.
+지원하지 않는 JSON을 프롬프트에서 요구하거나 parser가 버린 필드로 성공을 주장하지 않는다.
+AI의 보호 해제는 금지한다.
 
 AI에서 이미 만든 계획은 draft로 가져오며 현재 계획을 덮지 않는다. request ID가 없는
 기존 AI 결과를 현재 request의 답변으로 위장하지 않는다. 별도의 첫 가져오기 경로에서
@@ -278,7 +282,7 @@ draft를 검사하고 새 로컬 request identity를 만들어 확인한다.
 
 `PendingRequest`의 input/answerText/payload/scope/identity/status를 입력 중과 닫기 전에
 저장한다. 저장 완료 전에 전송 완료나 적용 성공을 표시하지 않는다. 첫 빈 상태에서 plan을
-만들어도 AI 생성 시트를 관리하는 부모를 없애지 않는다. 닫기는 취소와 다르다.
+만들어도 AI 작업 화면과 같은 request를 유지한다. 닫기는 취소와 다르다.
 닫기·탭 왕복·외부 AI 왕복·재시작 후 같은 request와 답안을 재개한다.
 
 답변을 받을 때 봉투 일치, 현재 planRevision/contextRevision, request status, scope,

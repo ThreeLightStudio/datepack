@@ -12,7 +12,7 @@ export const DATEPACK_FORMAT = 'datepack';
 export const DATEPACK_FORMAT_VERSION = '4.0';
 /** Highest minor this reader fully understands (applies per major). */
 export const DATEPACK_SUPPORTED_MINOR = 0;
-/** Majors this reader understands: 1 = legacy ZIP container, 2 = single-file JSON container. */
+/** Only format 4.x files are readable. Existing local data uses a separate migration API. */
 export const DATEPACK_SUPPORTED_MAJORS = [4] as const;
 /** @datepack/core version — sourced from this package's package.json so the
  *  file generator string and the release number can never drift apart. */
@@ -26,7 +26,7 @@ export type VersionCheck =
   | { status: 'warn'; parsed: ParsedFormatVersion; message: DatePackIssue }
   | { status: 'reject'; parsed: ParsedFormatVersion | null; message: DatePackIssue };
 
-/** Accepts "1.0", "1", and the number 1 (older drafts of the spec). */
+/** Parses a major.minor string or numeric version; supported versions are checked separately. */
 export function parseFormatVersion(raw: unknown): ParsedFormatVersion | null {
   let text: string;
   if (typeof raw === 'number') {

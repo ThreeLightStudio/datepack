@@ -1,0 +1,29 @@
+{
+  "format": "datepack",
+  "version": "4.0",
+  "generator": "datepack-core 0.4.0",
+  "createdAt": "2026-10-02T01:00:00.000Z",
+  "updatedAt": "2026-10-02T01:00:00.000Z",
+  "id": "memories-solo-coffee",
+  "kind": "memories",
+  "meta": { "createdAt": "2026-10-02T01:00:00.000Z", "updatedAt": "2026-10-02T01:00:00.000Z" },
+  "revision": 0,
+  "experiences": [
+    {
+      "id": "experience-solo-coffee",
+      "recordedAt": "2026-10-02T01:00:00.000Z",
+      "occurredOn": "2026-09-30",
+      "assetIds": ["asset-cafe-photo"],
+      "outcome": "note"
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset-cafe-photo",
+      "filename": "cafe.png",
+      "mimeType": "image/png",
+      "createdAt": "2026-09-28T08:10:00.000Z",
+      "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    }
+  ]
+}

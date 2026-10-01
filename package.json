@@ -1,6 +1,6 @@
 {
   "name": "datepack",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -38,7 +38,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
-  "description": "DatePack — a local-first date planner where the whole date lives in one .datepack.json file. No server, no accounts.",
+  "description": "DatePack — local-first outing plans and photo memories in portable .datepack.json files. No server, no accounts.",
   "license": "MIT",
   "author": "ThreeLight",
   "repository": {

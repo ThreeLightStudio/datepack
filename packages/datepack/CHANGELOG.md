@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 — 2026-10-02
+
+- Format 4.0 adds document id/kind/meta and outing/memories union. Outings require
+  plan/originalPlan; standalone collections require real records and no plan.
+- Titles are optional when a record has photos or nonblank text. Record and
+  occurrence timestamps remain distinct. Portable photos retain binary content.
+- Only 4.x file reads are accepted. Existing local v3 conversion is a separate
+  API; original bytes remain available on unsupported-file errors.
+- Plan draft and validation preserve optional outing conditions: solo/together,
+  region, duration, nearby, singleStop and total/per-person KRW budgets.
+- Plan changes accept outings; both document kinds support validation/writing.
+  Package generator is datepack-core 0.4.0; release examples cover both kinds.
+
 ## 0.3.0 — 2026-09-29
 
 - DatePack file format 3.0 adds `baselinePlan`, `experiences`, and `revision`.

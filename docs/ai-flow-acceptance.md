@@ -1,13 +1,33 @@
-# AI 왕복과 일정 변경 수용 시나리오
+# DatePack 0.4.0 수용 기준
 
-수용 기준 버전 **1.0 · 2026-10-01**. [공통 계약](ai-flow-contract.md) 1.0과
-[서비스 조사](public-map-feasibility.md) 1.0에 대응한다. 아래는 T02–T06가 충족해야 할
-조건이며, T01 문서 작성만으로 제품 동작이 통과한 것이 아니다.
+현재 기준: **2026-10-02 · 앱/코어 0.4.0 · 파일 4.0**.
+[AI 계약](ai-flow-contract.md) 2.0과 승인 U01–U04 계획에 대응한다.
+검증 기록은 버전, fixture, unit/mock/UI/device 구분, 실제 관찰과 남은 한계를 포함한다.
+일반 브라우저와 수제 AI 답안을 실제 설치 PWA/AI 앱 성공으로 확장하지 않는다.
+최신 실행 결과는 [release readiness](release-readiness.md)와
+[U04 통합 기록](u04-integration.md)에 있다.
 
-검증 기록은 `ID / build 또는 commit / 입력 fixture / mock·live·UI·device 구분 /
-실제 관찰 / 기대 결과 / 통과·실패·미검증 / 남은 한계`를 포함한다. 단위 테스트의
-모의 route 성공을 실서비스 성공으로 기록하지 않는다. 데스크톱 브라우저 확인을
-iOS/Android PWA나 외부 AI 앱·OS 공유 시트 확인으로 확장하지 않는다.
+## U01–U04 통합 수용 조건
+
+| ID  | 입력·행동                                                  | 기대 결과                                                                      | 근거 구분                                     |
+| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------- |
+| U01 | outing/memories 파일 왕복                                  | plan/originalPlan은 outing에만, 독립 기록은 실제 내용, 사진 binary와 원문 보존 | core/storage tests                            |
+| U02 | 구버전 파일과 현재 로컬 v3                                 | 파일 거부·원본 유지; 로컬 자료/사진/입력 보존과 실패 재시도                    | core/storage tests, U03 v3 browser fixture    |
+| U03 | 계획 없이 홈 → 사진 둘 → 저장 → 재실행                     | 제목/설명/계획 없이 한 기록, 완료 후 자동 편집 없음                            | U02 browser, final PWA browser                |
+| U04 | 과거 날짜 보완 → 활동/계획 연결 → 변경 → 해제              | ID/원문/사진/경험시각/recordedAt 유지, 원자적 이동                             | U02 browser, storage tests, final PWA browser |
+| U05 | 계획 삭제                                                  | 연결 기록/사진을 독립 문서로 보존; 기록 삭제는 별도                            | storage tests, integrated browser             |
+| U06 | 동일 파일/동일 ID 다른 내용 가져오기                       | 동일 내용 중복 없음, 다른 내용은 새 문서 복사본, 기존 내용 불변                | storage tests, final Blob roundtrip           |
+| U07 | 혼자 60분·10,000원·가까운 한 곳                            | 직접/AI 조건 동일, KRW basis 명시, 합류 요구 없음, 가격을 사실로 만들지 않음   | outingConditions tests, U03/U04 browser       |
+| U08 | 다음 장소 직접 변경 시트                                   | 영향 없는 변경 저장·초점/스크롤 복귀; 이동 검증 필요 시 unverified 차단        | route/store tests, U04 browser                |
+| U09 | AI 입력/답안 → 닫기/뒤로/재실행                            | 전용 화면 재개, request와 답안 유지, 오래된/다른 답안 차단                     | exchange/roundtrip tests, U03/U04 browser     |
+| U10 | v3 기록 초안/새 기록/편집/충돌                             | visible resume, 모든 입력 복원, 명시적 저장과 완료 marker 원자성; AI 답안 분리 | recordDrafts tests, U03 amendment browser     |
+| U11 | 사진 선택 취소/HEIC/공간 부족                              | 취소는 저장 없음, 원본 HEIC 안내, 실패 시 입력/사진 유지                       | U02 injected browser; native picker pending   |
+| U12 | KO/EN desktop/mobile, 긴 제목/빈 상태/Tab/Back             | 가로 넘침 없음, 시트/작업 복귀의 focus/scroll 유지                             | U03/U04 measured desktop-browser viewports    |
+| U13 | 최종 PWA 캐시 → 서버 중단 → 재실행/사진 저장/파일내용 왕복 | 캐시 앱과 IndexedDB로 동작; 설치실기기와 구분                                  | U04 production browser + Blob diagnostics     |
+
+아래 A01–A46은 기존 AI 안전성 수용 시나리오다. 날짜와 rain fixture는 당시 입력을
+유지한다. A01의 긴 AI 생성은 현재 시트 대신 전용 화면이며, 기기 보존은 4.0 문서 ID
+기준이고 file reader의 구버전 호환을 뜻하지 않는다.
 
 ## 먼저 검증할 rain-next-cafe
 
@@ -43,7 +63,7 @@ request ID는 `request-rain-001`이다. 후보·장소 ID는 앱 fixture가 만�
 
 | ID  | 입력·조작                                                           | 관찰할 결과                                                                         | 담당·검증 종류                       |
 | --- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------ |
-| A01 | 빈 계획에서 AI 생성 시작, 초안 pack 생성                            | 시트가 닫히지 않고 같은 request 계속 사용                                           | T04 UI                               |
+| A01 | 빈 계획에서 AI 생성 시작, 초안 pack 생성                            | 전용 화면을 유지하고 같은 request 계속 사용                                         | T04 UI                               |
 | A02 | 날짜·시각 미정, 활동 한 개 요청                                     | 최소 질문과 추천 하나, 미정 값 유지, 가짜 HH:mm 생성 없음                           | T03 parser/prompt + T04 UI           |
 | A03 | 승인·거절·다른 제안 반복                                            | 승인 전 후보, 승인 뒤 결과+가져오기 안내. 별도 생성 명령어 불필요                   | T03 prompt 사례, 외부 AI는 별도 live |
 | A04 | next와 첫 upcoming이 다름, 사용자가 다음 활동 선택                  | UI·request target·저장 후 목적지가 실제 선택 이벤트로 일치                          | T02/T04 unit+UI                      |
@@ -75,7 +95,7 @@ request ID는 `request-rain-001`이다. 후보·장소 ID는 앱 fixture가 만�
 | A30 | 순서 검증에 경로 부족 또는 예약 늦음                                | unverified는 대안/기존 유지, impossible은 차단; 직선거리로 허용하지 않음            | T05 mock+UI                          |
 | A31 | 후기 원문 다듬기 승인·거절·재실행                                   | note 원문 유지, 승인 표현만 editedNote, 실제 경험 ID 일치; 새 사실 삽입 없음        | T03/T04 unit+UI                      |
 | A32 | 기존 AI 계획을 요청 ID 없이 가져오기                                | 별도 draft 확인 경로, 현재 plan 덮기 없음, 새 로컬 identity, 기존 request 오인 없음 | T04 parser+UI                        |
-| A33 | legacy v1/v2 file, 기존 v3 file 열기/저장/재열기                    | 보호·timing/order·원문 보존, 기기 상태/GPS 휴대용 file 제외                         | T02/T03/T06 core                     |
+| A33 | 4.0 outing/memories 파일 열기/저장/재열기, 구버전 파일              | 원문/사진/조건 보존, 구버전 파일 거부·원본 유지, runtime/GPS 제외                   | U01/U04 core/storage                 |
 | A34 | ko/en, AI 없이 직접 계획·데이트·후기 사용                           | 번역 누락 없음, 기존 흐름 이용 가능, 공급자 장애가 메모 수정까지 차단하지 않음      | T06 UI                               |
 | A35 | 기본 provider 없이 오프라인 실행                                    | 입력·후기·초안 보존, 위치/경로 미확인 표시, 기존 일정 유지 흐름 정상                | T06 storage+device                   |
 

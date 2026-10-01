@@ -1,3 +1,20 @@
+# UI verification · 0.4.0
+
+Current implementation: **2026-10-02 · U01–U04 · app/core 0.4.0**.
+[U04 integration evidence](u04-integration.md) records measured viewports, actual
+browser operations and limits. The incumbent rose/cream system, Pretendard and
+SVG controls remain. This is a bounded integration check, not a new visual redesign.
+
+U04 fixed the current-situation sheet's return focus, clarified Korean AI
+creation/save wording, and aligned browser/PWA descriptions with solo outing
+plans and independent photos. Browser production tests and synthetic API
+roundtrip are separate from physical iOS/Android installed PWA, actual AI,
+GPS, OS sharing, native HEIC conversion and assistive technology.
+
+The following audit and score are **historical T06/T07 results for 0.3.0**.
+Their open findings were not silently closed or rescored. File/download and
+installed-device claims must be read with U04's current integration report.
+
 # T06 통합 UI audit
 
 2026-10-01 · `codex/datepack-ai-flow` · 입력 `e9e6716` + T06 변경.

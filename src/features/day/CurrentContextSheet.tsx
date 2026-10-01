@@ -155,7 +155,16 @@ export function CurrentContextSheet({
   }
 
   return (
-    <Sheet open title={format(locale, 'p3.day.context')} onClose={onClose}>
+    <Sheet
+      open
+      title={format(locale, 'p3.day.context')}
+      onClose={onClose}
+      restoreFocus={() => {
+        const trigger = document.querySelector<HTMLElement>('[data-context-trigger]');
+        trigger?.focus({ preventScroll: true });
+        return Boolean(trigger);
+      }}
+    >
       <div className="form">
         <p className="hint-text">
           {ko

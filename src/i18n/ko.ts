@@ -244,7 +244,7 @@ export const ko = {
   'ai.prompt.ready': '요청문을 저장했어요. 공유하거나 복사해 AI에 붙여넣으세요.',
   // create with ai (first-run / new-date flow)
   'create.btn': 'AI와 논의해서 만들기',
-  'create.btn.sub': 'AI 채팅에서 대화하며 계획을 정하고, 결과를 여기에 가져오면 외출가 돼요.',
+  'create.btn.sub': 'AI 채팅에서 대화하며 계획을 정하고, 결과를 여기에 가져와 계획으로 저장하세요.',
   'create.title': 'AI와 논의해서 만들기',
   'create.step1': '1. 외출 조건 알려주기',
   'create.region': '지역 · 동네',
@@ -265,7 +265,7 @@ export const ko = {
   'create.check': '계획 검토하기',
   'create.review.head': '"{title}" · {date}',
   'create.review.events': '일정 {count}개',
-  'create.review.apply': '이 외출로 시작',
+  'create.review.apply': '계획 저장',
   'create.review.cancel': '취소',
   'create.review.error': '답안에 문제가 있어요',
   'create.toast.download': '.datepack.json 내려받기',

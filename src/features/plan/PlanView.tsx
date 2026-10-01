@@ -138,7 +138,12 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
             <p className="sub-line">{ko ? '아직 입력하지 않았어요' : 'Nothing added yet'}</p>
           )}
         </div>
-        <button type="button" className="btn btn-soft" onClick={() => setContextOpen(true)}>
+        <button
+          type="button"
+          className="btn btn-soft"
+          data-context-trigger
+          onClick={() => setContextOpen(true)}
+        >
           {ko ? '지금 상황' : 'Update now'}
         </button>
       </section>
