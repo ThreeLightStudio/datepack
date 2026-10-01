@@ -21,11 +21,12 @@ export function DayView({ plan, runtime, onOpenAi, onOpenPlan }: Props) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const store = useStore();
+  const documentId = store.pack?.id ?? plan.id;
   const now = useNow(30_000);
   const ctx = useMemo(() => computeDayContext(plan, runtime, now), [plan, runtime, now]);
   const [contextOpen, setContextOpen] = useState(false);
   const current = ctx.current;
-  const contextPlan = store.liveContext?.planId === plan.id ? store.liveContext : null;
+  const contextPlan = store.liveContext?.planId === documentId ? store.liveContext : null;
   const {
     preferredId: preferredNextId,
     selected: selectedNext,
@@ -66,7 +67,7 @@ export function DayView({ plan, runtime, onOpenAi, onOpenPlan }: Props) {
           <p className="eyebrow" id="context-heading">
             {format(locale, 'p3.day.context')}
           </p>
-          {store.liveContext?.planId === plan.id ? (
+          {store.liveContext?.planId === documentId ? (
             <>
               <strong>
                 {store.liveContext.place ||
@@ -215,7 +216,7 @@ export function DayView({ plan, runtime, onOpenAi, onOpenPlan }: Props) {
           </ol>
         </section>
       )}
-      {store.personalJourney?.planId === plan.id && (
+      {store.personalJourney?.planId === documentId && (
         <p className="device-note">
           {ko
             ? `내 이동 메모는 이 기기에만 저장돼요${store.personalJourney.origin ? ` · ${store.personalJourney.origin}` : ''}`

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createDatePack,
   createEvent,
-  readDatePack,
+  readDatePack as readAnyDatePack,
   sortEventsByOrder,
   writeDatePack,
 } from '@datepack/core';
@@ -93,8 +93,9 @@ afterEach(async () => {
 });
 async function setup(input = plan()) {
   const pack = createDatePack({ title: input.title });
+  pack.id = input.id;
   pack.plan = input;
-  pack.baselinePlan = structuredClone(input);
+  pack.originalPlan = structuredClone(input);
   pack.experiences = [
     {
       id: 'experience',
@@ -219,7 +220,7 @@ describe('direct itinerary order', () => {
     const stored = getStoreState().pack!;
     expect(stored.revision).toBe(1);
     expect(stored.experiences).toEqual(pack.experiences);
-    expect(stored.baselinePlan).toEqual(pack.baselinePlan);
+    expect(stored.originalPlan).toEqual(pack.originalPlan);
     expect(getStoreState().undoStack).toHaveLength(1);
     expect(
       computeDayContext(stored.plan, null, new Date(NOW)).events.map((e) => e.event.id),
@@ -278,7 +279,7 @@ describe('direct itinerary order', () => {
     const review = (await prepareReorder('b', 'a'))!;
     const external = structuredClone(pack.plan);
     external.memo = 'Changed in another tab';
-    await storage.commitPlanChange(pack.plan.id, 0, 'External edit', external);
+    await storage.commitPlanChange(pack, 0, 'External edit', external);
     expect(await commitReviewedReorder(review)).toBe(false);
     expect((await storage.loadPack(pack.plan.id))?.plan).toEqual(external);
     expect((await storage.loadDeviceState(pack.plan.id)).undoStack).toHaveLength(1);
@@ -383,3 +384,9 @@ describe('direct itinerary order', () => {
     expect(shifted.events[1].timing).toMatchObject({ start: { dayOffset: 1, time: '00:10' } });
   });
 });
+
+async function readDatePack(file: Blob) {
+  const result = await readAnyDatePack(file);
+  if (result.pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return { ...result, pack: result.pack };
+}

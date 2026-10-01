@@ -1,6 +1,6 @@
 {
   "format": "datepack",
-  "version": "3.0",
+  "version": "4.0",
   "createdAt": "2026-09-30T23:00:00.000Z",
   "updatedAt": "2026-09-30T23:00:00.000Z",
   "generator": "T05 local UI fixture",
@@ -74,7 +74,7 @@
       }
     ]
   },
-  "baselinePlan": {
+  "originalPlan": {
     "id": "plan-t05-reorder-fixture",
     "title": "T05 순서 변경 확인",
     "date": "2026-10-01",
@@ -146,5 +146,12 @@
   },
   "experiences": [],
   "revision": 0,
-  "assets": []
+  "assets": [],
+  "id": "plan-t05-reorder-fixture",
+  "kind": "outing",
+  "meta": {
+    "title": "T05 순서 변경 확인",
+    "createdAt": "2026-09-30T23:00:00.000Z",
+    "updatedAt": "2026-09-30T23:00:00.000Z"
+  }
 }

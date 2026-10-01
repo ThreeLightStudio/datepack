@@ -1,4 +1,4 @@
-/** DatePack v3 public data contract. Legacy file shapes live in migration.ts. */
+/** DatePack v4 public data contract. Legacy file shapes live in migration.ts. */
 
 export const DATE_EVENT_TYPES = [
   'place',
@@ -18,10 +18,31 @@ export type EventTiming =
 export type ProtectedField = 'time' | 'place' | 'content' | 'delete' | 'order';
 export type Importance = 'core' | 'normal' | 'optional';
 
-export type DatePack = {
+export type DatePackMetadata = { title?: string; createdAt: string; updatedAt: string };
+export type DatePackBase = {
+  id: string;
+  manifest: DatePackManifest;
+  meta: DatePackMetadata;
+  experiences: Experience[];
+  revision: number;
+  assets: DatePackAsset[];
+};
+export type OutingDatePack = DatePackBase & {
+  kind: 'outing';
+  plan: DatePlan;
+  /** Starting plan retained for review and explicit baseline refresh. */
+  originalPlan: DatePlan;
+};
+export type MemoriesDatePack = DatePackBase & {
+  kind: 'memories';
+  plan?: never;
+  originalPlan?: never;
+};
+export type DatePack = OutingDatePack | MemoriesDatePack;
+/** Current device data, convertible locally only; never accepted by the file reader. */
+export type LocalV3DatePack = {
   manifest: DatePackManifest;
   plan: DatePlan;
-  /** Immutable starting point used for review and change comparison. */
   baselinePlan: DatePlan;
   experiences: Experience[];
   revision: number;
@@ -108,7 +129,7 @@ export type Place = {
 export type Experience = {
   id: string;
   eventId?: string;
-  title: string;
+  title?: string;
   placeSnapshot?: { name: string; mapQuery?: string };
   outcome: 'completed' | 'skipped' | 'note';
   recordedAt: string;

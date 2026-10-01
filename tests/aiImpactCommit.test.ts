@@ -4,7 +4,7 @@ import { createDatePack, createEvent, describePatch, parsePatch } from '@datepac
 import {
   closeStorage,
   loadDeviceState,
-  loadPack,
+  loadPack as loadAnyPack,
   savePack,
   saveDeviceState,
   setCurrentPackId,
@@ -153,3 +153,9 @@ describe('AI impact application boundary', () => {
     expect((await loadPack(pack.plan.id))?.revision).toBe(1);
   });
 });
+
+async function loadPack(id: string) {
+  const pack = await loadAnyPack(id);
+  if (pack && pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return pack;
+}

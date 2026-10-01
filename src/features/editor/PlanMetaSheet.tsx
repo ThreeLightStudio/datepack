@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { DatePlan, LocalPoint } from '@datepack/core';
 import { isValidDateISO, isValidTime } from '@datepack/core';
 import type { PersonalJourney } from '../../storage/indexedDb';
-import { updatePersonalJourney, updatePlan } from '../../store/datepackStore';
+import { updatePersonalJourney, updatePlan, useStore } from '../../store/datepackStore';
 import { Sheet } from '../../components/Sheet';
 import { CheckIcon } from '../../components/icons';
 import { format, useLocale } from '../../i18n';
@@ -12,6 +12,8 @@ const hhmm = (point?: LocalPoint) => point?.time ?? '';
 
 export function PlanMetaSheet({ plan, personalJourney, onClose }: Props) {
   const locale = useLocale();
+  const { pack } = useStore();
+  const documentId = pack?.id ?? plan.id;
   const ko = locale === 'ko';
   const [title, setTitle] = useState(plan.title);
   const [date, setDate] = useState(plan.date ?? '');
@@ -140,7 +142,7 @@ export function PlanMetaSheet({ plan, personalJourney, onClose }: Props) {
     void updatePersonalJourney(
       journeyOrigin.trim() || journeyMode.trim() || journeyNote.trim()
         ? {
-            planId: plan.id,
+            planId: documentId,
             updatedAt: new Date().toISOString(),
             origin: journeyOrigin.trim() || undefined,
             mode: journeyMode.trim() || undefined,

@@ -14,7 +14,7 @@ export function buildMemoryPrompt(
       ? '선택한 기록의 표현만 읽기 편하게 다듬는 일을 도와주세요. 아래 원문에 사용자가 확인한 사실만 사용하세요. 계획·GPS·시각으로 방문·완료·대화·감정·새 경험을 만들거나 추정하지 마세요. 사실이 모호하면 꼭 필요한 확인만 묻고, 확인 전에는 그 표현을 원문 그대로 유지하세요. 원문 note는 그대로 보존하고 승인된 표현만 editedNote로 따로 저장합니다.'
       : 'Help polish only the wording of the selected record. Use only user-confirmed facts in the original below. Do not invent or infer visits, completion, conversations, feelings, or new experiences from plans, GPS, or time. Ask only necessary questions about ambiguous facts, keeping that wording unchanged until confirmed. Original note stays unchanged; approved wording is saved separately as editedNote.',
     conversationGuide(locale, 'memory'),
-    `${locale === 'ko' ? '기록 제목' : 'Memory title'}: ${experience.title}`,
+    `${locale === 'ko' ? '기록 제목' : 'Memory title'}: ${experience.title ?? ''}`,
     `${locale === 'ko' ? '원문' : 'Original text'}:\n${experience.note ?? ''}`,
     locale === 'ko'
       ? '다듬은 문장 하나를 먼저 제안하세요. result에는 해당 experienceId와 editedText 두 필드만 쓰세요. editedText는 승인된 표현입니다. 원문, 경험 ID, 사실은 변경하지 마세요.'

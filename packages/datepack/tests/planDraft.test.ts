@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPlanFromDraft, parsePlanDraft } from '../src/planDraft';
 import { validateDatePack } from '../src/validate';
-import { readDatePack } from '../src/read';
+import { readDatePack as readAnyDatePack } from '../src/read';
 import { writeDatePack } from '../src/write';
 import { localizeIssues } from '../src/i18n/core';
 
@@ -187,7 +187,7 @@ describe('buildPlanFromDraft', () => {
         e.order,
       ]),
     );
-    expect(read.pack.baselinePlan.events).toEqual(read.pack.plan.events);
+    expect(read.pack.originalPlan.events).toEqual(read.pack.plan.events);
   });
 
   it('rejects contradictory, malformed and unsupported event data with localizable correction errors', () => {
@@ -295,6 +295,12 @@ describe('buildPlanFromDraft', () => {
     // the result passes full pack validation (manifest included)
     const result = validateDatePack(pack);
     expect(result.errors).toEqual([]);
-    expect(pack.manifest.version).toBe('3.0');
+    expect(pack.manifest.version).toBe('4.0');
   });
 });
+
+async function readDatePack(file: Blob) {
+  const result = await readAnyDatePack(file);
+  if (result.pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return { ...result, pack: result.pack };
+}

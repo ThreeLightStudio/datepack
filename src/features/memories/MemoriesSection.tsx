@@ -28,7 +28,7 @@ export function MemoriesSection() {
   const ko = locale === 'ko';
   const { pack, pendingRequest, contextRevision } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
-  const form = useAiForm(`memory:${pack?.plan.id ?? 'none'}`, {
+  const form = useAiForm(`memory:${pack?.id ?? 'none'}`, {
     title: '',
     eventId: '',
     placeName: '',
@@ -66,7 +66,7 @@ export function MemoriesSection() {
       | undefined;
     if (
       pendingRequest?.kind !== 'memory-edit' ||
-      pendingRequest.planId !== pack?.plan.id ||
+      pendingRequest.planId !== pack?.id ||
       ['applied', 'cancelled'].includes(pendingRequest.status) ||
       typeof payload?.experienceId !== 'string'
     )
@@ -75,7 +75,7 @@ export function MemoriesSection() {
     setAiPrompt(pendingRequest.input);
     setAiReply(recoverAnswer(pendingRequest));
     setAiReview(null);
-  }, [pendingRequest?.id, pack?.plan.id]);
+  }, [pendingRequest?.id, pack?.id]);
 
   useEffect(() => {
     if (
@@ -253,7 +253,7 @@ export function MemoriesSection() {
     const generatedAt = new Date().toISOString();
     const identity: AiRequestIdentity = {
       requestId: id,
-      packId: activePack.plan.id,
+      packId: activePack.id,
       baseRevision: activePack.revision,
       contextRevision,
       generatedAt,
@@ -843,7 +843,7 @@ export function MemoriesSection() {
                       {experience.assetIds.map((assetId) => (
                         <AssetImage
                           key={assetId}
-                          packId={pack.plan.id}
+                          packId={pack.id}
                           assetId={assetId}
                           className="memory-photo"
                           alt={ko ? `${experience.title} 사진` : `Photo for ${experience.title}`}

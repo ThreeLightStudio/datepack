@@ -1,6 +1,6 @@
 {
   "format": "datepack",
-  "version": "3.0",
+  "version": "4.0",
   "createdAt": "2026-09-30T23:00:00.000Z",
   "updatedAt": "2026-09-30T23:00:00.000Z",
   "generator": "T06 local integration fixture",
@@ -148,7 +148,7 @@
       }
     ]
   },
-  "baselinePlan": {
+  "originalPlan": {
     "id": "plan-t06-integration-fixture",
     "title": "T06 긴 목록과 보호 확인",
     "date": "2026-10-01",
@@ -303,5 +303,12 @@
     }
   ],
   "revision": 0,
-  "assets": []
+  "assets": [],
+  "id": "plan-t06-integration-fixture",
+  "kind": "outing",
+  "meta": {
+    "title": "T06 긴 목록과 보호 확인",
+    "createdAt": "2026-09-30T23:00:00.000Z",
+    "updatedAt": "2026-09-30T23:00:00.000Z"
+  }
 }

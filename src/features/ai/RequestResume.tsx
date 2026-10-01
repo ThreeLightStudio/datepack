@@ -16,7 +16,7 @@ export function RequestResume({
   const { pack, runtime, pendingRequest: request, liveContext } = useStore();
   const ko = useLocale() === 'ko';
   const now = useNow(30_000);
-  if (!pack || !request || request.planId !== pack.plan.id || request.status === 'cancelled')
+  if (!pack || !request || request.planId !== pack.id || request.status === 'cancelled')
     return null;
   if (request.status === 'applied') {
     if (request.kind === 'memory-edit')
@@ -31,7 +31,7 @@ export function RequestResume({
     const ctx = computeDayContext(pack.plan, runtime, now);
     const { destination } = resolveDayDestination(
       ctx,
-      liveContext?.planId === pack.plan.id ? liveContext.nextPlaceId : undefined,
+      liveContext?.planId === pack.id ? liveContext.nextPlaceId : undefined,
     );
     if (!destination)
       return (

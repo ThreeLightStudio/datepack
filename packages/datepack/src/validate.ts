@@ -41,6 +41,10 @@ export function validatePlan(plan: unknown): ValidationResult {
 
   const seenIds = new Set<string>();
   p.events.forEach((event, index) => {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) {
+      errors.push({ key: 'err.plan.eventId', params: { index } });
+      return;
+    }
     if (typeof event?.id !== 'string' || event.id.length === 0) {
       errors.push({ key: 'err.plan.eventId', params: { index } });
     } else if (seenIds.has(event.id)) {
@@ -225,30 +229,50 @@ export function validatePlan(plan: unknown): ValidationResult {
   return errors.length > 0 ? fail(errors) : ok();
 }
 
-export function validateDatePack(pack: DatePack): ValidationResult {
-  const planResult = validatePlan(pack.plan);
-  if (!planResult.ok) return planResult;
-
+export function validateDatePack(raw: unknown): ValidationResult {
+  const invalid = () => fail([{ key: 'err.read.invalidContent' }]);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return invalid();
+  const pack = raw as DatePack;
+  if (
+    typeof pack.id !== 'string' ||
+    !pack.id.trim() ||
+    !['outing', 'memories'].includes(pack.kind) ||
+    pack.manifest?.format !== 'datepack' ||
+    pack.manifest.version !== '4.0' ||
+    !pack.meta ||
+    typeof pack.meta.createdAt !== 'string' ||
+    !Number.isFinite(Date.parse(pack.meta.createdAt)) ||
+    typeof pack.meta.updatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(pack.meta.updatedAt)) ||
+    (pack.meta.title !== undefined && typeof pack.meta.title !== 'string') ||
+    !Array.isArray(pack.experiences) ||
+    !Array.isArray(pack.assets) ||
+    !Number.isSafeInteger(pack.revision) ||
+    pack.revision < 0
+  )
+    return invalid();
+  if (pack.kind === 'outing') {
+    if (!isV3DatePlan(pack.plan) || !isV3DatePlan(pack.originalPlan)) return invalid();
+    const planResult = validatePlan(pack.plan);
+    if (!planResult.ok) return planResult;
+    if (!validatePlan(pack.originalPlan).ok || pack.originalPlan.id !== pack.plan.id)
+      return invalid();
+  } else if ('plan' in pack || 'originalPlan' in pack || pack.experiences.length === 0)
+    return invalid();
   const warnings: DatePackIssue[] = [];
   const errors: DatePackIssue[] = [];
-  if (pack.manifest?.version !== '3.0') {
-    errors.push({ key: 'err.plan.manifestVersion' });
-  }
-
-  // v3 metadata is validated as part of the portable file contract.
-  if (pack.manifest.version === '3.0') {
-    if (
-      !pack.baselinePlan ||
-      !Array.isArray(pack.experiences) ||
-      !Number.isSafeInteger(pack.revision) ||
-      pack.revision < 0
-    )
-      errors.push({ key: 'err.plan.manifestVersion' });
-    else if (!validatePlan(pack.baselinePlan).ok) errors.push({ key: 'err.read.invalidContent' });
-  }
   const assetIds = new Set<string>();
   for (const asset of pack.assets) {
-    if (!asset?.id || assetIds.has(asset.id))
+    if (
+      !asset ||
+      typeof asset.id !== 'string' ||
+      !asset.id ||
+      typeof asset.filename !== 'string' ||
+      !asset.filename ||
+      typeof asset.mimeType !== 'string' ||
+      !asset.mimeType ||
+      assetIds.has(asset.id)
+    )
       errors.push({ key: 'err.plan.dupAssetId', params: { id: asset?.id ?? '' } });
     else assetIds.add(asset.id);
   }
@@ -294,9 +318,10 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       checkPlace(travel.toPlaceId, `${fieldPrefix}.sharedTravel.${travel.id}.toPlaceId`);
     }
   };
-  checkPlanReferences(pack.plan, 'plan');
-  if (pack.baselinePlan && validatePlan(pack.baselinePlan).ok)
-    checkPlanReferences(pack.baselinePlan, 'baselinePlan');
+  if (pack.kind === 'outing') {
+    checkPlanReferences(pack.plan, 'plan');
+    checkPlanReferences(pack.originalPlan, 'originalPlan');
+  }
 
   const experienceIds = new Set<string>();
   for (const experience of pack.experiences ?? []) {
@@ -304,9 +329,26 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       errors.push({ key: 'err.read.invalidContent' });
       continue;
     }
-    if (!experience.id || experienceIds.has(experience.id))
+    if (typeof experience.id !== 'string' || !experience.id || experienceIds.has(experience.id))
       errors.push({ key: 'err.plan.dupId', params: { id: experience.id } });
     experienceIds.add(experience.id);
+    if (
+      (experience.title !== undefined && typeof experience.title !== 'string') ||
+      (experience.note !== undefined && typeof experience.note !== 'string') ||
+      (experience.assetIds !== undefined &&
+        (!Array.isArray(experience.assetIds) ||
+          experience.assetIds.some((id) => typeof id !== 'string' || !id))) ||
+      (!(typeof experience.title === 'string' && experience.title.trim()) &&
+        !(typeof experience.note === 'string' && experience.note.trim()) &&
+        !experience.assetIds?.length)
+    ) {
+      errors.push({ key: 'err.read.invalidContent' });
+    }
+    if (
+      experience.eventId !== undefined &&
+      (typeof experience.eventId !== 'string' || pack.kind !== 'outing')
+    )
+      errors.push({ key: 'err.read.invalidContent' });
     if (!['completed', 'skipped', 'note'].includes(experience.outcome))
       errors.push({ key: 'err.plan.eventId' });
     if (experience.editedNote !== undefined && typeof experience.editedNote !== 'string')
@@ -338,7 +380,7 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       errors.push({ key: 'err.plan.startInvalid', params: { field: 'experiences.timing.period' } });
     if (experience.timing && !['exact', 'approximate'].includes(experience.timing.kind))
       errors.push({ key: 'err.plan.startInvalid', params: { field: 'experiences.timing.kind' } });
-    for (const id of experience.assetIds ?? [])
+    for (const id of Array.isArray(experience.assetIds) ? experience.assetIds : [])
       checkAsset(id, `experiences.${experience.id}.assetIds`);
   }
 

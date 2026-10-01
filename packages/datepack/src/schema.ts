@@ -9,11 +9,11 @@ import { version as CORE_VERSION } from '../package.json';
  *    and accept newer minors with a "some fields may be ignored" warning
  */
 export const DATEPACK_FORMAT = 'datepack';
-export const DATEPACK_FORMAT_VERSION = '3.0';
+export const DATEPACK_FORMAT_VERSION = '4.0';
 /** Highest minor this reader fully understands (applies per major). */
 export const DATEPACK_SUPPORTED_MINOR = 0;
 /** Majors this reader understands: 1 = legacy ZIP container, 2 = single-file JSON container. */
-export const DATEPACK_SUPPORTED_MAJORS = [1, 2, 3] as const;
+export const DATEPACK_SUPPORTED_MAJORS = [4] as const;
 /** @datepack/core version — sourced from this package's package.json so the
  *  file generator string and the release number can never drift apart. */
 export const PACKAGE_VERSION: string = CORE_VERSION;

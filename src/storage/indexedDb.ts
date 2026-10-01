@@ -1,7 +1,14 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { openDB, type DBSchema, type IDBPTransaction, type IDBPDatabase } from 'idb';
 import { toCoarseContext, type CoarseLocationAttempt } from '../features/day/location';
 import {
   migrateLegacyDatePack,
+  migrateLocalV3DatePack,
+  createMemoriesPack,
+  createId,
+  datePackContentKey,
+  type OutingDatePack,
+  type LocalV3DatePack,
+  type Experience,
   validateDatePack,
   type DatePack,
   type DatePackAsset,
@@ -47,6 +54,7 @@ function safeLiveContext(context: LiveContext): LiveContext {
 }
 export type PendingRequest = {
   id: string;
+  /** Document ID (historical property name retained for device request compatibility). */
   planId: string;
   kind: 'create' | 'next-change' | 'remaining-change' | 'memory-edit';
   status: 'draft' | 'ready' | 'waiting' | 'review' | 'applied' | 'cancelled' | 'stale' | 'error';
@@ -106,11 +114,15 @@ export async function savePendingRequest(
 ): Promise<void> {
   if (!request) throw new Error('request-required');
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'device'], 'readwrite');
-  const row = await tx.objectStore('packsV3').get(request.planId);
+  const tx = db.transaction(['packsV4', 'device'], 'readwrite');
+  const row = await tx.objectStore('packsV4').get(request.planId);
   if (!row) {
     abortReadWrite(tx);
     throw new Error('pack-missing');
+  }
+  if (row.pack.kind === 'memories' && request.kind !== 'memory-edit') {
+    abortReadWrite(tx);
+    throw new Error('outing-required');
   }
   const store = tx.objectStore('device');
   const current = (await store.get(request.planId)) ?? defaultDevice(request.planId);
@@ -187,7 +199,8 @@ export type DeviceState = {
 interface DatePackDB extends DBSchema {
   /** Kept intact for compatibility with v1/v2 data. */
   packs: { key: string; value: unknown };
-  packsV3: { key: string; value: { pack: DatePack; savedAt: string } };
+  packsV3: { key: string; value: { pack: LocalV3DatePack; savedAt: string } };
+  packsV4: { key: string; value: { pack: DatePack; savedAt: string; importedFromId?: string } };
   assets: {
     key: string;
     value: { key: string; packId: string; assetId: string; blob: Blob; filename: string };
@@ -201,7 +214,7 @@ interface DatePackDB extends DBSchema {
 }
 
 const DB_NAME = 'datepack';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const CURRENT_PACK_KEY = 'currentPackId';
 let dbPromise: Promise<IDBPDatabase<DatePackDB>> | null = null;
 
@@ -226,6 +239,7 @@ function getDb(): Promise<IDBPDatabase<DatePackDB>> {
         if (!db.objectStoreNames.contains('runtime')) db.createObjectStore('runtime');
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
         if (!db.objectStoreNames.contains('packsV3')) db.createObjectStore('packsV3');
+        if (!db.objectStoreNames.contains('packsV4')) db.createObjectStore('packsV4');
         if (!db.objectStoreNames.contains('device')) db.createObjectStore('device');
         if (!db.objectStoreNames.contains('sourceBackups')) db.createObjectStore('sourceBackups');
         if (!db.objectStoreNames.contains('deletedPacks')) db.createObjectStore('deletedPacks');
@@ -249,16 +263,21 @@ function defaultDevice(planId: string): DeviceState {
 }
 function abortReadWrite(tx: { done: Promise<unknown>; abort: () => void }): void {
   void tx.done.catch(() => undefined);
-  tx.abort();
+  try {
+    tx.abort();
+  } catch {
+    /* The transaction may already have aborted. */
+  }
 }
 function validate(pack: DatePack): void {
   const result = validateDatePack(pack);
   if (!result.ok)
     throw new Error(`Invalid DatePack: ${result.errors.map((e) => e.key).join(', ')}`);
 }
-function hasUnestablishedBlankBaseline(pack: DatePack): boolean {
-  if (pack.plan.events.length === 0 || pack.baselinePlan.events.length !== 0) return false;
-  return JSON.stringify({ ...pack.plan, events: [] }) === JSON.stringify(pack.baselinePlan);
+function hasUnestablishedBlankBaseline(pack: DatePack): pack is OutingDatePack {
+  if (pack.kind !== 'outing') return false;
+  if (pack.originalPlan.events.length !== 0) return false;
+  return JSON.stringify({ ...pack.plan, events: [] }) === JSON.stringify(pack.originalPlan);
 }
 function unwrapLegacy(value: unknown): { pack: unknown; savedAt: string } | null {
   if (value && typeof value === 'object' && 'pack' in value) {
@@ -282,100 +301,113 @@ export async function savePack(
   initializeBlankBaseline = false,
 ): Promise<DatePack> {
   validate(pack);
+  await loadPack(pack.id);
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'packs', 'deletedPacks', 'device'], 'readwrite');
-  const prior = await tx.objectStore('packsV3').get(pack.plan.id);
-  const deleted = await tx.objectStore('deletedPacks').get(pack.plan.id);
-  const legacy = await tx.objectStore('packs').get(pack.plan.id);
-  if (prior && expectedRevision === undefined) {
+  const tx = db.transaction(['packsV4', 'packs', 'deletedPacks', 'device'], 'readwrite');
+  try {
+    const prior = await tx.objectStore('packsV4').get(pack.id);
+    const deleted = await tx.objectStore('deletedPacks').get(pack.id);
+    const legacy = await tx.objectStore('packs').get(pack.id);
+    if (prior && expectedRevision === undefined) {
+      abortReadWrite(tx);
+      throw new Error('pack-exists');
+    }
+    if (prior && prior.pack.revision !== expectedRevision) {
+      abortReadWrite(tx);
+      throw new Error('revision-conflict');
+    }
+    if (!prior && expectedRevision !== undefined) {
+      abortReadWrite(tx);
+      throw new Error('revision-conflict');
+    }
+    if (!prior && legacy && !deleted) {
+      abortReadWrite(tx);
+      throw new Error('pack-exists');
+    }
+    const savedAt = new Date().toISOString();
+    const storedPack = prior
+      ? {
+          ...pack,
+          revision: prior.pack.revision + 1,
+          meta: { ...pack.meta, updatedAt: savedAt },
+          manifest: { ...pack.manifest, updatedAt: savedAt },
+        }
+      : initializeBlankBaseline && hasUnestablishedBlankBaseline(pack)
+        ? { ...pack, originalPlan: structuredClone(pack.plan) }
+        : pack;
+    validate(storedPack);
+    await tx.objectStore('packsV4').put({ ...prior, pack: storedPack, savedAt }, pack.id);
+    if (prior && resetDevice) await tx.objectStore('device').put(defaultDevice(pack.id), pack.id);
+    if (deleted) await tx.objectStore('deletedPacks').delete(pack.id);
+    await tx.done;
+    return storedPack;
+  } catch (error) {
     abortReadWrite(tx);
-    throw new Error('pack-exists');
+    throw error;
   }
-  if (prior && prior.pack.revision !== expectedRevision) {
-    abortReadWrite(tx);
-    throw new Error('revision-conflict');
-  }
-  if (!prior && expectedRevision !== undefined) {
-    abortReadWrite(tx);
-    throw new Error('revision-conflict');
-  }
-  if (!prior && legacy && !deleted) {
-    abortReadWrite(tx);
-    throw new Error('pack-exists');
-  }
-  const savedAt = new Date().toISOString();
-  const storedPack = prior
-    ? {
-        ...pack,
-        revision: prior.pack.revision + 1,
-        manifest: { ...pack.manifest, updatedAt: savedAt },
-      }
-    : initializeBlankBaseline && hasUnestablishedBlankBaseline(pack)
-      ? { ...pack, baselinePlan: structuredClone(pack.plan) }
-      : pack;
-  validate(storedPack);
-  await tx.objectStore('packsV3').put({ pack: storedPack, savedAt }, pack.plan.id);
-  if (prior && resetDevice)
-    await tx.objectStore('device').put(defaultDevice(pack.plan.id), pack.plan.id);
-  if (deleted) await tx.objectStore('deletedPacks').delete(pack.plan.id);
-  await tx.done;
-  return storedPack;
 }
 
 /** Create the blank AI draft and its request as one durable local transaction. */
 export async function savePackWithPendingRequest(
-  pack: DatePack,
+  pack: OutingDatePack,
   pendingRequest: PendingRequest,
 ): Promise<void> {
   if (
     pendingRequest.kind !== 'create' ||
-    pendingRequest.planId !== pack.plan.id ||
+    pendingRequest.planId !== pack.id ||
     pendingRequest.baseRevision !== pack.revision ||
     pendingRequest.contextRevision !== 0 ||
     pendingRequest.status !== 'ready'
   )
     throw new Error('request-plan-mismatch');
   validate(pack);
+  await loadPack(pack.id);
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'runtime', 'device', 'meta'], 'readwrite');
-  if (await tx.objectStore('packsV3').get(pack.plan.id)) {
+  const tx = db.transaction(['packsV4', 'runtime', 'device', 'meta'], 'readwrite');
+  try {
+    if (await tx.objectStore('packsV4').get(pack.id)) {
+      abortReadWrite(tx);
+      throw new Error('pack-already-exists');
+    }
+    await tx.objectStore('packsV4').put({ pack, savedAt: new Date().toISOString() }, pack.id);
+    await tx
+      .objectStore('runtime')
+      .put({ planId: pack.id, updatedAt: new Date().toISOString(), events: {} }, pack.id);
+    await tx
+      .objectStore('device')
+      .put({ ...defaultDevice(pack.id), pendingRequest: structuredClone(pendingRequest) }, pack.id);
+    await tx.objectStore('meta').put(pack.id, CURRENT_PACK_KEY);
+    await tx.done;
+  } catch (error) {
     abortReadWrite(tx);
-    throw new Error('pack-already-exists');
+    throw error;
   }
-  await tx.objectStore('packsV3').put({ pack, savedAt: new Date().toISOString() }, pack.plan.id);
-  await tx
-    .objectStore('runtime')
-    .put({ planId: pack.plan.id, updatedAt: new Date().toISOString(), events: {} }, pack.plan.id);
-  await tx
-    .objectStore('device')
-    .put(
-      { ...defaultDevice(pack.plan.id), pendingRequest: structuredClone(pendingRequest) },
-      pack.plan.id,
-    );
-  await tx.objectStore('meta').put(pack.plan.id, CURRENT_PACK_KEY);
-  await tx.done;
 }
 
 export async function listPacks(): Promise<Array<{ pack: DatePack; savedAt: string }>> {
   const db = await getDb();
-  for (const key of await db.getAllKeys('packs')) {
-    if (typeof key !== 'string' || (await db.get('packsV3', key))) continue;
-    if (await db.get('deletedPacks', key)) continue;
-    try {
-      await loadPack(key);
-    } catch (error) {
-      console.error('[datepack] legacy pack migration failed', key, error);
-    }
+  const keys = new Set([...(await db.getAllKeys('packsV3')), ...(await db.getAllKeys('packs'))]);
+  for (const key of keys) {
+    if (
+      typeof key !== 'string' ||
+      (await db.get('packsV4', key)) ||
+      (await db.get('deletedPacks', key))
+    )
+      continue;
+    // A failure must remain visible and retryable, never look like an empty library.
+    await loadPack(key);
   }
-  return (await db.getAll('packsV3')).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  return (await db.getAll('packsV4')).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
 
+/** Lazily convert existing local data. Previous rows and all device drafts remain intact. */
 export async function loadPack(packId: string): Promise<DatePack | undefined> {
   const db = await getDb();
   if (await db.get('deletedPacks', packId)) return undefined;
-  const current = await db.get('packsV3', packId);
+  const current = await db.get('packsV4', packId);
   if (current) return current.pack;
-  const stored = await db.get('packs', packId);
+  const v3 = await db.get('packsV3', packId);
+  const stored = v3 ?? (await db.get('packs', packId));
   const old =
     unwrapLegacy(stored) ??
     (stored && typeof stored === 'object'
@@ -383,44 +415,51 @@ export async function loadPack(packId: string): Promise<DatePack | undefined> {
       : null);
   if (!old || !old.pack || typeof old.pack !== 'object') return undefined;
   const raw = old.pack as Partial<LegacyDatePack>;
-  if (!raw.plan || !raw.manifest) return undefined;
-  if (raw.manifest.version === '3.0') {
-    const pack = raw as DatePack;
-    validate(pack);
-    const tx = db.transaction(['packsV3', 'packs', 'sourceBackups'], 'readwrite');
-    const raced = await tx.objectStore('packsV3').get(packId);
+  if (!raw.plan || !raw.manifest) throw new Error('migration-invalid-source');
+  const pack =
+    raw.manifest.version === '3.0'
+      ? migrateLocalV3DatePack(raw as LocalV3DatePack)
+      : migrateLegacyDatePack(raw as LegacyDatePack, await db.get('runtime', packId)).pack;
+  // Retain the local key so runtime, AI requests, blobs and form drafts keep their ownership.
+  pack.id = packId;
+  validate(pack);
+  const tx = db.transaction(
+    ['packsV4', 'packsV3', 'packs', 'deletedPacks', 'sourceBackups', 'meta'],
+    'readwrite',
+  );
+  try {
+    if (await tx.objectStore('deletedPacks').get(packId)) {
+      await tx.done;
+      return undefined;
+    }
+    const raced = await tx.objectStore('packsV4').get(packId);
     if (!raced) {
-      await tx.objectStore('packsV3').put({ pack, savedAt: old.savedAt }, packId);
+      const latest = v3
+        ? await tx.objectStore('packsV3').get(packId)
+        : await tx.objectStore('packs').get(packId);
+      if (JSON.stringify(latest) !== JSON.stringify(stored))
+        throw new Error('migration-source-conflict');
+      await tx.objectStore('packsV4').put({ pack, savedAt: old.savedAt }, packId);
       await tx
         .objectStore('sourceBackups')
-        .put({ planId: packId, source: stored, savedAt: new Date().toISOString() }, packId);
+        .put({ planId: packId, source: stored, savedAt: new Date().toISOString() }, `v4:${packId}`);
+      await tx
+        .objectStore('meta')
+        .put(
+          { completedAt: new Date().toISOString(), sourceVersion: raw.manifest.version },
+          `migration:v4:${packId}`,
+        );
     }
     await tx.done;
     return raced?.pack ?? pack;
+  } catch (error) {
+    abortReadWrite(tx);
+    throw error;
   }
-  const runtime = await db.get('runtime', packId);
-  const migrated = migrateLegacyDatePack(raw as LegacyDatePack, runtime).pack;
-  validate(migrated);
-  const tx = db.transaction(
-    ['packsV3', 'packs', 'runtime', 'device', 'sourceBackups'],
-    'readwrite',
-  );
-  const raced = await tx.objectStore('packsV3').get(packId);
-  if (!raced) {
-    await tx.objectStore('packsV3').put({ pack: migrated, savedAt: old.savedAt }, packId);
-    await tx
-      .objectStore('sourceBackups')
-      .put({ planId: packId, source: stored, savedAt: new Date().toISOString() }, packId);
-    await tx.objectStore('device').put(defaultDevice(packId), packId);
-    // Runtime statuses represented as experiences are cleared only after both
-    // writes commit; runtime itself stays available for compatibility.
-  }
-  await tx.done;
-  return raced ? await loadPack(packId) : migrated;
 }
 
 export async function commitPlanChange(
-  planId: string,
+  outing: OutingDatePack,
   expectedRevision: number,
   label: string,
   nextPlan: DatePlan,
@@ -428,146 +467,185 @@ export async function commitPlanChange(
   assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
   aiGuard?: AiCommitGuard,
   directGuard?: DirectPlanGuard,
-): Promise<DatePack> {
+): Promise<OutingDatePack> {
+  if (aiGuard?.kind === 'memory-edit') throw new Error('request-kind-mismatch');
+  if (outing.kind !== 'outing') throw new Error('outing-required');
+  const planId = outing.id;
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'device', 'assets'], 'readwrite');
-  const row = await tx.objectStore('packsV3').get(planId);
-  if (!row) {
-    abortReadWrite(tx);
-    throw new Error('pack-missing');
-  }
-  if (row.pack.revision !== expectedRevision) {
-    abortReadWrite(tx);
-    throw new Error('revision-conflict');
-  }
-  if (nextPlan.id !== planId) throw new Error('plan-id-change-rejected');
-  const pack: DatePack = {
-    ...row.pack,
-    plan: nextPlan,
-    ...(row.pack.plan.events.length === 0 && nextPlan.events.length > 0
-      ? { baselinePlan: structuredClone(nextPlan) }
-      : {}),
-    ...(nextAssets ? { assets: nextAssets } : {}),
-    revision: row.pack.revision + 1,
-    manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
-  };
-  validate(pack);
-  const existing = (await tx.objectStore('device').get(planId)) ?? defaultDevice(planId);
-  if (directGuard) {
-    if (
-      (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !==
-      directGuard.contextRevision
-    ) {
+  const tx = db.transaction(['packsV4', 'device', 'assets'], 'readwrite');
+  try {
+    const row = await tx.objectStore('packsV4').get(planId);
+    if (!row) {
       abortReadWrite(tx);
-      throw new Error('context-revision-conflict');
+      throw new Error('pack-missing');
     }
-    if (!directGuard.validateImpact(row.pack.plan)) {
+    if (row.pack.kind !== 'outing') {
       abortReadWrite(tx);
-      throw new Error('route-impact-conflict');
+      throw new Error('outing-required');
     }
-  }
-  if (aiGuard) {
-    if (row.pack.revision !== aiGuard.baseRevision) {
+    if (row.pack.revision !== expectedRevision) {
       abortReadWrite(tx);
       throw new Error('revision-conflict');
     }
-    if (
-      (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !== aiGuard.contextRevision
-    ) {
+    if (nextPlan.id !== row.pack.plan.id) {
       abortReadWrite(tx);
-      throw new Error('context-revision-conflict');
+      throw new Error('plan-id-change-rejected');
     }
-    if (
-      existing.pendingRequest?.id !== aiGuard.requestId ||
-      existing.pendingRequest.kind !== aiGuard.kind ||
-      existing.pendingRequest.baseRevision !== aiGuard.baseRevision ||
-      existing.pendingRequest.contextRevision !== aiGuard.contextRevision ||
-      existing.pendingRequest.generatedAt !== aiGuard.generatedAt ||
-      existing.pendingRequest.responseFingerprint !== aiGuard.responseFingerprint ||
-      existing.pendingRequest.answerText !== aiGuard.answerText ||
-      existing.pendingRequest.status !== 'review'
-    ) {
+    const pack: OutingDatePack = {
+      ...row.pack,
+      plan: nextPlan,
+      ...(hasUnestablishedBlankBaseline(row.pack) && nextPlan.events.length > 0
+        ? { originalPlan: structuredClone(nextPlan) }
+        : {}),
+      ...(nextAssets ? { assets: nextAssets } : {}),
+      revision: row.pack.revision + 1,
+      meta: { ...row.pack.meta, updatedAt: new Date().toISOString() },
+      manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
+    };
+    const requiredAssets = referencedAssetIds(pack);
+    for (const asset of row.pack.assets)
+      if (requiredAssets.has(asset.id) && !pack.assets.some((item) => item.id === asset.id))
+        pack.assets.push(asset);
+    validate(pack);
+    if (assetWrites.some(({ asset }) => !pack.assets.some((item) => item.id === asset.id))) {
       abortReadWrite(tx);
-      throw new Error('request-conflict');
+      throw new Error('asset-not-registered');
     }
-    if (
-      aiGuard.requestUpdate.id !== aiGuard.requestId ||
-      aiGuard.requestUpdate.planId !== planId ||
-      aiGuard.requestUpdate.kind !== aiGuard.kind ||
-      aiGuard.requestUpdate.baseRevision !== aiGuard.baseRevision ||
-      aiGuard.requestUpdate.contextRevision !== aiGuard.contextRevision ||
-      aiGuard.requestUpdate.generatedAt !== aiGuard.generatedAt ||
-      aiGuard.requestUpdate.responseFingerprint !== aiGuard.responseFingerprint ||
-      aiGuard.requestUpdate.answerText !== aiGuard.answerText ||
-      aiGuard.requestUpdate.status !== 'applied'
-    ) {
+    const existing = (await tx.objectStore('device').get(planId)) ?? defaultDevice(planId);
+    if (directGuard) {
+      if (
+        (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !==
+        directGuard.contextRevision
+      ) {
+        abortReadWrite(tx);
+        throw new Error('context-revision-conflict');
+      }
+      if (!directGuard.validateImpact(row.pack.plan)) {
+        abortReadWrite(tx);
+        throw new Error('route-impact-conflict');
+      }
+    }
+    if (aiGuard) {
+      if (row.pack.revision !== aiGuard.baseRevision) {
+        abortReadWrite(tx);
+        throw new Error('revision-conflict');
+      }
+      if (
+        (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !==
+        aiGuard.contextRevision
+      ) {
+        abortReadWrite(tx);
+        throw new Error('context-revision-conflict');
+      }
+      if (
+        existing.pendingRequest?.id !== aiGuard.requestId ||
+        existing.pendingRequest.kind !== aiGuard.kind ||
+        existing.pendingRequest.baseRevision !== aiGuard.baseRevision ||
+        existing.pendingRequest.contextRevision !== aiGuard.contextRevision ||
+        existing.pendingRequest.generatedAt !== aiGuard.generatedAt ||
+        existing.pendingRequest.responseFingerprint !== aiGuard.responseFingerprint ||
+        existing.pendingRequest.answerText !== aiGuard.answerText ||
+        existing.pendingRequest.status !== 'review'
+      ) {
+        abortReadWrite(tx);
+        throw new Error('request-conflict');
+      }
+      if (
+        aiGuard.requestUpdate.id !== aiGuard.requestId ||
+        aiGuard.requestUpdate.planId !== planId ||
+        aiGuard.requestUpdate.kind !== aiGuard.kind ||
+        aiGuard.requestUpdate.baseRevision !== aiGuard.baseRevision ||
+        aiGuard.requestUpdate.contextRevision !== aiGuard.contextRevision ||
+        aiGuard.requestUpdate.generatedAt !== aiGuard.generatedAt ||
+        aiGuard.requestUpdate.responseFingerprint !== aiGuard.responseFingerprint ||
+        aiGuard.requestUpdate.answerText !== aiGuard.answerText ||
+        aiGuard.requestUpdate.status !== 'applied'
+      ) {
+        abortReadWrite(tx);
+        throw new Error('request-conflict');
+      }
+    }
+    if (aiGuard?.validateImpact && !aiGuard.validateImpact(row.pack.plan)) {
       abortReadWrite(tx);
-      throw new Error('request-conflict');
+      throw new Error('route-impact-conflict');
     }
-  }
-  if (aiGuard?.validateImpact && !aiGuard.validateImpact(row.pack.plan)) {
+    const device: DeviceState = {
+      ...existing,
+      ...(aiGuard ? { pendingRequest: structuredClone(aiGuard.requestUpdate) } : {}),
+      undoStack: [
+        ...existing.undoStack,
+        {
+          label,
+          plan: structuredClone(row.pack.plan),
+          assets: structuredClone(row.pack.assets),
+          revision: pack.revision,
+        },
+      ].slice(-20),
+    };
+    await tx.objectStore('packsV4').put({ ...row, pack, savedAt: pack.meta.updatedAt }, planId);
+    await tx.objectStore('device').put(device, planId);
+    const assets = tx.objectStore('assets');
+    for (const { asset, blob } of assetWrites) {
+      await assets.put({
+        key: assetKey(planId, asset.id),
+        packId: planId,
+        assetId: asset.id,
+        blob,
+        filename: asset.filename,
+      });
+    }
+    await tx.done;
+    return pack;
+  } catch (error) {
     abortReadWrite(tx);
-    throw new Error('route-impact-conflict');
+    throw error;
   }
-  const device: DeviceState = {
-    ...existing,
-    ...(aiGuard ? { pendingRequest: structuredClone(aiGuard.requestUpdate) } : {}),
-    undoStack: [
-      ...existing.undoStack,
-      {
-        label,
-        plan: structuredClone(row.pack.plan),
-        assets: structuredClone(row.pack.assets),
-        revision: pack.revision,
-      },
-    ].slice(-20),
-  };
-  await tx.objectStore('packsV3').put({ ...row, pack }, planId);
-  await tx.objectStore('device').put(device, planId);
-  const assets = tx.objectStore('assets');
-  for (const { asset, blob } of assetWrites) {
-    await assets.put({
-      key: assetKey(planId, asset.id),
-      packId: planId,
-      assetId: asset.id,
-      blob,
-      filename: asset.filename,
-    });
-  }
-  await tx.done;
-  return pack;
 }
 
 export async function commitUndo(
   planId: string,
   expectedRevision: number,
-): Promise<{ pack: DatePack; label: string }> {
+): Promise<{ pack: OutingDatePack; label: string }> {
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'device'], 'readwrite');
-  const row = await tx.objectStore('packsV3').get(planId);
-  const existing = await tx.objectStore('device').get(planId);
-  if (!row || !existing?.undoStack.length) {
+  const tx = db.transaction(['packsV4', 'device'], 'readwrite');
+  try {
+    const row = await tx.objectStore('packsV4').get(planId);
+    const existing = await tx.objectStore('device').get(planId);
+    if (!row || !existing?.undoStack.length) {
+      abortReadWrite(tx);
+      throw new Error('undo-unavailable');
+    }
+    if (row.pack.kind !== 'outing') {
+      abortReadWrite(tx);
+      throw new Error('outing-required');
+    }
+    if (row.pack.revision !== expectedRevision) {
+      abortReadWrite(tx);
+      throw new Error('revision-conflict');
+    }
+    const undoStack = [...existing.undoStack];
+    const entry = undoStack.pop()!;
+    const pack: OutingDatePack = {
+      ...row.pack,
+      plan: entry.plan,
+      assets: entry.assets,
+      revision: row.pack.revision + 1,
+      meta: { ...row.pack.meta, updatedAt: new Date().toISOString() },
+      manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
+    };
+    const used = referencedAssetIds(pack);
+    for (const asset of row.pack.assets)
+      if (used.has(asset.id) && !pack.assets.some((item) => item.id === asset.id))
+        pack.assets.push(asset);
+    validate(pack);
+    await tx.objectStore('packsV4').put({ ...row, pack, savedAt: pack.meta.updatedAt }, planId);
+    await tx.objectStore('device').put({ ...existing, undoStack }, planId);
+    await tx.done;
+    return { pack, label: entry.label };
+  } catch (error) {
     abortReadWrite(tx);
-    throw new Error('undo-unavailable');
+    throw error;
   }
-  if (row.pack.revision !== expectedRevision) {
-    abortReadWrite(tx);
-    throw new Error('revision-conflict');
-  }
-  const undoStack = [...existing.undoStack];
-  const entry = undoStack.pop()!;
-  const pack: DatePack = {
-    ...row.pack,
-    plan: entry.plan,
-    assets: entry.assets,
-    revision: row.pack.revision + 1,
-    manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
-  };
-  validate(pack);
-  await tx.objectStore('packsV3').put({ ...row, pack }, planId);
-  await tx.objectStore('device').put({ ...existing, undoStack }, planId);
-  await tx.done;
-  return { pack, label: entry.label };
 }
 
 /** Store experience facts without changing the current plan or its undo history. */
@@ -580,108 +658,167 @@ export async function commitExperienceChange(
   aiGuard?: AiCommitGuard,
 ): Promise<DatePack> {
   const db = await getDb();
-  const tx = db.transaction(['packsV3', 'assets', 'device'], 'readwrite');
-  const row = await tx.objectStore('packsV3').get(planId);
-  if (!row) {
-    abortReadWrite(tx);
-    throw new Error('pack-missing');
-  }
-  if (row.pack.revision !== expectedRevision) {
-    abortReadWrite(tx);
-    throw new Error('revision-conflict');
-  }
-  const deviceStore = tx.objectStore('device');
-  const existing = (await deviceStore.get(planId)) ?? defaultDevice(planId);
-  if (aiGuard) {
-    if (row.pack.revision !== aiGuard.baseRevision) {
+  const tx = db.transaction(['packsV4', 'assets', 'device'], 'readwrite');
+  try {
+    const row = await tx.objectStore('packsV4').get(planId);
+    if (!row) {
+      abortReadWrite(tx);
+      throw new Error('pack-missing');
+    }
+    if (row.pack.revision !== expectedRevision) {
       abortReadWrite(tx);
       throw new Error('revision-conflict');
     }
-    if (
-      (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !== aiGuard.contextRevision
-    ) {
-      abortReadWrite(tx);
-      throw new Error('context-revision-conflict');
+    const deviceStore = tx.objectStore('device');
+    const existing = (await deviceStore.get(planId)) ?? defaultDevice(planId);
+    if (aiGuard) {
+      if (row.pack.revision !== aiGuard.baseRevision) {
+        abortReadWrite(tx);
+        throw new Error('revision-conflict');
+      }
+      if (
+        (existing.contextRevision ?? existing.liveContext?.revision ?? 0) !==
+        aiGuard.contextRevision
+      ) {
+        abortReadWrite(tx);
+        throw new Error('context-revision-conflict');
+      }
+      if (
+        existing.pendingRequest?.id !== aiGuard.requestId ||
+        existing.pendingRequest.kind !== aiGuard.kind ||
+        existing.pendingRequest.baseRevision !== aiGuard.baseRevision ||
+        existing.pendingRequest.contextRevision !== aiGuard.contextRevision ||
+        existing.pendingRequest.generatedAt !== aiGuard.generatedAt ||
+        existing.pendingRequest.responseFingerprint !== aiGuard.responseFingerprint ||
+        existing.pendingRequest.answerText !== aiGuard.answerText ||
+        existing.pendingRequest.status !== 'review'
+      ) {
+        abortReadWrite(tx);
+        throw new Error('request-conflict');
+      }
+      if (
+        aiGuard.requestUpdate.id !== aiGuard.requestId ||
+        aiGuard.requestUpdate.planId !== planId ||
+        aiGuard.requestUpdate.kind !== aiGuard.kind ||
+        aiGuard.requestUpdate.baseRevision !== aiGuard.baseRevision ||
+        aiGuard.requestUpdate.contextRevision !== aiGuard.contextRevision ||
+        aiGuard.requestUpdate.generatedAt !== aiGuard.generatedAt ||
+        aiGuard.requestUpdate.responseFingerprint !== aiGuard.responseFingerprint ||
+        aiGuard.requestUpdate.answerText !== aiGuard.answerText ||
+        aiGuard.requestUpdate.status !== 'applied'
+      ) {
+        abortReadWrite(tx);
+        throw new Error('request-conflict');
+      }
     }
-    if (
-      existing.pendingRequest?.id !== aiGuard.requestId ||
-      existing.pendingRequest.kind !== aiGuard.kind ||
-      existing.pendingRequest.baseRevision !== aiGuard.baseRevision ||
-      existing.pendingRequest.contextRevision !== aiGuard.contextRevision ||
-      existing.pendingRequest.generatedAt !== aiGuard.generatedAt ||
-      existing.pendingRequest.responseFingerprint !== aiGuard.responseFingerprint ||
-      existing.pendingRequest.answerText !== aiGuard.answerText ||
-      existing.pendingRequest.status !== 'review'
-    ) {
-      abortReadWrite(tx);
-      throw new Error('request-conflict');
+    if (aiGuard) {
+      if (aiGuard.kind !== 'memory-edit') {
+        abortReadWrite(tx);
+        throw new Error('request-kind-mismatch');
+      }
+      const payload = existing.pendingRequest?.payload as
+        | { experienceId?: unknown; originalText?: unknown }
+        | undefined;
+      const original = row.pack.experiences.find((item) => item.id === payload?.experienceId);
+      const proposed = experiences.find((item) => item.id === payload?.experienceId);
+      const facts = (item: Experience) => {
+        const { editedNote: _edited, ...rest } = item;
+        return rest;
+      };
+      if (
+        !original ||
+        !proposed ||
+        typeof proposed.editedNote !== 'string' ||
+        !proposed.editedNote.trim() ||
+        original.note !== payload?.originalText ||
+        experiences.length !== row.pack.experiences.length ||
+        experiences.some((item) => {
+          const previous = row.pack.experiences.find((record) => record.id === item.id);
+          return (
+            !previous ||
+            JSON.stringify(facts(previous)) !== JSON.stringify(facts(item)) ||
+            (item.id !== original.id && previous.editedNote !== item.editedNote)
+          );
+        }) ||
+        (assets && JSON.stringify(assets) !== JSON.stringify(row.pack.assets)) ||
+        assetWrites.length
+      ) {
+        abortReadWrite(tx);
+        throw new Error('memory-original-conflict');
+      }
     }
-    if (
-      aiGuard.requestUpdate.id !== aiGuard.requestId ||
-      aiGuard.requestUpdate.planId !== planId ||
-      aiGuard.requestUpdate.kind !== aiGuard.kind ||
-      aiGuard.requestUpdate.baseRevision !== aiGuard.baseRevision ||
-      aiGuard.requestUpdate.contextRevision !== aiGuard.contextRevision ||
-      aiGuard.requestUpdate.generatedAt !== aiGuard.generatedAt ||
-      aiGuard.requestUpdate.responseFingerprint !== aiGuard.responseFingerprint ||
-      aiGuard.requestUpdate.answerText !== aiGuard.answerText ||
-      aiGuard.requestUpdate.status !== 'applied'
-    ) {
+    const pack: DatePack = {
+      ...row.pack,
+      experiences: structuredClone(experiences),
+      ...(assets ? { assets: structuredClone(assets) } : {}),
+      revision: row.pack.revision + 1,
+      meta: { ...row.pack.meta, updatedAt: new Date().toISOString() },
+      manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
+    };
+    validate(pack);
+    if (assetWrites.some(({ asset }) => !pack.assets.some((item) => item.id === asset.id))) {
       abortReadWrite(tx);
-      throw new Error('request-conflict');
+      throw new Error('asset-not-registered');
     }
+    await tx.objectStore('packsV4').put({ ...row, pack, savedAt: pack.meta.updatedAt }, planId);
+    if (aiGuard)
+      await deviceStore.put({ ...existing, pendingRequest: aiGuard.requestUpdate }, planId);
+    const assetStore = tx.objectStore('assets');
+    for (const { asset, blob } of assetWrites) {
+      await assetStore.put({
+        key: assetKey(planId, asset.id),
+        packId: planId,
+        assetId: asset.id,
+        blob,
+        filename: asset.filename,
+      });
+    }
+    await tx.done;
+    return pack;
+  } catch (error) {
+    abortReadWrite(tx);
+    throw error;
   }
-  const pack: DatePack = {
-    ...row.pack,
-    experiences: structuredClone(experiences),
-    ...(assets ? { assets: structuredClone(assets) } : {}),
-    revision: row.pack.revision + 1,
-    manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
-  };
-  validate(pack);
-  await tx.objectStore('packsV3').put({ ...row, pack }, planId);
-  if (aiGuard)
-    await deviceStore.put({ ...existing, pendingRequest: aiGuard.requestUpdate }, planId);
-  const assetStore = tx.objectStore('assets');
-  for (const { asset, blob } of assetWrites) {
-    await assetStore.put({
-      key: assetKey(planId, asset.id),
-      packId: planId,
-      assetId: asset.id,
-      blob,
-      filename: asset.filename,
-    });
-  }
-  await tx.done;
-  return pack;
 }
 
 /** Explicitly refresh the portable baseline from the current plan. */
 export async function commitBaselinePlan(
-  planId: string,
+  outing: OutingDatePack,
   expectedRevision: number,
-): Promise<DatePack> {
+): Promise<OutingDatePack> {
+  if (outing.kind !== 'outing') throw new Error('outing-required');
+  const planId = outing.id;
   const db = await getDb();
-  const tx = db.transaction('packsV3', 'readwrite');
-  const row = await tx.store.get(planId);
-  if (!row) {
+  const tx = db.transaction('packsV4', 'readwrite');
+  try {
+    const row = await tx.store.get(planId);
+    if (!row) {
+      abortReadWrite(tx);
+      throw new Error('pack-missing');
+    }
+    if (row.pack.kind !== 'outing') {
+      abortReadWrite(tx);
+      throw new Error('outing-required');
+    }
+    if (row.pack.revision !== expectedRevision) {
+      abortReadWrite(tx);
+      throw new Error('revision-conflict');
+    }
+    const pack: OutingDatePack = {
+      ...row.pack,
+      originalPlan: structuredClone(row.pack.plan),
+      revision: row.pack.revision + 1,
+      meta: { ...row.pack.meta, updatedAt: new Date().toISOString() },
+      manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
+    };
+    validate(pack);
+    await tx.store.put({ ...row, pack }, planId);
+    await tx.done;
+    return pack;
+  } catch (error) {
     abortReadWrite(tx);
-    throw new Error('pack-missing');
+    throw error;
   }
-  if (row.pack.revision !== expectedRevision) {
-    abortReadWrite(tx);
-    throw new Error('revision-conflict');
-  }
-  const pack: DatePack = {
-    ...row.pack,
-    baselinePlan: structuredClone(row.pack.plan),
-    revision: row.pack.revision + 1,
-    manifest: { ...row.pack.manifest, updatedAt: new Date().toISOString() },
-  };
-  validate(pack);
-  await tx.store.put({ ...row, pack }, planId);
-  await tx.done;
-  return pack;
 }
 
 export async function saveDeviceState(
@@ -803,25 +940,56 @@ export async function loadDeviceState(planId: string): Promise<DeviceState> {
 // Legacy storage and binary assets
 // ---------------------------------------------------------------------------
 
-export async function deletePack(packId: string): Promise<void> {
+/** Deleting an outing preserves its connected records and photos as a standalone document. */
+export async function deletePack(
+  packId: string,
+  expectedRevision?: number,
+): Promise<DatePack | undefined> {
+  await loadPack(packId);
   const db = await getDb();
   const tx = db.transaction(
-    ['packsV3', 'assets', 'runtime', 'device', 'meta', 'deletedPacks'],
+    ['packsV4', 'assets', 'runtime', 'device', 'meta', 'deletedPacks'],
     'readwrite',
   );
-  await tx.objectStore('packsV3').delete(packId);
-  const assets = tx.objectStore('assets');
-  for (const key of await assets.index('byPack').getAllKeys(packId)) await assets.delete(key);
-  await tx.objectStore('runtime').delete(packId);
-  await tx.objectStore('device').delete(packId);
-  await tx.objectStore('meta').delete(`ai-form:replan:${packId}`);
-  await tx.objectStore('meta').delete(`ai-form:memory:${packId}`);
-  await tx
-    .objectStore('deletedPacks')
-    .put({ planId: packId, deletedAt: new Date().toISOString() }, packId);
-  if ((await tx.objectStore('meta').get(CURRENT_PACK_KEY)) === packId)
-    await tx.objectStore('meta').delete(CURRENT_PACK_KEY);
-  await tx.done;
+  try {
+    const row = await tx.objectStore('packsV4').get(packId);
+    if (expectedRevision !== undefined && row?.pack.revision !== expectedRevision)
+      throw new Error('revision-conflict');
+    const selected = (await tx.objectStore('meta').get(CURRENT_PACK_KEY)) === packId;
+    let preserved: DatePack | undefined;
+    if (row?.pack.kind === 'outing' && row.pack.experiences.length) {
+      const experiences = row.pack.experiences.map((item) => {
+        const copy = structuredClone(item);
+        delete copy.eventId;
+        return copy;
+      });
+      const ids = new Set(experiences.flatMap((item) => item.assetIds ?? []));
+      preserved = createMemoriesPack(
+        experiences,
+        row.pack.assets.filter((asset) => ids.has(asset.id)),
+      );
+      validate(preserved);
+      await tx
+        .objectStore('packsV4')
+        .put({ pack: preserved, savedAt: new Date().toISOString() }, preserved.id);
+      for (const id of ids) {
+        const binary = await tx.objectStore('assets').get(assetKey(packId, id));
+        if (binary)
+          await tx
+            .objectStore('assets')
+            .put({ ...binary, key: assetKey(preserved.id, id), packId: preserved.id });
+      }
+    }
+    await deleteDocumentRows(tx, packId);
+    await tx.objectStore('meta').delete(`ai-form:replan:${packId}`);
+    await tx.objectStore('meta').delete(`ai-form:memory:${packId}`);
+    if (selected && preserved) await tx.objectStore('meta').put(preserved.id, CURRENT_PACK_KEY);
+    await tx.done;
+    return preserved;
+  } catch (error) {
+    abortReadWrite(tx);
+    throw error;
+  }
 }
 export async function putAsset(packId: string, asset: DatePackAsset, blob: Blob): Promise<void> {
   const db = await getDb();
@@ -865,71 +1033,90 @@ export async function replacePackAssets(
   await tx.done;
 }
 
+/** Import never overwrites: identical content reuses the row, conflicts get a new document ID. */
 export async function saveImportedPack(
   pack: DatePack,
   source: Blob,
   entries: Array<{ asset: DatePackAsset; blob: Blob }>,
-  expectedRevision?: number,
 ): Promise<DatePack> {
   validate(pack);
+  await loadPack(pack.id);
   const db = await getDb();
-  const tx = db.transaction(
-    ['packsV3', 'sourceBackups', 'assets', 'device', 'packs', 'deletedPacks'],
-    'readwrite',
+  const prior = await db.get('packsV4', pack.id);
+  let duplicateRow: DatePackDB['packsV4']['value'] | undefined;
+  const candidates = (await db.getAll('packsV4')).filter(
+    (row) => row.pack.id === pack.id || row.importedFromId === pack.id,
   );
-  const savedAt = new Date().toISOString();
-  const prior = await tx.objectStore('packsV3').get(pack.plan.id);
-  const deleted = await tx.objectStore('deletedPacks').get(pack.plan.id);
-  const legacy = await tx.objectStore('packs').get(pack.plan.id);
-  if (prior && expectedRevision === undefined) {
-    abortReadWrite(tx);
-    throw new Error('pack-exists');
-  }
-  if (
-    (prior && prior.pack.revision !== expectedRevision) ||
-    (!prior && expectedRevision !== undefined)
-  ) {
-    abortReadWrite(tx);
-    throw new Error('revision-conflict');
-  }
-  if (!prior && legacy && !deleted) {
-    abortReadWrite(tx);
-    throw new Error('pack-exists');
-  }
-  const storedPack = prior
-    ? {
-        ...pack,
-        revision: prior.pack.revision + 1,
-        manifest: { ...pack.manifest, updatedAt: savedAt },
+  for (const candidate of candidates) {
+    if (datePackContentKey({ ...candidate.pack, id: pack.id }) !== datePackContentKey(pack))
+      continue;
+    let same = true;
+    const stored = await listPackAssetBlobs(candidate.pack.id);
+    const incoming = new Map(entries.map((entry) => [entry.asset.id, entry.blob]));
+    for (const asset of pack.assets) {
+      const before = stored.get(asset.id),
+        after = incoming.get(asset.id);
+      if (!!before !== !!after || (before && after && !(await blobsEqual(before, after)))) {
+        same = false;
+        break;
       }
-    : pack;
-  validate(storedPack);
-  await tx.objectStore('packsV3').put({ pack: storedPack, savedAt }, pack.plan.id);
-  await tx
-    .objectStore('sourceBackups')
-    .put(
-      { planId: pack.plan.id, source, savedAt },
-      `${pack.plan.id}:import:${crypto.randomUUID()}`,
-    );
-  const store = tx.objectStore('assets');
-  for (const key of await store.index('byPack').getAllKeys(pack.plan.id)) await store.delete(key);
-  for (const { asset, blob } of entries) {
-    await store.put({
-      key: assetKey(pack.plan.id, asset.id),
-      packId: pack.plan.id,
-      assetId: asset.id,
-      blob,
-      filename: asset.filename,
-    });
+    }
+    if (same) {
+      duplicateRow = candidate;
+      break;
+    }
   }
-  if (prior) {
-    const device =
-      (await tx.objectStore('device').get(pack.plan.id)) ?? defaultDevice(pack.plan.id);
-    await tx.objectStore('device').put({ ...device, undoStack: [] }, pack.plan.id);
+  const tx = db.transaction(['packsV4', 'sourceBackups', 'assets', 'deletedPacks'], 'readwrite');
+  try {
+    const current = await tx.objectStore('packsV4').get(pack.id);
+    if (JSON.stringify(current) !== JSON.stringify(prior)) throw new Error('revision-conflict');
+    if (duplicateRow) {
+      const latestDuplicate = await tx.objectStore('packsV4').get(duplicateRow.pack.id);
+      if (JSON.stringify(latestDuplicate) !== JSON.stringify(duplicateRow))
+        throw new Error('revision-conflict');
+      await tx.done;
+      return duplicateRow.pack;
+    }
+    const storedPack: DatePack = current
+      ? { ...structuredClone(pack), id: createId('copy') }
+      : structuredClone(pack);
+    if (await tx.objectStore('packsV4').get(storedPack.id)) throw new Error('pack-exists');
+    const savedAt = new Date().toISOString();
+    await tx
+      .objectStore('packsV4')
+      .put({ pack: storedPack, savedAt, importedFromId: pack.id }, storedPack.id);
+    await tx
+      .objectStore('sourceBackups')
+      .put(
+        { planId: storedPack.id, source, savedAt },
+        `${storedPack.id}:import:${crypto.randomUUID()}`,
+      );
+    for (const { asset, blob } of entries) {
+      if (!storedPack.assets.some((item) => item.id === asset.id))
+        throw new Error('asset-not-registered');
+      await tx
+        .objectStore('assets')
+        .put({
+          key: assetKey(storedPack.id, asset.id),
+          packId: storedPack.id,
+          assetId: asset.id,
+          blob,
+          filename: asset.filename,
+        });
+    }
+    await tx.objectStore('deletedPacks').delete(storedPack.id);
+    await tx.done;
+    return storedPack;
+  } catch (error) {
+    abortReadWrite(tx);
+    throw error;
   }
-  if (deleted) await tx.objectStore('deletedPacks').delete(pack.plan.id);
-  await tx.done;
-  return storedPack;
+}
+async function blobsEqual(a: Blob, b: Blob): Promise<boolean> {
+  if (a.size !== b.size || a.type !== b.type) return false;
+  const [left, right] = await Promise.all([a.arrayBuffer(), b.arrayBuffer()]);
+  const bytes = new Uint8Array(right);
+  return new Uint8Array(left).every((byte, i) => byte === bytes[i]);
 }
 export async function saveRuntime(state: DatePackRuntimeState): Promise<void> {
   const db = await getDb();
@@ -957,4 +1144,282 @@ export async function setCurrentPackId(packId: string): Promise<void> {
 export async function getCurrentPackId(): Promise<string | undefined> {
   const db = await getDb();
   return (await db.get('meta', CURRENT_PACK_KEY)) as string | undefined;
+}
+
+export type AssetWrite = { asset: DatePackAsset; blob: Blob };
+
+/** Create or edit a record and all new photos in one durable transaction. */
+export async function saveExperience(
+  experience: Experience,
+  options: { packId?: string; expectedRevision?: number; assetWrites?: AssetWrite[] } = {},
+): Promise<DatePack> {
+  const writes = options.assetWrites ?? [];
+  if (options.packId) {
+    const before = await loadPack(options.packId);
+    if (!before) throw new Error('pack-missing');
+    if (options.expectedRevision === undefined) throw new Error('revision-required');
+    const experiences = before.experiences.some((item) => item.id === experience.id)
+      ? before.experiences.map((item) =>
+          item.id === experience.id ? structuredClone(experience) : item,
+        )
+      : [...before.experiences, structuredClone(experience)];
+    const assets = [...before.assets];
+    for (const { asset } of writes) {
+      if (assets.some((item) => item.id === asset.id)) throw new Error('asset-id-conflict');
+      assets.push(asset);
+    }
+    return commitExperienceChange(before.id, options.expectedRevision, experiences, assets, writes);
+  }
+  const pack = createMemoriesPack(
+    [experience],
+    writes.map((item) => item.asset),
+  );
+  validate(pack);
+  for (const id of experience.assetIds ?? [])
+    if (!writes.some((item) => item.asset.id === id)) throw new Error('asset-missing');
+  const db = await getDb();
+  const tx = db.transaction(['packsV4', 'assets', 'meta'], 'readwrite');
+  try {
+    if (await tx.objectStore('packsV4').get(pack.id)) throw new Error('pack-exists');
+    await tx.objectStore('packsV4').put({ pack, savedAt: new Date().toISOString() }, pack.id);
+    for (const { asset, blob } of writes)
+      await tx
+        .objectStore('assets')
+        .put({
+          key: assetKey(pack.id, asset.id),
+          packId: pack.id,
+          assetId: asset.id,
+          blob,
+          filename: asset.filename,
+        });
+    await tx.objectStore('meta').put(pack.id, CURRENT_PACK_KEY);
+    await tx.done;
+    return pack;
+  } catch (error) {
+    abortReadWrite(tx);
+    throw error;
+  }
+}
+
+/** Full library, without loading binary image bodies. Document ownership is the connection. */
+export async function listExperiences(): Promise<
+  Array<{
+    packId: string;
+    kind: DatePack['kind'];
+    revision: number;
+    planTitle?: string;
+    experience: Experience;
+  }>
+> {
+  return (await listPacks())
+    .flatMap(({ pack }) =>
+      pack.experiences.map((experience) => ({
+        packId: pack.id,
+        kind: pack.kind,
+        revision: pack.revision,
+        ...(pack.kind === 'outing' ? { planTitle: pack.plan.title } : {}),
+        experience,
+      })),
+    )
+    .sort((a, b) => b.experience.recordedAt.localeCompare(a.experience.recordedAt));
+}
+
+function referencedAssetIds(pack: DatePack): Set<string> {
+  const ids = new Set(pack.experiences.flatMap((item) => item.assetIds ?? []));
+  if (pack.kind === 'outing')
+    for (const plan of [pack.plan, pack.originalPlan]) {
+      if (plan.coverAssetId) ids.add(plan.coverAssetId);
+      for (const id of plan.galleryAssetIds ?? []) ids.add(id);
+      for (const item of [...plan.events, ...(plan.candidates ?? []), ...(plan.places ?? [])])
+        for (const id of item.assetIds ?? []) ids.add(id);
+    }
+  return ids;
+}
+
+export type ExperienceDestination = { packId: string; expectedRevision: number; eventId?: string };
+
+/** Link/change/unlink: both documents and their binary ownership change atomically. */
+export async function moveExperience(
+  sourceId: string,
+  expectedRevision: number,
+  experienceId: string,
+  destination?: ExperienceDestination,
+): Promise<{ source?: DatePack; target: DatePack }> {
+  const db = await getDb();
+  const tx = db.transaction(
+    ['packsV4', 'assets', 'device', 'runtime', 'meta', 'deletedPacks'],
+    'readwrite',
+  );
+  try {
+    const wasSelected = (await tx.objectStore('meta').get(CURRENT_PACK_KEY)) === sourceId;
+    const sourceRow = await tx.objectStore('packsV4').get(sourceId);
+    if (!sourceRow) throw new Error('pack-missing');
+    if (sourceRow.pack.revision !== expectedRevision) throw new Error('revision-conflict');
+    const original = sourceRow.pack.experiences.find((item) => item.id === experienceId);
+    if (!original) throw new Error('experience-missing');
+    const experience = structuredClone(original);
+    delete experience.eventId;
+    const targetRow = destination
+      ? await tx.objectStore('packsV4').get(destination.packId)
+      : undefined;
+    if (destination && !targetRow) throw new Error('pack-missing');
+    if (destination && targetRow && targetRow.pack.revision !== destination.expectedRevision)
+      throw new Error('revision-conflict');
+    if (destination && targetRow?.pack.kind !== 'outing') throw new Error('outing-required');
+    if (destination?.eventId) {
+      if (!targetRow?.pack.plan?.events.some((item) => item.id === destination.eventId))
+        throw new Error('event-missing');
+      experience.eventId = destination.eventId;
+    }
+    const now = new Date().toISOString();
+    if (targetRow?.pack.id === sourceId) {
+      const target = bumped(
+        {
+          ...sourceRow.pack,
+          experiences: sourceRow.pack.experiences.map((item) =>
+            item.id === experienceId ? experience : item,
+          ),
+        },
+        now,
+      );
+      validate(target);
+      await tx.objectStore('packsV4').put({ ...sourceRow, pack: target, savedAt: now }, sourceId);
+      await tx.done;
+      return { source: target, target };
+    }
+    const target: DatePack = targetRow
+      ? structuredClone(targetRow.pack)
+      : createMemoriesPack([experience]);
+    if (targetRow) {
+      if (target.experiences.some((item) => item.id === experienceId))
+        throw new Error('experience-id-conflict');
+      target.experiences.push(experience);
+      target.revision++;
+    }
+    target.meta.updatedAt = now;
+    target.manifest.updatedAt = now;
+    const movedIds = new Set(original.assetIds ?? []);
+    const remap = new Map<string, string>();
+    for (const id of movedIds) {
+      const asset = sourceRow.pack.assets.find((item) => item.id === id);
+      if (!asset) throw new Error('asset-missing');
+      const binary = await tx.objectStore('assets').get(assetKey(sourceId, id));
+      // Imported partial files may have registry-only photos; preserve that state too.
+      const targetId = target.assets.some((item) => item.id === id) ? createId('asset') : id;
+      remap.set(id, targetId);
+      target.assets.push({ ...asset, id: targetId });
+      if (binary)
+        await tx
+          .objectStore('assets')
+          .put({
+            ...binary,
+            key: assetKey(target.id, targetId),
+            packId: target.id,
+            assetId: targetId,
+          });
+    }
+    experience.assetIds = original.assetIds?.map((id) => remap.get(id) ?? id);
+    let source: DatePack | undefined = bumped(
+      {
+        ...sourceRow.pack,
+        experiences: sourceRow.pack.experiences.filter((item) => item.id !== experienceId),
+      },
+      now,
+    );
+    if (source.kind === 'memories' && !source.experiences.length) {
+      await deleteDocumentRows(tx, sourceId);
+      source = undefined;
+    } else {
+      const used = referencedAssetIds(source);
+      // Undo entries may still reference plan assets, so keep those binaries as well.
+      const device = await tx.objectStore('device').get(sourceId);
+      for (const entry of device?.undoStack ?? [])
+        for (const asset of entry.assets) used.add(asset.id);
+      source.assets = source.assets.filter(
+        (asset) => !movedIds.has(asset.id) || used.has(asset.id),
+      );
+      for (const id of movedIds)
+        if (!used.has(id)) await tx.objectStore('assets').delete(assetKey(sourceId, id));
+      validate(source);
+      await tx.objectStore('packsV4').put({ ...sourceRow, pack: source, savedAt: now }, sourceId);
+    }
+    validate(target);
+    await tx.objectStore('packsV4').put({ ...targetRow, pack: target, savedAt: now }, target.id);
+    if (wasSelected) await tx.objectStore('meta').put(target.id, CURRENT_PACK_KEY);
+    await tx.done;
+    return { source, target };
+  } catch (error) {
+    abortReadWrite(tx);
+    throw error;
+  }
+}
+function bumped(pack: DatePack, now: string): DatePack {
+  return {
+    ...pack,
+    revision: pack.revision + 1,
+    meta: { ...pack.meta, updatedAt: now },
+    manifest: { ...pack.manifest, updatedAt: now },
+  };
+}
+
+type DocumentTransaction = IDBPTransaction<
+  DatePackDB,
+  Array<'packsV4' | 'assets' | 'runtime' | 'device' | 'meta' | 'deletedPacks'>,
+  'readwrite'
+>;
+async function deleteDocumentRows(tx: DocumentTransaction, packId: string): Promise<void> {
+  await tx.objectStore('packsV4').delete(packId);
+  const assets = tx.objectStore('assets');
+  for (const key of await assets.index('byPack').getAllKeys(packId)) await assets.delete(key);
+  await tx.objectStore('runtime').delete(packId);
+  await tx.objectStore('device').delete(packId);
+  await tx
+    .objectStore('deletedPacks')
+    .put({ planId: packId, deletedAt: new Date().toISOString() }, packId);
+  if ((await tx.objectStore('meta').get(CURRENT_PACK_KEY)) === packId)
+    await tx.objectStore('meta').delete(CURRENT_PACK_KEY);
+}
+
+/** Record deletion is explicit; deleting the last standalone record deletes its collection. */
+export async function deleteExperience(
+  packId: string,
+  expectedRevision: number,
+  experienceId: string,
+): Promise<void> {
+  const db = await getDb();
+  const tx = db.transaction(
+    ['packsV4', 'assets', 'runtime', 'device', 'meta', 'deletedPacks'],
+    'readwrite',
+  );
+  try {
+    const row = await tx.objectStore('packsV4').get(packId);
+    if (!row) throw new Error('pack-missing');
+    if (row.pack.revision !== expectedRevision) throw new Error('revision-conflict');
+    if (!row.pack.experiences.some((item) => item.id === experienceId))
+      throw new Error('experience-missing');
+    const pack = bumped(
+      { ...row.pack, experiences: row.pack.experiences.filter((item) => item.id !== experienceId) },
+      new Date().toISOString(),
+    );
+    if (pack.kind === 'memories' && !pack.experiences.length) await deleteDocumentRows(tx, packId);
+    else {
+      const used = referencedAssetIds(pack);
+      const device = await tx.objectStore('device').get(packId);
+      for (const entry of device?.undoStack ?? [])
+        for (const asset of entry.assets) used.add(asset.id);
+      const deleted = row.pack.experiences.find((item) => item.id === experienceId)!;
+      const candidates = new Set(deleted.assetIds ?? []);
+      pack.assets = pack.assets.filter((asset) => !candidates.has(asset.id) || used.has(asset.id));
+      for (const id of candidates)
+        if (!used.has(id)) await tx.objectStore('assets').delete(assetKey(packId, id));
+      validate(pack);
+      await tx
+        .objectStore('packsV4')
+        .put({ ...row, pack, savedAt: new Date().toISOString() }, packId);
+    }
+    await tx.done;
+  } catch (error) {
+    abortReadWrite(tx);
+    throw error;
+  }
 }

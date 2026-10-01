@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { readDatePack, sortEventsByOrder, writeDatePack } from '@datepack/core';
+import { readDatePack as readAnyDatePack, sortEventsByOrder, writeDatePack } from '@datepack/core';
 import { getAiScopeEventIds } from '../src/features/ai/promptBuilder';
 import { hasRouteImpact, protectionReasons } from '../src/features/day/routeImpact';
 import { reorderPlan } from '../src/features/plan/reorder';
@@ -61,3 +61,9 @@ describe('T06 portable acceptance checkpoint', () => {
     );
   });
 });
+
+async function readDatePack(file: Blob) {
+  const result = await readAnyDatePack(file);
+  if (result.pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return { ...result, pack: result.pack };
+}

@@ -24,7 +24,7 @@ type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null; onOpenCreat
 
 export function DetailsView({ plan, runtime, onOpenCreate }: Props) {
   const locale = useLocale();
-  const { savedPacks } = useStore();
+  const { savedPacks, pack: selectedPack } = useStore();
   const [metaOpen, setMetaOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDate, setNewDate] = useState(todayISO());
@@ -81,7 +81,7 @@ export function DetailsView({ plan, runtime, onOpenCreate }: Props) {
           {galleryItems.map((item) => (
             <figure key={item.id} className="gallery-item">
               <AssetImage
-                packId={plan.id}
+                packId={selectedPack?.id ?? plan.id}
                 assetId={item.id}
                 className="gallery-img"
                 alt={item.label}
@@ -200,13 +200,13 @@ export function DetailsView({ plan, runtime, onOpenCreate }: Props) {
           <p className="eyebrow">{ko ? '이 기기에 저장된 데이트' : 'Saved on this device'}</p>
           <ul className="pack-list">
             {savedPacks.map(({ pack, savedAt }) => {
-              const current = pack.plan.id === plan.id;
+              const current = pack.id === selectedPack?.id;
               return (
-                <li key={pack.plan.id} className={`pack-item ${current ? 'current' : ''}`}>
+                <li key={pack.id} className={`pack-item ${current ? 'current' : ''}`}>
                   <button
                     type="button"
                     className="pack-open"
-                    onClick={() => void switchPack(pack.plan.id)}
+                    onClick={() => void switchPack(pack.id)}
                   >
                     <span className="pack-title">{pack.plan.title}</span>
                     <span className="pack-meta">
@@ -230,7 +230,7 @@ export function DetailsView({ plan, runtime, onOpenCreate }: Props) {
                       const message = ko
                         ? `"${pack.plan.title}"을 삭제할까요? 되돌릴 수 없어요.`
                         : `Delete "${pack.plan.title}"? This can't be undone.`;
-                      if (confirm(message)) void deletePackById(pack.plan.id);
+                      if (confirm(message)) void deletePackById(pack.id);
                     }}
                     aria-label={ko ? '삭제' : 'Delete'}
                   >

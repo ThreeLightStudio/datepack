@@ -34,6 +34,7 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const store = useStore();
+  const documentId = store.pack?.id ?? plan.id;
   const now = useNow(30_000);
   const ctx = computeDayContext(plan, runtime, now);
   const [editing, setEditing] = useState<DateEvent | null | 'new'>(null);
@@ -118,7 +119,7 @@ export function PlanView({ plan, runtime, onOpenAi }: Props) {
       <section className="context-summary">
         <div>
           <p className="eyebrow">{ko ? '마지막으로 알려준 상황' : 'Last situation you shared'}</p>
-          {store.liveContext?.planId === plan.id ? (
+          {store.liveContext?.planId === documentId ? (
             <p className="sub-line">
               {[
                 store.liveContext.place,

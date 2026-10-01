@@ -47,6 +47,7 @@ export type ImpactResult = {
   }>;
 };
 export type ImpactInput = {
+  documentId?: string;
   before: DatePlan;
   proposed: DatePlan;
   planRevision: number;
@@ -270,7 +271,7 @@ function evaluate(input: ImpactInput): { result: ImpactResult; missingLeg?: Rout
   const result: ImpactResult = {
     status: 'unverified',
     snapshot: {
-      planId: input.before.id,
+      planId: input.documentId ?? input.before.id,
       planRevision: input.planRevision,
       contextRevision: input.contextRevision,
       requestId: input.requestId,
@@ -406,9 +407,9 @@ export function clearRouteMemory(): void {
 export function localImpactInput(input: ImpactInput): ImpactInput {
   return {
     ...input,
-    observation: input.observation ?? getLocalObservation(input.before.id),
-    places: input.places ?? localPlaces.get(input.before.id),
-    evidence: input.evidence ?? localEvidence.get(input.before.id) ?? [],
+    observation: input.observation ?? getLocalObservation(input.documentId ?? input.before.id),
+    places: input.places ?? localPlaces.get(input.documentId ?? input.before.id),
+    evidence: input.evidence ?? localEvidence.get(input.documentId ?? input.before.id) ?? [],
   };
 }
 /** Fetches missing legs sequentially. Capability failures stop without making up durations. */
@@ -429,7 +430,7 @@ export async function prepareImpact(
       return checked.result;
     }
     evidence.push(reply.evidence);
-    localEvidence.set(input.before.id, evidence);
+    localEvidence.set(input.documentId ?? input.before.id, evidence);
   }
   const result = validateImpact(prepared);
   result.status = 'unverified';

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { DateEventType, DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { DATE_EVENT_TYPES } from '@datepack/core';
 import type { LiveContext } from '../../storage/indexedDb';
-import { updateLiveContext, updatePlan } from '../../store/datepackStore';
+import { updateLiveContext, updatePlan, useStore } from '../../store/datepackStore';
 import { Sheet } from '../../components/Sheet';
 import { CheckIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
@@ -32,6 +32,8 @@ export function CurrentContextSheet({
   onClose: () => void;
 }) {
   const locale = useLocale();
+  const { pack } = useStore();
+  const documentId = pack?.id ?? plan.id;
   const ko = locale === 'ko';
   const initialEvent = selectableNextEvents(plan.events, runtime).find(
     (event) => event.id === context?.nextPlaceId,
@@ -114,7 +116,7 @@ export function CurrentContextSheet({
       }
 
       await updateLiveContext({
-        planId: plan.id,
+        planId: documentId,
         updatedAt: new Date().toISOString(),
         place: place.trim() || undefined,
         activity: activity.trim() || undefined,
@@ -134,7 +136,7 @@ export function CurrentContextSheet({
             }
           : context?.locationAttempt,
       });
-      setLocalObservation(plan.id);
+      setLocalObservation(documentId);
       pendingDestinationRef.current = null;
       onClose();
     } catch {

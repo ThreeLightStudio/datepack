@@ -4,14 +4,14 @@ import {
   buildPlanFromDraft,
   createDatePack,
   parsePlanDraft,
-  readDatePack,
+  readDatePack as readAnyDatePack,
   writeDatePack,
   type Experience,
 } from '@datepack/core';
 import {
   closeStorage,
   loadDeviceState,
-  loadPack,
+  loadPack as loadAnyPack,
   saveDeviceState,
   savePack,
   setCurrentPackId,
@@ -122,14 +122,14 @@ describe('T03 response application and portable storage', () => {
     const saved = await loadPack(pack.plan.id);
     if (!saved) throw new Error('Missing saved pack');
     expect(saved.plan).toEqual(proposed);
-    expect(saved.plan.date).toBeUndefined();
-    expect(saved.plan.events.map((event) => event.title)).toEqual(['Unset', 'Next day', 'Window']);
+    expect(saved.plan!.date).toBeUndefined();
+    expect(saved.plan!.events.map((event) => event.title)).toEqual(['Unset', 'Next day', 'Window']);
     expect((await loadDeviceState(pack.plan.id)).pendingRequest?.status).toBe('applied');
     expect(await applyAiPlan(request, proposed)).toBe(false);
     const { blob } = await writeDatePack(saved, () => null);
     const imported = await readDatePack(blob);
     expect(imported.pack.plan.events.map((event) => event.timing)).toEqual(
-      saved.plan.events.map((event) => event.timing),
+      saved.plan!.events.map((event) => event.timing),
     );
     expect(imported.pack.plan.events[1].protectedFields).toEqual(['time', 'order']);
   });
@@ -175,3 +175,15 @@ describe('T03 response application and portable storage', () => {
     expect((await loadDeviceState(pack.plan.id)).pendingRequest?.status).toBe('review');
   });
 });
+
+async function readDatePack(file: Blob) {
+  const result = await readAnyDatePack(file);
+  if (result.pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return { ...result, pack: result.pack };
+}
+
+async function loadPack(id: string) {
+  const pack = await loadAnyPack(id);
+  if (pack && pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return pack;
+}

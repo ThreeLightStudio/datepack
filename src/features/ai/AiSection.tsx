@@ -130,10 +130,11 @@ function changeLabel(locale: 'ko' | 'en', change: PatchChange): string {
 export function AiSection({ plan, runtime }: Props) {
   const locale = useLocale();
   const { undoStack, pack, contextRevision, pendingRequest, liveContext } = useStore();
+  const documentId = pack?.id ?? plan.id;
   const requestBusy = useRef(false);
   const [preparing, setPreparing] = useState(false);
   const [stage, setStage] = useState<Stage>('idle');
-  const form = useAiForm(`replan:${plan.id}`, {
+  const form = useAiForm(`replan:${documentId}`, {
     situationId: '',
     scopeKind: 'remaining-change',
     customInput: '',
@@ -167,7 +168,7 @@ export function AiSection({ plan, runtime }: Props) {
     if (
       !pendingRequest ||
       (pendingRequest.kind !== 'next-change' && pendingRequest.kind !== 'remaining-change') ||
-      pendingRequest.planId !== plan.id ||
+      pendingRequest.planId !== documentId ||
       ['applied', 'cancelled'].includes(pendingRequest.status)
     ) {
       setStage('idle');
@@ -180,7 +181,7 @@ export function AiSection({ plan, runtime }: Props) {
     setPrompt(pendingRequest.input);
     setPatchText(recoverAnswer(pendingRequest));
     setReview(null);
-  }, [pendingRequest?.id, plan.id]);
+  }, [pendingRequest?.id, documentId]);
 
   useEffect(() => {
     if (
@@ -228,7 +229,7 @@ export function AiSection({ plan, runtime }: Props) {
 
   const activeRequest =
     pendingRequest &&
-    pendingRequest.planId === plan.id &&
+    pendingRequest.planId === documentId &&
     (pendingRequest.kind === 'next-change' || pendingRequest.kind === 'remaining-change') &&
     !['applied', 'cancelled'].includes(pendingRequest.status)
       ? pendingRequest
@@ -270,7 +271,7 @@ export function AiSection({ plan, runtime }: Props) {
     if (!pack || pack.plan.id !== plan.id) return;
     if (
       pendingRequest &&
-      pendingRequest.planId === plan.id &&
+      pendingRequest.planId === documentId &&
       !['applied', 'cancelled', 'stale'].includes(pendingRequest.status)
     ) {
       showToast(
@@ -295,7 +296,7 @@ export function AiSection({ plan, runtime }: Props) {
       const attempt = await acquireLocation(true, { lastKnown });
       const after = getStoreState();
       if (
-        after.pack?.plan.id !== plan.id ||
+        after.pack?.id !== documentId ||
         after.pack.revision !== pack.revision ||
         after.contextRevision !== startingState.contextRevision
       ) {
@@ -310,10 +311,10 @@ export function AiSection({ plan, runtime }: Props) {
         },
         startingState.contextRevision,
       );
-      setLocalObservation(plan.id, attempt.observation);
-    } else setLocalObservation(plan.id);
+      setLocalObservation(documentId, attempt.observation);
+    } else setLocalObservation(documentId);
     const fresh = getStoreState();
-    if (fresh.pack?.plan.id !== plan.id || fresh.pack.revision !== pack.revision) return;
+    if (fresh.pack?.id !== documentId || fresh.pack.revision !== pack.revision) return;
     if (
       fresh.pendingRequest?.id !== startingState.pendingRequest?.id ||
       fresh.pendingRequest?.updatedAt !== startingState.pendingRequest?.updatedAt
@@ -326,7 +327,7 @@ export function AiSection({ plan, runtime }: Props) {
     const generatedAt = new Date().toISOString();
     const requestIdentity: AiRequestIdentity = {
       requestId,
-      packId: plan.id,
+      packId: documentId,
       baseRevision: pack.revision,
       contextRevision: fresh.contextRevision,
       generatedAt,
@@ -344,7 +345,7 @@ export function AiSection({ plan, runtime }: Props) {
     });
     const request: PendingRequest = {
       id: requestId,
-      planId: plan.id,
+      planId: documentId,
       kind: scopeKind,
       status: 'ready',
       input: note,
@@ -567,6 +568,7 @@ export function AiSection({ plan, runtime }: Props) {
       return;
     }
     const impact = await prepareImpact({
+      documentId,
       before: plan,
       proposed: outcome.plan,
       planRevision: identity.baseRevision,

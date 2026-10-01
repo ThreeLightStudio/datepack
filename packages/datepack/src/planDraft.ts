@@ -1,6 +1,6 @@
 import type {
   DateEventType,
-  DatePack,
+  OutingDatePack,
   EventTiming,
   PlanConstraints,
   ProtectedField,
@@ -309,8 +309,8 @@ function normalizeTiming(timing: EventTiming): EventTiming {
   };
 }
 
-/** Turn a validated draft into a full DatePack, preserving the AI's explicit array order. */
-export function buildPlanFromDraft(draft: PlanDraft): DatePack {
+/** Turn a validated draft into a full OutingDatePack, preserving the AI's explicit array order. */
+export function buildPlanFromDraft(draft: PlanDraft): OutingDatePack {
   const places = new Map<string, ReturnType<typeof createPlace>>();
   const events = draft.events.map((event, order) => {
     let placeId: string | undefined;
@@ -346,9 +346,16 @@ export function buildPlanFromDraft(draft: PlanDraft): DatePack {
     places: [...places.values()],
   };
   return {
+    id: plan.id,
+    kind: 'outing',
+    meta: {
+      title: plan.title,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
     manifest: makeManifest(),
     plan,
-    baselinePlan: structuredClone(plan),
+    originalPlan: structuredClone(plan),
     experiences: [],
     revision: 0,
     assets: [],

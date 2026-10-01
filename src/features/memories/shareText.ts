@@ -28,7 +28,7 @@ export function buildExperienceShareText(
             ? ' · 방문 시각 미상'
             : ' · time not recorded';
       const place = experience.placeSnapshot?.name ? ` · ${experience.placeSnapshot.name}` : '';
-      const lines = [`${outcome}: ${experience.title}${place} · ${date}${time}`];
+      const lines = [`${outcome}: ${experience.title ?? ''}${place} · ${date}${time}`];
       const note = experience.editedNote?.trim() || experience.note?.trim();
       if (noteIds.has(experience.id) && note) {
         lines.push(note);

@@ -119,7 +119,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
   const identity: AiRequestIdentity | null =
     pendingRequest?.kind === 'create' &&
     !['applied', 'cancelled'].includes(pendingRequest.status) &&
-    pack?.plan.id === pendingRequest.planId
+    pack?.id === pendingRequest.planId
       ? {
           requestId: pendingRequest.id,
           packId: pendingRequest.planId,
@@ -146,7 +146,7 @@ export function CreateWithAiSheet({ open, onClose }: Props) {
       const generatedAt = new Date().toISOString();
       const requestIdentity: AiRequestIdentity = {
         requestId,
-        packId: draftPack.plan.id,
+        packId: draftPack.id,
         baseRevision: draftPack.revision,
         contextRevision: 0,
         generatedAt,

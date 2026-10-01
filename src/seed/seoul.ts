@@ -1,4 +1,4 @@
-import type { DatePack, DatePackAsset, DatePlan } from '@datepack/core';
+import type { OutingDatePack, DatePackAsset, DatePlan } from '@datepack/core';
 import { assetPath, createEvent, createPlace, todayISO } from '@datepack/core';
 import type { Locale } from '../i18n/core';
 
@@ -124,7 +124,7 @@ const COPY: Record<Locale, SeedCopy> = {
 };
 
 export function createSeoulSeed(locale: Locale): {
-  pack: DatePack;
+  pack: OutingDatePack;
   blobs: Array<{ asset: DatePackAsset; blob: Blob }>;
 } {
   const date = todayISO();
@@ -291,17 +291,24 @@ export function createSeoulSeed(locale: Locale): {
   plan.coverAssetId = coverAsset.id;
   events[4].assetIds = [cafeAsset.id];
 
-  const pack: DatePack = {
+  const pack: OutingDatePack = {
+    id: plan.id,
+    kind: 'outing',
+    meta: {
+      title: plan.title,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
     manifest: {
       format: 'datepack',
-      version: '3.0',
+      version: '4.0',
       entry: 'plan.json',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       generator: 'datepack-web seed',
     },
     plan,
-    baselinePlan: structuredClone(plan),
+    originalPlan: structuredClone(plan),
     experiences: [],
     revision: 0,
     assets: [coverAsset, cafeAsset],
