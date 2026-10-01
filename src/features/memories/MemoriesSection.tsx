@@ -8,11 +8,11 @@ import {
   getStoreState,
   markPendingRequestSent,
 } from '../../store/datepackStore';
-import type { PendingRequest } from '../../storage/indexedDb';
+import { loadAiFormDraft, type PendingRequest } from '../../storage/indexedDb';
 import { responseFingerprint, type AiRequestIdentity } from '../ai/exchange';
 import { useLocale } from '../../i18n';
 import { copyRequestText } from '../ai/clipboard';
-import { useAiForm, useAnswerSave, recoverAnswer } from '../ai/useAiDraft';
+import { useAiForm, useAnswerSave, recoverAnswer, memoryAnswerDraftKey } from '../ai/useAiDraft';
 import { DraftSaveError, RequestHelp } from '../ai/RequestHelp';
 import { buildMemoryPrompt, parseMemoryReply } from './aiMemory';
 async function copyText(text: string): Promise<void> {
@@ -24,7 +24,11 @@ export function MemoriesSection({ experience }: { experience: Experience }) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const { document: pack, pendingRequest, contextRevision } = useStore();
-  const form = useAiForm(`memory:${pack?.id ?? ''}`, { experienceId: '', requestId: '', note: '' });
+  const form = useAiForm(memoryAnswerDraftKey(pack?.id ?? ''), {
+    experienceId: '',
+    requestId: '',
+    note: '',
+  });
   const answerSave = useAnswerSave(pendingRequest);
   const checking = useRef(0);
   const [aiTargetId, setAiTargetId] = useState<string | null>(null);
@@ -34,6 +38,38 @@ export function MemoriesSection({ experience }: { experience: Experience }) {
     { experienceId: string; originalText: string; editedText: string } | { error: string } | null
   >(null);
   const [aiBusy, setAiBusy] = useState(false);
+
+  // Previous U03 answer fallback used the v3 record-input key. Read only a matching
+  // answer envelope; never rewrite or interpret a legacy original note as a reply.
+  useEffect(() => {
+    let active = true;
+    if (
+      pendingRequest?.kind !== 'memory-edit' ||
+      pendingRequest.planId !== pack?.id ||
+      pendingRequest.answerText ||
+      ['applied', 'cancelled'].includes(pendingRequest.status)
+    )
+      return;
+    void loadAiFormDraft(`memory:${pack.id}`)
+      .then((stored) => {
+        if (!active || !stored || typeof stored !== 'object' || 'title' in stored) return;
+        const old = stored as { requestId?: string; experienceId?: string; note?: string };
+        if (old.requestId === pendingRequest.id && old.experienceId === experience.id && old.note) {
+          setAiReply(old.note);
+          answerSave.save(old.note);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [
+    pendingRequest?.id,
+    pendingRequest?.status,
+    pendingRequest?.answerText,
+    pack?.id,
+    experience.id,
+  ]);
 
   useEffect(() => {
     const payload = pendingRequest?.payload as

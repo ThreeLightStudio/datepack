@@ -1,5 +1,11 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
-import { createAssetsFromFiles, createId, registerAsset, type Experience } from '@datepack/core';
+import {
+  createAssetsFromFiles,
+  createId,
+  registerAsset,
+  type DatePack,
+  type Experience,
+} from '@datepack/core';
 import {
   connectRecord,
   deleteRecord,
@@ -26,6 +32,16 @@ import {
   type RecordSummary,
 } from './recordLibrary';
 import { RecordCard } from './RecordCard';
+import { listPacks } from '../../storage/indexedDb';
+import {
+  emptyRecordDraft as emptyDraft,
+  editDraftKey,
+  hasRecordInput,
+  persistRecordDraft,
+  restoreRecordDrafts,
+  flushRecordDrafts,
+  type RecordDraft as Draft,
+} from './recordDrafts';
 
 export type RecordHubHandle = {
   choosePhotos: () => void;
@@ -43,25 +59,6 @@ type Panel =
   | 'viewer'
   | 'delete'
   | null;
-type Draft = {
-  original?: RecordSummary;
-  title: string;
-  note: string;
-  date: string;
-  time: string;
-  place: string;
-  outcome: Experience['outcome'];
-  assetIds: string[];
-};
-const emptyDraft = (): Draft => ({
-  title: '',
-  note: '',
-  date: '',
-  time: '',
-  place: '',
-  outcome: 'note',
-  assetIds: [],
-});
 const PHOTO_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.heic,.heif';
 
 export function RecordHub({
@@ -93,8 +90,46 @@ export function RecordHub({
   const files = panel === 'edit' ? editFiles : photoFiles;
   const setFiles = panel === 'edit' ? setEditFiles : setPhotoFiles;
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const editDrafts = useRef(new Map<string, Draft>());
-  const newDraft = useRef<Draft>(emptyDraft());
+  const drafts = useRef(new Map<string, Draft>());
+  const [draftKey, setDraftKey] = useState('new');
+  const [draftRows, setDraftRows] = useState<Array<[string, Draft]>>([]);
+  const [draftsReady, setDraftsReady] = useState(false);
+  const [draftError, setDraftError] = useState(false);
+  const [latestConnection, setLatestConnection] = useState<DatePack | null>(null);
+  function refreshDraftRows() {
+    setDraftRows([...drafts.current].filter(([, value]) => hasRecordInput(value)));
+  }
+  async function restoreDrafts() {
+    try {
+      drafts.current = await restoreRecordDrafts(await listPacks());
+      refreshDraftRows();
+      setDraftsReady(true);
+      setDraftError(false);
+    } catch {
+      setDraftError(true);
+    }
+  }
+  async function retryDraftStorage() {
+    if (!draftsReady) return restoreDrafts();
+    try {
+      await Promise.all([...drafts.current].map(([key, value]) => persistRecordDraft(key, value)));
+      setDraftError(false);
+    } catch {
+      setDraftError(true);
+    }
+  }
+  useEffect(() => {
+    void restoreDrafts();
+  }, []);
+  useEffect(() => {
+    if (panel !== 'edit' || !draftsReady) return;
+    drafts.current.set(draftKey, draft);
+    refreshDraftRows();
+    void persistRecordDraft(draftKey, draft).then(
+      () => setDraftError(false),
+      () => setDraftError(true),
+    );
+  }, [draft, draftKey, panel, draftsReady]);
   const [editingPhotos, setEditingPhotos] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -122,26 +157,37 @@ export function RecordHub({
   function close() {
     if (lock.current) return;
     if (panel === 'edit') {
-      if (draft.original) {
-        editDrafts.current.set(recordKey(draft.original), draft);
-        editFileDrafts.current.set(recordKey(draft.original), editFiles);
-      } else {
-        newDraft.current = draft;
-        newFiles.current = editFiles;
-      }
+      editFileDrafts.current.set(draftKey, editFiles);
+      if (draftKey === 'new') newFiles.current = editFiles;
     }
     setPanel(null);
   }
+  function resumeDraft(key: string, value: Draft) {
+    setConflict(false);
+    setLatestRecord(null);
+    setLatestConnection(null);
+    setDraftKey(key);
+    setDraft(value);
+    setEditFiles(editFileDrafts.current.get(key) ?? (key === 'new' ? newFiles.current : []));
+    setEditingPhotos(false);
+    restoreRecordFocus.current = false;
+    open('edit');
+  }
   function beginEdit(row?: RecordSummary) {
+    if (!draftsReady) return;
+    setDraftKey(row ? editDraftKey(row) : 'new');
+    setLatestConnection(null);
     setConflict(false);
     setLatestRecord(null);
     if (!row) restoreRecordFocus.current = false;
-    setEditFiles(row ? (editFileDrafts.current.get(recordKey(row)) ?? []) : newFiles.current);
+    setEditFiles(
+      editFileDrafts.current.get(row ? editDraftKey(row) : 'new') ?? (row ? [] : newFiles.current),
+    );
     setEditingPhotos(false);
     const e = row?.experience;
     setDraft(
       row
-        ? (editDrafts.current.get(recordKey(row)) ?? {
+        ? (drafts.current.get(editDraftKey(row)) ?? {
             original: row,
             title: e?.title ?? '',
             note: e?.note ?? '',
@@ -151,7 +197,7 @@ export function RecordHub({
             outcome: e?.outcome ?? 'note',
             assetIds: [...(e?.assetIds ?? [])],
           })
-        : newDraft.current,
+        : (drafts.current.get('new') ?? emptyDraft()),
     );
     open('edit');
   }
@@ -192,6 +238,21 @@ export function RecordHub({
     setError('');
     try {
       const original = photoOnly ? undefined : draft.original;
+      const connection = photoOnly ? undefined : draft.connection;
+      if (!photoOnly) {
+        await persistRecordDraft(draftKey, draft);
+        await flushRecordDrafts();
+      }
+      if (connection?.eventId) {
+        const connected = getStoreState().savedDocuments.find(
+          ({ pack }) => pack.id === connection.packId,
+        )?.pack;
+        if (
+          connected?.kind !== 'outing' ||
+          !connected.plan.events.some((event) => event.id === connection.eventId)
+        )
+          throw new Error('revision-conflict');
+      }
       const registry = { assets: [...(original?.pack.assets ?? [])] };
       const created = await createAssetsFromFiles(files);
       const writes = created.map(({ asset, blob }) => ({
@@ -206,11 +267,12 @@ export function RecordHub({
         ? undefined
         : draft.note === original?.experience.note
           ? draft.note
-          : draft.note.trim() || undefined;
+          : draft.note || undefined;
       const occurredOn = occurrence?.date ?? draft.date;
       const time = occurrence?.time ?? draft.time;
       const experience: Experience = {
         ...original?.experience,
+        ...(connection?.eventId ? { eventId: connection.eventId } : {}),
         id: original?.experience.id ?? createId('experience'),
         recordedAt: original?.experience.recordedAt ?? new Date().toISOString(),
         title: photoOnly ? undefined : draft.title.trim() || undefined,
@@ -245,17 +307,25 @@ export function RecordHub({
         source: original?.experience.source ?? { kind: 'user' },
       };
       const saved = await saveRecord(experience, {
-        ...(original ? { packId: original.packId, expectedRevision: original.pack.revision } : {}),
+        ...(original
+          ? { packId: original.packId, expectedRevision: original.pack.revision }
+          : connection
+            ? { packId: connection.packId, expectedRevision: connection.revision }
+            : {}),
+        ...(!photoOnly ? { recordDraftKey: draftKey } : {}),
         assetWrites: writes,
       });
       setTarget({ packId: saved.id, experienceId: experience.id });
       setFiles([]);
       if (original) {
-        editDrafts.current.delete(recordKey(original));
-        editFileDrafts.current.delete(recordKey(original));
+        editFileDrafts.current.delete(draftKey);
       } else if (!photoOnly) {
-        newDraft.current = emptyDraft();
         newFiles.current = [];
+      }
+      if (!photoOnly) {
+        drafts.current.delete(draftKey);
+        editFileDrafts.current.delete(draftKey);
+        refreshDraftRows();
       }
       setDraft(emptyDraft());
       setPanel(original ? 'detail' : 'saved');
@@ -273,11 +343,26 @@ export function RecordHub({
   }
 
   async function compareLatest() {
-    if (!draft.original || lock.current) return;
+    if ((!draft.original && !draft.connection) || lock.current) return;
     lock.current = true;
     setBusy(true);
     try {
       await refreshLibrary();
+      if (draft.connection && !draft.original) {
+        const latest = getStoreState().savedDocuments.find(
+          ({ pack }) => pack.id === draft.connection!.packId,
+        )?.pack;
+        if (!latest) {
+          setError(
+            ko
+              ? '연결할 일정이 삭제됐어요. 초안은 유지했어요.'
+              : 'The linked plan was deleted. Your draft is kept.',
+          );
+          return;
+        }
+        setLatestConnection(latest);
+        return;
+      }
       const latest = collectRecords(getStoreState().savedDocuments).find(
         (row) => recordKey(row) === recordKey(draft.original!),
       );
@@ -468,11 +553,54 @@ export function RecordHub({
               <CameraIcon width={18} height={18} />
               {ko ? '사진 남기기' : 'Save photos'}
             </button>
-            <button type="button" className="btn btn-soft" onClick={() => beginEdit()}>
+            <button
+              type="button"
+              className="btn btn-soft"
+              disabled={!draftsReady}
+              onClick={() => beginEdit()}
+            >
               <NoteIcon width={18} height={18} />
               {ko ? '글만 남기기' : 'Write a note'}
             </button>
           </div>
+          {draftError && (
+            <p className="form-error" role="alert">
+              {ko
+                ? '초안을 기기에 보관하지 못했어요. 입력을 유지하고 다시 시도하세요.'
+                : 'Could not keep your draft on this device. Your input is kept; retry.'}{' '}
+              <button
+                type="button"
+                className="text-action"
+                onClick={() => void retryDraftStorage()}
+              >
+                {ko ? '초안 보관 다시 시도' : 'Retry draft storage'}
+              </button>
+            </p>
+          )}
+          {draftRows.length > 0 && (
+            <section aria-label={ko ? '작성 중인 기록' : 'Memory drafts'}>
+              <p className="hint-text">
+                {ko
+                  ? '작성 중인 기록 · 저장 버튼을 눌러야 기록이 완성돼요.'
+                  : 'Drafts · Use Save memory to finish a record.'}
+              </p>
+              {draftRows.map(([key, value]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="draft-resume"
+                  onClick={() => resumeDraft(key, value)}
+                >
+                  {ko ? '초안 이어 쓰기' : 'Resume draft'} ·{' '}
+                  {value.title ||
+                    value.original?.experience.title ||
+                    value.connection?.title ||
+                    (ko ? '새 기록' : 'New memory')}
+                  {value.original ? (ko ? ' · 편집 중' : ' · Editing') : ''}
+                </button>
+              ))}
+            </section>
+          )}
           {photoFiles.length > 0 && panel !== 'edit' && (
             <button type="button" className="draft-resume" onClick={() => open('preview')}>
               {ko
@@ -716,7 +844,6 @@ export function RecordHub({
                     date: String(fields.get('experience-date') ?? ''),
                     time: String(fields.get('experience-time') ?? ''),
                   };
-                  setDraft((before) => ({ ...before, ...occurrence }));
                   void persist(false, occurrence);
                 }}
               >
@@ -726,6 +853,46 @@ export function RecordHub({
                       ? '사진 없이 남길 때는 제목이나 메모를 적어주세요.'
                       : 'To save without photos, add a title or note.'}
                   </p>
+                )}
+                <p className="hint-text" role="status">
+                  {ko
+                    ? '입력은 초안으로 자동 보관돼요. 기록 완성은 저장 버튼으로 확인하세요. 선택한 새 사진은 앱을 종료하면 다시 골라야 해요.'
+                    : 'Words are kept as a draft. Use Save memory to finish. Newly selected photos must be selected again after closing the app.'}
+                </p>
+                {draftError && (
+                  <p className="form-error" role="alert">
+                    {ko
+                      ? '초안을 보관하지 못했어요. 입력은 그대로예요.'
+                      : 'Could not keep the draft. Your input is still here.'}
+                    <button
+                      type="button"
+                      className="text-action"
+                      onClick={() =>
+                        void persistRecordDraft(draftKey, draft).then(
+                          () => setDraftError(false),
+                          () => setDraftError(true),
+                        )
+                      }
+                    >
+                      {ko ? '다시 보관하기' : 'Retry keeping draft'}
+                    </button>
+                  </p>
+                )}
+                {draft.connection && (
+                  <div className="record-connection">
+                    <p>
+                      {ko ? '연결할 일정' : 'Linked plan'} · {draft.connection.title}
+                      {draft.connection.eventTitle ? ` · ${draft.connection.eventTitle}` : ''}
+                    </p>
+                    <button
+                      type="button"
+                      className="text-action"
+                      disabled={busy}
+                      onClick={() => change('connection', undefined)}
+                    >
+                      {ko ? '일정 없이 저장하기로 변경' : 'Save independently instead'}
+                    </button>
+                  </div>
                 )}
                 {conflict && (
                   <div className="record-conflict">
@@ -742,6 +909,41 @@ export function RecordHub({
                     >
                       {ko ? '최신 기록 불러와 비교' : 'Load latest memory to compare'}
                     </button>
+                    {latestConnection?.kind === 'outing' && (
+                      <>
+                        <p>
+                          {ko ? '최신 일정' : 'Latest plan'} · {latestConnection.plan.title} ·{' '}
+                          {draft.connection?.eventId
+                            ? latestConnection.plan.events.find(
+                                (event) => event.id === draft.connection?.eventId,
+                              )?.title ||
+                              (ko ? '선택한 활동이 삭제됐어요' : 'Selected activity was deleted')
+                            : ''}
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-soft"
+                          disabled={
+                            !!draft.connection?.eventId &&
+                            !latestConnection.plan.events.some(
+                              (event) => event.id === draft.connection?.eventId,
+                            )
+                          }
+                          onClick={() => {
+                            change('connection', {
+                              ...draft.connection!,
+                              revision: latestConnection.revision,
+                              title: latestConnection.plan.title,
+                            });
+                            setConflict(false);
+                            setLatestConnection(null);
+                            setError('');
+                          }}
+                        >
+                          {ko ? '최신 일정에 연결해 이어 쓰기' : 'Continue with the latest plan'}
+                        </button>
+                      </>
+                    )}
                     {latestRecord && (
                       <>
                         <h3>{ko ? '최신 기록' : 'Latest memory'}</h3>

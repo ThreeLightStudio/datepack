@@ -3,6 +3,7 @@ import { loadAiFormDraft, saveAiFormDraft, type PendingRequest } from '../../sto
 import { savePendingAnswer } from '../../store/datepackStore';
 
 const drafts = new Map<string, Record<string, string>>();
+export const memoryAnswerDraftKey = (documentId: string): string => `memory-answer:${documentId}`;
 const queues = new Map<string, Promise<unknown>>();
 const subscribers = new Map<string, Set<(value: Record<string, string>) => void>>();
 function publish(key: string, value: Record<string, string>): void {

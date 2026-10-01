@@ -1245,7 +1245,12 @@ async function listOutings(): Promise<SavedPackSummary[]> {
 /** Library actions do not discard selected photos or drafts on a failed write. */
 export async function saveRecord(
   experience: Experience,
-  options: { packId?: string; expectedRevision?: number; assetWrites?: AssetWrite[] } = {},
+  options: {
+    packId?: string;
+    expectedRevision?: number;
+    assetWrites?: AssetWrite[];
+    recordDraftKey?: string;
+  } = {},
 ): Promise<DatePack> {
   const document = await saveExperience(experience, options);
   await presentSavedDocument(document);

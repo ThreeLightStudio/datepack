@@ -2234,6 +2234,7 @@ div.asset-placeholder,
 }
 .draft-resume {
   width: 100%;
+  overflow-wrap: anywhere;
   color: var(--color-primary-deep);
   background: var(--color-primary-light);
   border-radius: 12px;

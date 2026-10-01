@@ -108,6 +108,24 @@ export async function saveAiFormDraft(key: string, value: unknown): Promise<void
   await (await getDb()).put('meta', structuredClone(value), `ai-form:${key}`);
 }
 
+/** Text/metadata only; null marks a consumed legacy draft so it cannot be imported twice. */
+export async function listRecordFormDrafts(): Promise<Map<string, unknown>> {
+  const tx = (await getDb()).transaction('meta');
+  const [keys, values] = await Promise.all([tx.store.getAllKeys(), tx.store.getAll()]);
+  await tx.done;
+  return new Map(
+    keys.flatMap((key, index) =>
+      typeof key === 'string' && key.startsWith('record-form:')
+        ? [[key.slice('record-form:'.length), values[index]] as const]
+        : [],
+    ),
+  );
+}
+
+export async function saveRecordFormDraft(key: string, value: unknown): Promise<void> {
+  await (await getDb()).put('meta', structuredClone(value), `record-form:${key}`);
+}
+
 export async function savePendingRequest(
   request: PendingRequest | undefined,
   expected: PendingRequestGuard | null,
@@ -656,9 +674,10 @@ export async function commitExperienceChange(
   assets?: DatePackAsset[],
   assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
   aiGuard?: AiCommitGuard,
+  recordDraftKey?: string,
 ): Promise<DatePack> {
   const db = await getDb();
-  const tx = db.transaction(['packsV4', 'assets', 'device'], 'readwrite');
+  const tx = db.transaction(['packsV4', 'assets', 'device', 'meta'], 'readwrite');
   try {
     const row = await tx.objectStore('packsV4').get(planId);
     if (!row) {
@@ -773,6 +792,7 @@ export async function commitExperienceChange(
         filename: asset.filename,
       });
     }
+    if (recordDraftKey) await tx.objectStore('meta').put(null, `record-form:${recordDraftKey}`);
     await tx.done;
     return pack;
   } catch (error) {
@@ -1151,7 +1171,12 @@ export type AssetWrite = { asset: DatePackAsset; blob: Blob };
 /** Create or edit a record and all new photos in one durable transaction. */
 export async function saveExperience(
   experience: Experience,
-  options: { packId?: string; expectedRevision?: number; assetWrites?: AssetWrite[] } = {},
+  options: {
+    packId?: string;
+    expectedRevision?: number;
+    assetWrites?: AssetWrite[];
+    recordDraftKey?: string;
+  } = {},
 ): Promise<DatePack> {
   const writes = options.assetWrites ?? [];
   if (options.packId) {
@@ -1168,7 +1193,15 @@ export async function saveExperience(
       if (assets.some((item) => item.id === asset.id)) throw new Error('asset-id-conflict');
       assets.push(asset);
     }
-    return commitExperienceChange(before.id, options.expectedRevision, experiences, assets, writes);
+    return commitExperienceChange(
+      before.id,
+      options.expectedRevision,
+      experiences,
+      assets,
+      writes,
+      undefined,
+      options.recordDraftKey,
+    );
   }
   const pack = createMemoriesPack(
     [experience],
@@ -1193,6 +1226,8 @@ export async function saveExperience(
           filename: asset.filename,
         });
     await tx.objectStore('meta').put(pack.id, CURRENT_PACK_KEY);
+    if (options.recordDraftKey)
+      await tx.objectStore('meta').put(null, `record-form:${options.recordDraftKey}`);
     await tx.done;
     return pack;
   } catch (error) {
