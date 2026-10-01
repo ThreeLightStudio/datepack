@@ -13,10 +13,10 @@ export function RequestResume({
   onResume: () => void;
   onToday: () => void;
 }) {
-  const { pack, runtime, pendingRequest: request, liveContext } = useStore();
+  const { document, pack, runtime, pendingRequest: request, liveContext } = useStore();
   const ko = useLocale() === 'ko';
   const now = useNow(30_000);
-  if (!pack || !request || request.planId !== pack.id || request.status === 'cancelled')
+  if (!document || !request || request.planId !== document.id || request.status === 'cancelled')
     return null;
   if (request.status === 'applied') {
     if (request.kind === 'memory-edit')
@@ -27,6 +27,7 @@ export function RequestResume({
             : 'Edited wording saved alongside the original.'}
         </div>
       );
+    if (!pack) return null;
     // Use the same chosen event as Today, including a choice beyond the first upcoming stop.
     const ctx = computeDayContext(pack.plan, runtime, now);
     const { destination } = resolveDayDestination(

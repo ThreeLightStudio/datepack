@@ -66,6 +66,7 @@ import { reorderPlan, adjustReorderedTimes } from '../features/plan/reorder';
 import { parseMemoryReply } from '../features/memories/aiMemory';
 import { getAiScopeEventIds } from '../features/ai/promptBuilder';
 import { t, getLocale, type I18nIssue } from '../i18n/core';
+import { summarizeActivity, type LibraryActivity } from '../features/home/libraryActivity';
 
 export type SavedPackSummary = { pack: OutingDatePack; savedAt: string };
 
@@ -78,6 +79,7 @@ export type StoreState = {
   pack: OutingDatePack | null;
   document: DatePack | null;
   savedDocuments: Array<{ pack: DatePack; savedAt: string }>;
+  savedActivities: LibraryActivity[];
   runtime: DatePackRuntimeState | null;
   savedPacks: SavedPackSummary[];
   undoStack: UndoEntry[];
@@ -95,6 +97,7 @@ let state: StoreState = {
   pack: null,
   document: null,
   savedDocuments: [],
+  savedActivities: [],
   runtime: null,
   savedPacks: [],
   undoStack: [],
@@ -121,6 +124,27 @@ function setState(patch: Partial<StoreState>): void {
     );
   }
   state = { ...state, ...patch };
+  if (patch.savedDocuments) {
+    const ids = new Set(patch.savedDocuments.map(({ pack }) => pack.id));
+    state.savedActivities = state.savedActivities.filter((item) => ids.has(item.packId));
+  }
+  if (
+    state.document &&
+    ['document', 'pack', 'pendingRequest', 'liveContext', 'runtime'].some((key) => key in patch)
+  ) {
+    const activity = summarizeActivity(
+      state.document,
+      {
+        pendingRequest: state.pendingRequest ?? undefined,
+        liveContext: state.liveContext ?? undefined,
+      },
+      state.runtime,
+    );
+    state.savedActivities = [
+      ...state.savedActivities.filter((item) => item.packId !== activity.packId),
+      activity,
+    ];
+  }
   for (const listener of listeners) listener();
 }
 
@@ -195,6 +219,7 @@ export async function initStore(): Promise<void> {
     const savedPacks = savedDocuments.filter(
       (row): row is SavedPackSummary => row.pack.kind === 'outing',
     );
+    const savedActivities = await readLibraryActivities(savedDocuments);
     if (!document) {
       setState({
         status: 'empty',
@@ -203,6 +228,7 @@ export async function initStore(): Promise<void> {
         runtime: null,
         savedPacks,
         savedDocuments,
+        savedActivities,
         undoStack: [],
         liveContext: null,
         contextRevision: 0,
@@ -223,6 +249,7 @@ export async function initStore(): Promise<void> {
       runtime: document.kind === 'outing' ? (runtime ?? emptyRuntime(document.id)) : null,
       savedPacks,
       savedDocuments,
+      savedActivities,
       undoStack: document.kind === 'outing' ? device.undoStack : [],
       liveContext: device.liveContext ?? null,
       contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
@@ -1194,7 +1221,8 @@ export async function deletePackById(packId: string): Promise<void> {
 
 async function listOutings(): Promise<SavedPackSummary[]> {
   const documents = await listPacks();
-  setState({ savedDocuments: documents });
+  const savedActivities = await readLibraryActivities(documents);
+  setState({ savedDocuments: documents, savedActivities });
   return documents.filter((row): row is SavedPackSummary => row.pack.kind === 'outing');
 }
 
@@ -1243,10 +1271,27 @@ export async function deleteRecord(
 }
 export async function refreshLibrary(): Promise<void> {
   const savedDocuments = await listPacks();
+  const savedActivities = await readLibraryActivities(savedDocuments);
   setState({
     savedDocuments,
+    savedActivities,
     savedPacks: savedDocuments.filter((row): row is SavedPackSummary => row.pack.kind === 'outing'),
   });
+}
+
+/** Device/request metadata is small; no photo binaries are loaded for the home screen. */
+async function readLibraryActivities(
+  documents: Array<{ pack: DatePack }>,
+): Promise<LibraryActivity[]> {
+  return Promise.all(
+    documents.map(async ({ pack }) => {
+      const [device, runtime] = await Promise.all([
+        loadDeviceState(pack.id),
+        pack.kind === 'outing' ? loadRuntime(pack.id) : Promise.resolve(undefined),
+      ]);
+      return summarizeActivity(pack, device, runtime);
+    }),
+  );
 }
 /** Export any document without changing the current selection. */
 export async function exportPackById(packId: string): Promise<void> {
