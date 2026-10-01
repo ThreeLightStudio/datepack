@@ -121,4 +121,6 @@ PWA, 외부 AI 대화의 footer 준수, OS 공유 시트는 후속 live/device �
 저장·재실행 보존을 확인했다. 실제 OS 다운로드 파일 회수/재가져오기는 환경 제한으로 미검증이다.
 A10–A19의 GPS·서비스 성공 및 저장 실패/동시성은 모의 자동 검사 근거이며 실서비스/실기기
 통과가 아니다. pointercancel/held edge/실제 touch, iOS/Android/PWA/VoiceOver/OS 공유와 실제 외부
-AI 반응 준수는 미검증으로 남긴다. T07 대본과 녹화 없는 실제 리허설은 아직 수행하지 않았다.
+AI 반응 준수는 미검증으로 남긴다. T07의 [60초 대본](demo-video-script.md)과
+[녹화 없는 실제 리허설](demo-rehearsal.md)은 desktop/CSS390px에서 수제 memory 답안으로
+수행했다. 외부 LLM·영상 제작·게시 통과로 확장하지 않으며 메인 검토를 기다린다.

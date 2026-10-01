@@ -14,19 +14,19 @@
 [repo 체크포인트](T05-handoff.md)는 과거 기록이며, canonical T05-handoff/review의
 review-passed와 실제 reviewer 보완 결과를 확인하고 이어서 작업했다.
 
-| 확인                                                      | 결과      | 증거 및 범위                                                                                                                                                                                |
-| --------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm verify`                                             | 통과      | format/lint/typecheck, 앱133/core101(총234). `tests/t06Integration.test.ts`는 정식 보관 fixture의 후보/미정/보호/원문/next/roundtrip 확인                                                   |
-| `pnpm build`                                              | 통과      | Vite/PWA15 precache entries,906.57KiB. JS612.07kB(gzip186.68kB), CSS266.02kB(gzip86.07kB);500kB JS 경고 남음                                                                                |
-| `git diff --check`                                        | 통과      | 최종 문서/커밋 직전 확인                                                                                                                                                                    |
-| Chrome 개발 UI                                            | 통과      | 빈 AI 생성/답안 닫기·reload 복귀/적용/목적지, 실제 긴 목록 pointer·keyboard·undo·noop, 보호/미확인 차단, 선택next05, mismatch/stale, 후기 원문/editedNote                                   |
-| 최신 생산 빌드 서버 중단                                  | 통과      | localhost4176/datepack/ preview를 종료하고 connection refusal 확인. 캐시 앱 reload, 활동 수정 저장, 후기 저장, 다시reload 보존. 데스크톱 local origin, 전체 네트워크 차단/설치PWA 검증 아님 |
-| impeccable audit(A36)                                     | 통과/후속 | [report](ui-audit.md)15/20, detector1회0 findings. 한 fix batch와 한 confirmation batch. 열린 P2 네 개                                                                                      |
-| DOM mobile/언어                                           | 통과/한계 | Chrome CSS390×844,320×740 가로 넘침 없음. ko/en actual 화면. emulated viewport이며 실기기 touch는 아님                                                                                      |
-| 브라우저 파일 가져오기                                    | 환경 제한 | 이번 IAB chooser setFiles 시간 초과. canonical T05 reviewer의 정상 import 확인은 선행 증거이며 이번 T06 성공으로 재분류하지 않음. 정식 파일은 public core API roundtrip 통과                |
-| 파일 다운로드 회수                                        | 미검증    | Chrome download 완료event timeout, macOS Downloads 읽기 Operation not permitted. 실제 파일/OS 재가져오기 성공을 주장하지 않음                                                               |
-| GPS/공개 운영 route/외부 AI/OS 공유/PWA 실기기/스크린리더 | 미검증    | 모의 geolocation/route/LLM envelope 및 저장 failure 검사를 live/device 근거로 확장하지 않음. APP_ROUTING_POLICY/resolver disabled 유지                                                      |
-| T07 대본/녹화 없는 실제 리허설                            | 미실행    | 이후 필수 단계. T06만으로 제품 전체 완료 또는 게시 준비 확정을 선언하지 않음                                                                                                                |
+| 확인                                                      | 결과                  | 증거 및 범위                                                                                                                                                                                |
+| --------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm verify`                                             | 통과                  | format/lint/typecheck, 앱133/core101(총234). `tests/t06Integration.test.ts`는 정식 보관 fixture의 후보/미정/보호/원문/next/roundtrip 확인                                                   |
+| `pnpm build`                                              | 통과                  | Vite/PWA15 precache entries,906.57KiB. JS612.07kB(gzip186.68kB), CSS266.02kB(gzip86.07kB);500kB JS 경고 남음                                                                                |
+| `git diff --check`                                        | 통과                  | 최종 문서/커밋 직전 확인                                                                                                                                                                    |
+| Chrome 개발 UI                                            | 통과                  | 빈 AI 생성/답안 닫기·reload 복귀/적용/목적지, 실제 긴 목록 pointer·keyboard·undo·noop, 보호/미확인 차단, 선택next05, mismatch/stale, 후기 원문/editedNote                                   |
+| 최신 생산 빌드 서버 중단                                  | 통과                  | localhost4176/datepack/ preview를 종료하고 connection refusal 확인. 캐시 앱 reload, 활동 수정 저장, 후기 저장, 다시reload 보존. 데스크톱 local origin, 전체 네트워크 차단/설치PWA 검증 아님 |
+| impeccable audit(A36)                                     | 통과/후속             | [report](ui-audit.md)15/20, detector1회0 findings. 한 fix batch와 한 confirmation batch. 열린 P2 네 개                                                                                      |
+| DOM mobile/언어                                           | 통과/한계             | Chrome CSS390×844,320×740 가로 넘침 없음. ko/en actual 화면. emulated viewport이며 실기기 touch는 아님                                                                                      |
+| 브라우저 파일 가져오기                                    | 환경 제한             | 이번 IAB chooser setFiles 시간 초과. canonical T05 reviewer의 정상 import 확인은 선행 증거이며 이번 T06 성공으로 재분류하지 않음. 정식 파일은 public core API roundtrip 통과                |
+| 파일 다운로드 회수                                        | 미검증                | Chrome download 완료event timeout, macOS Downloads 읽기 Operation not permitted. 실제 파일/OS 재가져오기 성공을 주장하지 않음                                                               |
+| GPS/공개 운영 route/외부 AI/OS 공유/PWA 실기기/스크린리더 | 미검증                | 모의 geolocation/route/LLM envelope 및 저장 failure 검사를 live/device 근거로 확장하지 않음. APP_ROUTING_POLICY/resolver disabled 유지                                                      |
+| T07 대본/녹화 없는 실제 리허설                            | 실행 완료 · 검토 대기 | [60초 대본](demo-video-script.md), [desktop/CSS390px 실제 UI](demo-rehearsal.md). 수제 AI 답안, 원문/수정본 저장·복귀. 영상 촬영·자막·export·게시 미실행                                    |
 
 실제 화면은 `docs/evidence/t06/`, detector는 `detector.json`, 세부 관찰/제약/후속 P2는
 [UI audit](ui-audit.md)에 있다. 기존 데이터 삭제, push/PR/배포/영상 촬영/영상 export/게시 없음.
@@ -110,7 +110,8 @@ review-passed와 실제 reviewer 보완 결과를 확인하고 이어서 작업�
 
 ## 릴리스 전 후속 확인
 
-T07의 한 가지 workflow 대본과 녹화 없는 실제 화면 리허설을 먼저 수행한다.
+T07의 [한 가지 workflow 대본](demo-video-script.md)과
+[녹화 없는 실제 화면 리허설](demo-rehearsal.md)을 수행했다. 메인 최종 검토는 남아 있다.
 파일 picker/download 권한 환경, 실제 touch/pointercancel/장시간 edge hold와 UI audit P2도
 별도 확인한다. 자동 검사/일반 브라우저 통과만으로 이러한 범위를 완료로 표시하지 않는다.
 

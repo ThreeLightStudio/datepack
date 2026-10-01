@@ -16,7 +16,13 @@ export function DraftSaveError({ retry }: { retry: () => void }) {
   );
 }
 
-export function RequestHelp({ correction = false }: { correction?: boolean }) {
+export function RequestHelp({
+  correction = false,
+  purpose = 'plan',
+}: {
+  correction?: boolean;
+  purpose?: 'plan' | 'memory';
+}) {
   const ko = useLocale() === 'ko';
   return (
     <p className="hint-text">
@@ -24,9 +30,13 @@ export function RequestHelp({ correction = false }: { correction?: boolean }) {
         ? ko
           ? '형식 오류라면 AI에게 “같은 요청의 식별값을 유지하고, 승인한 결과를 요청문의 JSON 형식 하나로만 다시 주세요”라고 알려주세요. 다른 요청의 답이면 새 요청을 사용하세요.'
           : 'For a format error, ask your AI: “Keep this request’s identity and return the approved result as one JSON object in the requested format.” Use a new request for a different reply.'
-        : ko
-          ? '요청을 복사하거나 공유 → 쓰는 AI에서 대화하고 승인 → 답안을 이곳에 붙여넣기. 입력은 기기에 저장되고, 확인 적용 전에는 계획이 바뀌지 않아요.'
-          : 'Copy or share → discuss and approve in your AI → paste the reply here. Entries stay on this device. Review and apply to change the plan.'}
+        : purpose === 'memory'
+          ? ko
+            ? '요청을 복사하거나 공유 → 쓰는 AI에서 대화하고 승인 → 답안을 이곳에 붙여넣기. 입력은 기기에 저장돼요. 검토 후 다듬은 문장을 저장해도 원문은 그대로 남아요.'
+            : 'Copy or share → discuss and approve in your AI → paste the reply here. Entries stay on this device. Review and save the wording alongside the unchanged original.'
+          : ko
+            ? '요청을 복사하거나 공유 → 쓰는 AI에서 대화하고 승인 → 답안을 이곳에 붙여넣기. 입력은 기기에 저장되고, 확인 적용 전에는 계획이 바뀌지 않아요.'
+            : 'Copy or share → discuss and approve in your AI → paste the reply here. Entries stay on this device. Review and apply to change the plan.'}
     </p>
   );
 }

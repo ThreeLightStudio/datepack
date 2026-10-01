@@ -108,4 +108,22 @@ reduced-motion에서는 입장/맥박/조작 transition만 제거하며 내용·
   200% text zoom, 저속망 performance trace, 공개 운영 route/GPS reverse는 미검증.
 - APP_ROUTING_POLICY operational gate/FOSSGIS contact/attribution/Referer/조건 확인이 충족되지 않아
   기본 provider/resolver는 계속 disabled다. T01 live HTTP/CORS fixture는 운영 준비 증거가 아니다.
-- 기존 데이터 삭제·push/PR/배포·영상촬영·영상 export·외부 게시 없음. **T07 대본/녹화 없는 리허설 미실행**.
+- 기존 데이터 삭제·push/PR/배포·영상촬영·영상 export·외부 게시 없음. T06 시점에는 **T07 대본/녹화 없는 리허설 미실행**이었다.
+
+## T07 영향 UI 확인 · 2026-10-01
+
+[대본](demo-video-script.md)의 한 후기 편집 workflow를 실제 Chrome에서 실행했다.
+[리허설 근거](demo-rehearsal.md)에 수제 답안, 버튼·입력·검토·저장·복귀와 한계를 기록했다.
+사전 desktop/mobile 관찰 → 한 batch 수정 → 한 desktop/mobile 확인으로 마쳤다.
+전체 UI를 다시 점수화하지 않았고 위15/20 및 P2 네 개는 그대로 열린다.
+
+- RequestHelp의 memory 안내를 원문 보존·검토 저장으로 좁혔다. plan 안내의 기본값은 유지했다.
+- editedNote가 있는 카드에 원문 라벨을 추가했다. 기존 rose/cream·타이포·SVG·보호 정책을 유지했다.
+- 실제 CSS1291×828/390×844에서 재실행 답안 복원, 검토/저장 Enter, Tab 이동·포커스 링,
+  원문과 수정본의 결과 표시, 화면 전환 뒤 보존을 확인했다. 문서 overflow0.
+  390px 검토 저장 버튼은133.87×47.25px로 하단 navigation 위에 표시됐다.
+- ko/en390px 새 안내가 줄바꿈되며 읽을 수 있었다. 보조기술·200% text zoom·실기기 keyboard는 미검증이다.
+- 변경한 두 컴포넌트 detector 한 번: [결과](evidence/t07/detector.json) `[]`.
+  수정 전후의 상세 화면은 `docs/evidence/t07/`. JS 빌드612.68kB(gzip186.76kB), 기존500kB 경고 잔존.
+- T07 실제 UI 리허설은 완료, 메인 검토 대기. 외부 LLM·공개 경로·실기기 성공이나
+  영상 촬영·자막 제작·export·게시 완료를 주장하지 않는다.

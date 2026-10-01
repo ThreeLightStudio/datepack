@@ -4,7 +4,9 @@
 [AI 흐름 계약](ai-flow-contract.md), [수용 기준](ai-flow-acceptance.md)이 현재 동작의
 권위다. 초기 논의에서 남긴 ‘제안/미결정’은 아래 누적 상태와 계약이 우선한다.
 실서비스 경로는 비활성이고 실제 AI·OS 공유·모바일 실기기 검증은 남는다.
-**제품 전체 완료는 T07 대본과 녹화 없는 실제 리허설 이후 판단한다.**
+**T07 대본과 녹화 없는 실제 리허설을 수행했다. 제품 전체 완료는 메인 검토 후 판단한다.**
+한 workflow의 [60초 대본](demo-video-script.md)과 [실제 실행 근거](demo-rehearsal.md)를
+확인한다. 수제 AI 답안과 live LLM 검증을 구분하며 영상 제작·게시를 수행하지 않았다.
 
 실제 사용 맥락과 후속 기능은 [조사](date-context-research.md), 구현 경로는
 [구현 계획](implementation-plan.md), 실제 확인/한계는 [release readiness](release-readiness.md)와

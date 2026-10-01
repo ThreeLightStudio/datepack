@@ -682,7 +682,17 @@ export function MemoriesSection() {
                   <p className="memory-recorded">
                     {ko ? '기록한 시각' : 'Recorded'} · {recorded}
                   </p>
-                  {experience.note && <p className="memory-note">{experience.note}</p>}
+                  {experience.note && (
+                    <p className="memory-note">
+                      {experience.editedNote && (
+                        <>
+                          <strong>{ko ? '원문 — 그대로 보존' : 'Original — kept unchanged'}</strong>
+                          <br />
+                        </>
+                      )}
+                      {experience.note}
+                    </p>
+                  )}
                   {experience.editedNote && (
                     <p className="memory-note">
                       <strong>{ko ? '확인해 저장한 문장' : 'Reviewed wording'}</strong>
@@ -711,7 +721,7 @@ export function MemoriesSection() {
                         tabIndex={-1}
                         aria-label={ko ? 'AI 기록 문장 정리' : 'AI memory wording review'}
                       >
-                        <RequestHelp />
+                        <RequestHelp purpose="memory" />
                         <p className="hint-text">
                           {ko
                             ? '보내는 내용은 이 기록의 제목과 메모뿐이에요. 사진과 계획은 포함하지 않아요.'
@@ -823,7 +833,7 @@ export function MemoriesSection() {
                         {aiReview && 'error' in aiReview && (
                           <div className="form-warning" role="alert">
                             <p>{aiReview.error}</p>
-                            <RequestHelp correction />
+                            <RequestHelp correction purpose="memory" />
                           </div>
                         )}
                       </div>

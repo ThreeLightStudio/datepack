@@ -2,7 +2,8 @@
 
 작성: 2026-09-29 · 갱신: **2026-10-01**. T01–T06의 구현·통합 확인 결과를
 [release readiness](release-readiness.md)와 [UI audit](ui-audit.md)에 기록했다.
-T07 데모 대본/녹화 없는 실제 리허설은 후속 필수 단계이며 아직 수행하지 않았다.
+T07 [60초 데모 대본](demo-video-script.md)과 [녹화 없는 실제 UI 리허설](demo-rehearsal.md)을
+수행했다. desktop/CSS390px에서 후기 문장 저장 흐름과 작은 안내 보완을 재확인했으며 메인 검토 대기다.
 
 현재 권위는 승인된 decisions v3와 [AI 흐름 계약](ai-flow-contract.md)이다. 처음 논의된
 기본 기준을 아래에 보존하지만, GPS/지도/AI/보호/복귀의 충돌은 최신 계약이 우선한다.
