@@ -1,0 +1,18 @@
+T06 final checks · 2026-10-01 Asia/Seoul
+
+pnpm verify: exit 0
+All matched files use the correct format.
+ Test Files  19 passed (19)
+      Tests  133 passed (133)
+ Test Files  9 passed (9)
+      Tests  101 passed (101)
+
+pnpm build: exit 0
+dist/assets/index-CZaSDhx3.css                            266.02 kB │ gzip:  86.07 kB
+dist/assets/index-CiI2jWdV.js                             612.07 kB │ gzip: 186.68 kB
+(!) Some chunks are larger than 500 kB after minification. Consider:
+✓ built in 901ms
+precache  15 entries (906.57 KiB)
+
+Detector: once; [] in detector.json
+Actual UI and limitations: docs/ui-audit.md

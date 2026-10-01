@@ -496,7 +496,7 @@ div.asset-placeholder,
 
 .btn-danger-ghost {
   background: transparent;
-  color: var(--color-error);
+  color: var(--color-error-text);
   border: 1px solid #f6c8c8;
 }
 
@@ -526,7 +526,7 @@ div.asset-placeholder,
 }
 
 .icon-btn.danger {
-  color: var(--color-error);
+  color: var(--color-error-text);
 }
 
 .icon-btn:disabled {
@@ -1035,6 +1035,9 @@ div.asset-placeholder,
   gap: 4px;
 }
 .reorder-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   background: transparent;
   color: var(--color-text-secondary);
@@ -1054,6 +1057,9 @@ div.asset-placeholder,
   outline-offset: 2px;
 }
 .reorder-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
   min-height: 44px;
   padding-inline: 8px;
 }
@@ -1282,13 +1288,13 @@ div.asset-placeholder,
 
 .form-error {
   font: var(--font-caption);
-  color: var(--color-error);
+  color: var(--color-error-text);
   font-weight: 600;
 }
 
 .form-warning {
   font: var(--font-small);
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .thumb-row {
@@ -1632,7 +1638,7 @@ div.asset-placeholder,
 }
 
 .review-list.errors {
-  color: var(--color-error);
+  color: var(--color-error-text);
 }
 
 .undo-btn {

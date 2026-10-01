@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import { sortEventsByOrder } from '@datepack/core';
 import type { DatePlan } from '@datepack/core';
 import { Sheet } from '../../components/Sheet';
+import { ArrowDownIcon, ArrowUpIcon, GripIcon } from '../../components/icons';
 import { format, useLocale } from '../../i18n';
 import {
   commitReviewedReorder,
@@ -26,11 +27,26 @@ export function usePlanReorder(plan: DatePlan) {
     id: string;
     x: number;
     y: number;
+    pointerX: number;
+    pointerY: number;
     moved: boolean;
     target?: string | null;
   } | null>(null);
   const list = useRef<HTMLOListElement>(null);
+  const scrollFrame = useRef<number | null>(null);
   const ordered = sortEventsByOrder(plan.events);
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.hidden) cancel();
+    };
+    window.addEventListener('blur', cancel);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      cancel();
+      window.removeEventListener('blur', cancel);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+  }, [plan.events]);
   async function move(id: string, beforeId: string | null) {
     if (busy) return;
     setBusy(true);
@@ -59,7 +75,15 @@ export function usePlanReorder(plan: DatePlan) {
   function pointerDown(event: PointerEvent<HTMLButtonElement>, id: string) {
     if (busy || !event.isPrimary || event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { id, x: event.clientX, y: event.clientY, moved: false };
+    cancel();
+    drag.current = {
+      id,
+      x: event.clientX,
+      y: event.clientY,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      moved: false,
+    };
   }
   function pointerMove(event: PointerEvent<HTMLButtonElement>) {
     const current = drag.current;
@@ -67,8 +91,16 @@ export function usePlanReorder(plan: DatePlan) {
     if (Math.hypot(event.clientX - current.x, event.clientY - current.y) < 8 && !current.moved)
       return;
     current.moved = true;
+    current.pointerX = event.clientX;
+    current.pointerY = event.clientY;
+    updateTarget();
+    if (scrollFrame.current === null) scrollFrame.current = requestAnimationFrame(scrollAtEdge);
+  }
+  function updateTarget() {
+    const current = drag.current;
+    if (!current) return;
     const element = document
-      .elementFromPoint(event.clientX, event.clientY)
+      .elementFromPoint(current.pointerX, current.pointerY)
       ?.closest<HTMLElement>('[data-event-id]');
     if (!element || !list.current?.contains(element)) {
       current.target = undefined;
@@ -79,15 +111,28 @@ export function usePlanReorder(plan: DatePlan) {
     const box = element.getBoundingClientRect();
     const index = ordered.findIndex((entry) => entry.id === id);
     current.target =
-      event.clientY < box.top + box.height / 2 ? id : (ordered[index + 1]?.id ?? null);
+      current.pointerY < box.top + box.height / 2 ? id : (ordered[index + 1]?.id ?? null);
     const beforeId = current.target;
     setDrop((old) =>
       old?.id === current.id && old.beforeId === beforeId ? old : { id: current.id, beforeId },
     );
-    if (event.clientY < 80) window.scrollBy(0, -16);
-    else if (event.clientY > window.innerHeight - 80) window.scrollBy(0, 16);
+  }
+  function scrollAtEdge() {
+    scrollFrame.current = null;
+    const current = drag.current;
+    if (!current?.moved || current.target === undefined) return;
+    const distance =
+      current.pointerY < 120 ? -12 : current.pointerY > window.innerHeight - 120 ? 12 : 0;
+    if (!distance) return;
+    const previous = window.scrollY;
+    window.scrollBy(0, distance);
+    updateTarget();
+    if (window.scrollY !== previous && drag.current)
+      scrollFrame.current = requestAnimationFrame(scrollAtEdge);
   }
   function cancel() {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = null;
     drag.current = null;
     setDrop(null);
   }
@@ -119,7 +164,7 @@ export function usePlanReorder(plan: DatePlan) {
             }
           }}
         >
-          <span aria-hidden="true">⠿</span>
+          <GripIcon width={20} height={20} />
         </button>
         <button
           type="button"
@@ -128,7 +173,7 @@ export function usePlanReorder(plan: DatePlan) {
           aria-label={msg('reorder.upLabel', { title })}
           onClick={() => step(id, -1)}
         >
-          ↑ {msg('reorder.up')}
+          <ArrowUpIcon width={16} height={16} aria-hidden="true" /> {msg('reorder.up')}
         </button>
         <button
           type="button"
@@ -137,7 +182,7 @@ export function usePlanReorder(plan: DatePlan) {
           aria-label={msg('reorder.downLabel', { title })}
           onClick={() => step(id, 1)}
         >
-          ↓ {msg('reorder.down')}
+          <ArrowDownIcon width={16} height={16} aria-hidden="true" /> {msg('reorder.down')}
         </button>
       </div>
     );

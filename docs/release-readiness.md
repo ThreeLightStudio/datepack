@@ -1,6 +1,6 @@
 # DatePack 0.3.0 release readiness
 
-검토 기준일: 2026-09-29 · 앱 버전: 0.3.0 (pre-release) · 파일 형식: 3.0 ·
+검토 기준일: 2026-10-01 · 앱 버전: 0.3.0 (pre-release) · 파일 형식: 3.0 ·
 코어 패키지: `@datepack/core` 0.3.0
 
 이 문서는 구현 계획의 D01–D18, 조사 문서의 C01–C40, 필수 인수 경로를
@@ -8,18 +8,28 @@
 브라우저 확인으로 뒷받침되는 범위다. `부분/후속`은 첫 구현만으로 원래
 상황의 모든 변형을 다루지 못하거나 별도 제품 검증이 필요한 경우다.
 
-## 실행 결과
+## 실행 결과 · T06
 
-| 확인                                              | 결과   | 증거 및 범위                                                                                                                                                                                                                                                                               |
-| ------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm run verify`                                 | 통과   | 포맷 검사, lint, typecheck, 앱 테스트, core typecheck/tests. 현재 앱 테스트 63개, core 테스트 82개 통과. core에는 체크인된 예제 파일을 `readDatePack`으로 읽는 검증이 포함된다.                                                                                                            |
-| `pnpm run build`                                  | 통과   | Vite 프로덕션 빌드 및 서비스 워커 생성.                                                                                                                                                                                                                                                    |
-| `git diff --check`                                | 통과   | 후속 커밋 직전 다시 실행.                                                                                                                                                                                                                                                                  |
-| 브라우저 온라인                                   | 통과   | macOS 데스크톱의 Codex 인앱 브라우저. `http://localhost:4173/datepack/`에서 프로덕션 빌드를 확인하고 데모 계획을 열었다.                                                                                                                                                                   |
-| 오프라인 재실행·저장                              | 통과   | 서비스 워커가 캐시한 프로덕션 앱을 먼저 연 다음 정적 서버를 중단하고 새로고침했다. 앱이 다시 열렸고, 활동 제목을 수정·저장한 뒤 오프라인에서 재새로고침해 변경이 남는 것을 확인했다. 이 검증은 데스크톱 브라우저의 로컬 origin이며 설치 PWA나 모바일 검증은 아니다.                        |
-| 오프라인 내보내기                                 | 통과   | 서버 중단 상태에서 `.datepack.json` Download를 눌러 다운로드 완료 알림을 확인했다. OS 다운로드 폴더의 파일 선택·재가져오기는 별도 검증하지 못했다.                                                                                                                                         |
-| 예제 파일 브라우저 가져오기                       | 미검증 | 앱의 파일 열기 컨트롤을 눌렀지만 Codex 인앱 브라우저 제어에는 로컬 파일 선택 API가 없다. 호스트 macOS는 잠금 상태였고 CUA가 네이티브 파일 선택기 상호작용을 차단했다(`The Mac is locked and automatic unlock could not unlock it`). 예제는 core 자동 검사에서 `readDatePack`으로 검증했다. |
-| PWA 설치, iOS / Android, 스크린리더, OS 공유 시트 | 미검증 | 실제 설치 상태·기기·보조기술·운영체제 공유 UI는 사용하지 않았다.                                                                                                                                                                                                                           |
+승인 누적 입력 `e9e6716` 이후 T06의 실제 결과다. T05 worker 권한 차단 당시의
+[repo 체크포인트](T05-handoff.md)는 과거 기록이며, canonical T05-handoff/review의
+review-passed와 실제 reviewer 보완 결과를 확인하고 이어서 작업했다.
+
+| 확인                                                      | 결과      | 증거 및 범위                                                                                                                                                                                |
+| --------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm verify`                                             | 통과      | format/lint/typecheck, 앱133/core101(총234). `tests/t06Integration.test.ts`는 정식 보관 fixture의 후보/미정/보호/원문/next/roundtrip 확인                                                   |
+| `pnpm build`                                              | 통과      | Vite/PWA15 precache entries,906.57KiB. JS612.07kB(gzip186.68kB), CSS266.02kB(gzip86.07kB);500kB JS 경고 남음                                                                                |
+| `git diff --check`                                        | 통과      | 최종 문서/커밋 직전 확인                                                                                                                                                                    |
+| Chrome 개발 UI                                            | 통과      | 빈 AI 생성/답안 닫기·reload 복귀/적용/목적지, 실제 긴 목록 pointer·keyboard·undo·noop, 보호/미확인 차단, 선택next05, mismatch/stale, 후기 원문/editedNote                                   |
+| 최신 생산 빌드 서버 중단                                  | 통과      | localhost4176/datepack/ preview를 종료하고 connection refusal 확인. 캐시 앱 reload, 활동 수정 저장, 후기 저장, 다시reload 보존. 데스크톱 local origin, 전체 네트워크 차단/설치PWA 검증 아님 |
+| impeccable audit(A36)                                     | 통과/후속 | [report](ui-audit.md)15/20, detector1회0 findings. 한 fix batch와 한 confirmation batch. 열린 P2 네 개                                                                                      |
+| DOM mobile/언어                                           | 통과/한계 | Chrome CSS390×844,320×740 가로 넘침 없음. ko/en actual 화면. emulated viewport이며 실기기 touch는 아님                                                                                      |
+| 브라우저 파일 가져오기                                    | 환경 제한 | 이번 IAB chooser setFiles 시간 초과. canonical T05 reviewer의 정상 import 확인은 선행 증거이며 이번 T06 성공으로 재분류하지 않음. 정식 파일은 public core API roundtrip 통과                |
+| 파일 다운로드 회수                                        | 미검증    | Chrome download 완료event timeout, macOS Downloads 읽기 Operation not permitted. 실제 파일/OS 재가져오기 성공을 주장하지 않음                                                               |
+| GPS/공개 운영 route/외부 AI/OS 공유/PWA 실기기/스크린리더 | 미검증    | 모의 geolocation/route/LLM envelope 및 저장 failure 검사를 live/device 근거로 확장하지 않음. APP_ROUTING_POLICY/resolver disabled 유지                                                      |
+| T07 대본/녹화 없는 실제 리허설                            | 미실행    | 이후 필수 단계. T06만으로 제품 전체 완료 또는 게시 준비 확정을 선언하지 않음                                                                                                                |
+
+실제 화면은 `docs/evidence/t06/`, detector는 `detector.json`, 세부 관찰/제약/후속 P2는
+[UI audit](ui-audit.md)에 있다. 기존 데이터 삭제, push/PR/배포/영상 촬영/영상 export/게시 없음.
 
 ## 필수 인수 경로
 
@@ -99,6 +109,10 @@
 | D18 | 3.0 write, 1.x/2.x known migration, 미지원 미래 버전 원문 보존              | 완료; 기기 간 현장 검증 미수행 |
 
 ## 릴리스 전 후속 확인
+
+T07의 한 가지 workflow 대본과 녹화 없는 실제 화면 리허설을 먼저 수행한다.
+파일 picker/download 권한 환경, 실제 touch/pointercancel/장시간 edge hold와 UI audit P2도
+별도 확인한다. 자동 검사/일반 브라우저 통과만으로 이러한 범위를 완료로 표시하지 않는다.
 
 - iOS Safari와 Android Chrome에서 설치, 재실행, 오프라인 직접 편집, 사진 보관,
   파일 가져오기/내보내기, 외부 AI 전환 후 복귀를 확인한다.

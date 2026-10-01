@@ -81,7 +81,7 @@ request ID는 `request-rain-001`이다. 후보·장소 ID는 앱 fixture가 만�
 
 ### A36 구현 후 impeccable UI audit
 
-최신 `decisions.json` v2의 추가 지시에 따라 T06은 모든 UI 구현이 끝난 후
+최신 `decisions.json` v3의 추가 지시에 따라 T06은 모든 UI 구현이 끝난 후
 impeccable 스킬로 desktop/mobile 배치, 접근성·반응형·성능·테마·구현 일관성을
 검증하고 detector 결과를 기록한다. 발견 사항의 수정과 확인 결과 또는 남은 제약을
 명시한다. 모바일 화면 크기의 배치 audit와 실제 iOS/Android PWA 검증을 구분한다.
@@ -112,3 +112,13 @@ public reverse HTTP 및 로컬 브라우저 CORS다. 기본 OSRM host의 walking
 PWA, 외부 AI 대화의 footer 준수, OS 공유 시트는 후속 live/device 검증이다. T06는
 실제로 수행한 자동 검사·브라우저 행동·실기기 증거를 각각 보고하고 미수행은 미검증으로
 남긴다. `pnpm verify`와 `pnpm build` 통과만으로 이 외부 조건을 통과시키지 않는다.
+
+## T06 실행 상태 · 2026-10-01
+
+실제 UI/fixture/자동 검사/실기기 구분과 A36 필수 audit 결과는 [ui-audit.md](ui-audit.md)에
+보존했다. 앱133/core101 검사와 build는 통과했다. A01/A04/A20/보호 reorder/미확인 유지/ko-en/
+후기 원문은 실제 Chrome에서 확인했고, 최신 생산 빌드는 서버 중단 후 재실행·직접 편집·후기
+저장·재실행 보존을 확인했다. 실제 OS 다운로드 파일 회수/재가져오기는 환경 제한으로 미검증이다.
+A10–A19의 GPS·서비스 성공 및 저장 실패/동시성은 모의 자동 검사 근거이며 실서비스/실기기
+통과가 아니다. pointercancel/held edge/실제 touch, iOS/Android/PWA/VoiceOver/OS 공유와 실제 외부
+AI 반응 준수는 미검증으로 남긴다. T07 대본과 녹화 없는 실제 리허설은 아직 수행하지 않았다.

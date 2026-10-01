@@ -131,6 +131,12 @@ export const ArrowUpIcon = (p: IconProps) => (
   </svg>
 );
 
+export const GripIcon = (p: IconProps) => (
+  <svg {...base(p)} aria-hidden="true">
+    <path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01" strokeWidth={3} />
+  </svg>
+);
+
 export const ArrowDownIcon = (p: IconProps) => (
   <svg {...base(p)} strokeWidth={2.2}>
     <path d="M12 5v14M6 13l6 6 6-6" />

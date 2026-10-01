@@ -43,7 +43,6 @@ export function DetailsView({ plan, runtime, onOpenCreate }: Props) {
   return (
     <div className="view details-view">
       <header className="view-head">
-        <p className="eyebrow">DatePack</p>
         <div className="title-row">
           <h1 className="plan-title">{plan.title}</h1>
           <button
