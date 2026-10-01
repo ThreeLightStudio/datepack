@@ -3,16 +3,17 @@ import type { DatePackIssue } from './i18n/core';
 import { version as CORE_VERSION } from '../package.json';
 
 /**
- * DatePack file format version policy (major.minor):
- *  - major = incompatible structural change → readers reject other majors
- *  - minor = backward-compatible extension → readers accept older minors,
- *    and accept newer minors with a "some fields may be ignored" warning
+ * Lower-level format version classification (major.minor):
+ *  - unsupported major → reject
+ *  - newer minor within a supported major → warn
+ * This classifier does not define file-reader acceptance. readDatePack accepts
+ * only format 4.0 and rejects other versions, including 4.1.
  */
 export const DATEPACK_FORMAT = 'datepack';
 export const DATEPACK_FORMAT_VERSION = '4.0';
-/** Highest minor this reader fully understands (applies per major). */
+/** Highest minor classified as fully understood (applies per supported major). */
 export const DATEPACK_SUPPORTED_MINOR = 0;
-/** Only format 4.x files are readable. Existing local data uses a separate migration API. */
+/** Majors recognized by the classifier; readDatePack separately enforces 4.0. */
 export const DATEPACK_SUPPORTED_MAJORS = [4] as const;
 /** @datepack/core version — sourced from this package's package.json so the
  *  file generator string and the release number can never drift apart. */

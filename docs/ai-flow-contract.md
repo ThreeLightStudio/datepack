@@ -40,7 +40,7 @@ AI는 승인·거절·다른 제안·사용자의 직접 조작에 반응한다.
 - 생성 답안에서 사용자 조건·날짜·시간을 변경/생략해도 사용자 초안을 유지한다.
   store guard가 조건 교체를 재검사한다. 기존 가져온 AI 계획은 새 draft로 검사해
   별도 request identity를 만들고 현재 파일/계획을 덮지 않는다.
-- 파일 reader는 4.x만 허용한다. 기존 3.0 로컬 자료의 변환은 별도 경계다.
+- 파일 reader는 4.0만 허용하며 4.1을 포함한 다른 버전은 거부한다. 기존 3.0 로컬 자료의 변환은 별도 경계다.
   사진·정확 좌표·개인 출발·runtime·요청·초안은 휴대 문서 밖 기기 상태에 둔다.
 - 새 기록 입력은 record-form:new, 편집은 record-form:edit:<documentId>:<experienceId>,
   legacy 복원은 record-form:legacy:<documentId>. 기존 memory:<documentId 또는 planId>는

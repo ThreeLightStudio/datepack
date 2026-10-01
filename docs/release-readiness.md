@@ -14,7 +14,8 @@ records the tested result, build and outstanding environment/device limits.
   have real records and no fake plan.
 - Atomic record/photo saves, links and unlinking; plan deletion preserves linked
   memories. Imports deduplicate identical contents or create conflict copies.
-- Only 4.x imported files. Existing local v3 data/drafts migrate separately;
+- Only format 4.0 imported files; other versions, including 4.1, reject.
+  Existing local v3 data/drafts migrate separately;
   source data survives failure for retry. Historical 3.0 reader claims are in
   the [archived readiness report](archive/release-readiness-0.3.0.md).
 - Optional solo/together, region, 1–1440 minutes, nearby/one venue and KRW budget

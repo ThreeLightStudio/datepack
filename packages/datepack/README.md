@@ -70,9 +70,10 @@ const exported = await writeDatePack(loaded.pack, async id => loaded.blobs.get(i
 - `validatePlan` / `validateDatePack` check shape, IDs, dates, timing, conditions,
   revision and references. Missing registry entries fail; a registered asset with
   missing binary remains valid. Writer reports `missingAssetIds`.
-- `readDatePack` accepts only 4.x JSON. Older ZIP/JSON and unsupported future
-  majors reject with untouched bytes in `DatePackReadError.originalFile`.
-  Newer 4.x minors warn. Reader does not migrate old imported files.
+- `readDatePack` accepts only format 4.0 JSON. Older ZIP/JSON and other versions,
+  including 4.1, reject with untouched bytes in `DatePackReadError.originalFile`.
+  The lower-level `checkFormatVersion` classifier warns on newer minor versions;
+  this does not widen file-reader support. Reader does not migrate old imported files.
 - `migrateLocalV3DatePack` and legacy converters exist only for preserving
   existing local data. The web app stores conversion plus backup/completion
   marker atomically and leaves the source available after a failed attempt.

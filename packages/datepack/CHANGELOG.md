@@ -6,7 +6,8 @@
   plan/originalPlan; standalone collections require real records and no plan.
 - Titles are optional when a record has photos or nonblank text. Record and
   occurrence timestamps remain distinct. Portable photos retain binary content.
-- Only 4.x file reads are accepted. Existing local v3 conversion is a separate
+- Only format 4.0 file reads are accepted; other versions, including 4.1, reject.
+  Existing local v3 conversion is a separate
   API; original bytes remain available on unsupported-file errors.
 - Plan draft and validation preserve optional outing conditions: solo/together,
   region, duration, nearby, singleStop and total/per-person KRW budgets.

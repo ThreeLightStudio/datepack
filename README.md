@@ -42,7 +42,8 @@ the same running app; after app shutdown, select those photos again.
 - [Outing example](examples/classic-seoul-day-2026-09-28.datepack.json) and
   [title-free independent photo example](examples/independent-photos.datepack.json)
   are checked by the core reader/writer tests. See [core API](packages/datepack/README.md).
-- Only format 4.x files are accepted. Old 1.x ZIP / 2.x / 3.x files are rejected
+- Only format 4.0 files are accepted. Older files and other versions, including
+  4.1, are rejected
   and retained as original bytes for recovery. Existing current-v3 **local**
   data is converted separately, with its plans, photos, runtime and unfinished
   input preserved. Source stores survive failed conversion for retry.

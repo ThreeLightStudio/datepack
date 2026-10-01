@@ -9,6 +9,10 @@ Main review remains required. No deployment, push, PR, publication or recruitmen
 - Align package versions, PWA/browser descriptions and current docs with outing
   plans and standalone memories. Keep historical T05–T07 evidence and archive the
   previous release readiness separately. Preserve user research unchanged.
+- Follow-up review correction: file imports accept only 4.0 and reject 4.1;
+  the lower-level version classifier's warning does not expand reader support.
+  [Product flow](product-flow.md) records the KakaoBank solo-planning source,
+  publication date and limits on interpreting its requoted statistics.
 - Add a real title-free photo-only memories example and reader/writer binary
   roundtrip test. Existing outing example now identifies core 0.4.0.
 - Fix production preview's `/datepack/` base path. Fix current-situation sheet
