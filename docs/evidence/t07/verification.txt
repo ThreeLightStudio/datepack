@@ -1,0 +1,18 @@
+T07 checks · 2026-10-01 Asia/Seoul
+
+pnpm verify: exit 0
+format/lint/typecheck pass
+App: 19 test files, 133 tests passed
+Core: 9 test files, 101 tests passed
+Total: 234 tests passed
+
+pnpm build: exit 0
+JS: 612.68 kB, gzip 186.76 kB
+CSS: 266.02 kB, gzip 86.07 kB
+PWA: 15 precache entries, 907.16 KiB
+Existing >500 kB JavaScript warning remains
+
+Impeccable detector: once on changed UI components; []
+Final document formatting and git diff checks: see canonical T07 handoff
+Actual UI: docs/demo-rehearsal.md
+Video recording/captions/export/publishing: not performed

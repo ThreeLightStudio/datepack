@@ -1,4 +1,4 @@
-/** DatePack v3 public data contract. Legacy file shapes live in migration.ts. */
+/** DatePack v4 public data contract. Legacy file shapes live in migration.ts. */
 
 export const DATE_EVENT_TYPES = [
   'place',
@@ -18,10 +18,31 @@ export type EventTiming =
 export type ProtectedField = 'time' | 'place' | 'content' | 'delete' | 'order';
 export type Importance = 'core' | 'normal' | 'optional';
 
-export type DatePack = {
+export type DatePackMetadata = { title?: string; createdAt: string; updatedAt: string };
+export type DatePackBase = {
+  id: string;
+  manifest: DatePackManifest;
+  meta: DatePackMetadata;
+  experiences: Experience[];
+  revision: number;
+  assets: DatePackAsset[];
+};
+export type OutingDatePack = DatePackBase & {
+  kind: 'outing';
+  plan: DatePlan;
+  /** Starting plan retained for review and explicit baseline refresh. */
+  originalPlan: DatePlan;
+};
+export type MemoriesDatePack = DatePackBase & {
+  kind: 'memories';
+  plan?: never;
+  originalPlan?: never;
+};
+export type DatePack = OutingDatePack | MemoriesDatePack;
+/** Current device data, convertible locally only; never accepted by the file reader. */
+export type LocalV3DatePack = {
   manifest: DatePackManifest;
   plan: DatePlan;
-  /** Immutable starting point used for review and change comparison. */
   baselinePlan: DatePlan;
   experiences: Experience[];
   revision: number;
@@ -36,7 +57,17 @@ export type DatePackManifest = {
   generator?: string;
 };
 export type PlanConstraints = { must?: string[]; prefer?: string[]; avoid?: string[] };
+/** User-selected outing brief. Budget is a total or per-person ceiling in KRW, never verified spending. */
+export type OutingConditions = {
+  party?: 'solo' | 'together';
+  region?: string;
+  budget?: { currency: 'KRW'; amount: number; basis: 'total' | 'per-person' };
+  nearby?: boolean;
+  singleStop?: boolean;
+  durationMinutes?: number;
+};
 export type DatePlan = {
+  outingConditions?: OutingConditions;
   id: string;
   title: string;
   /** Local YYYY-MM-DD; omit when the date is not known yet. */
@@ -67,7 +98,7 @@ export type DateEvent = {
   protectedFields?: ProtectedField[];
   estimatedDurationMinutes?: number;
   planB?: PlanB;
-  /** @deprecated Runtime compatibility aliases for the v1/v2 app and patch adapter. Not written by v3. */
+  /** @deprecated Runtime compatibility aliases for the v1/v2 app and patch adapter. Not written to portable files. */
   start?: string;
   end?: string;
   fixed?: boolean;
@@ -108,7 +139,7 @@ export type Place = {
 export type Experience = {
   id: string;
   eventId?: string;
-  title: string;
+  title?: string;
   placeSnapshot?: { name: string; mapQuery?: string };
   outcome: 'completed' | 'skipped' | 'note';
   recordedAt: string;
@@ -154,6 +185,9 @@ export type DatePackPatchReplaceValue = Partial<{
   note: string;
   travelMinutes: number;
   placeId: string;
+  place: string;
+  timing: EventTiming;
+  estimatedDurationMinutes: number;
   fixed: boolean;
 }>;
 export type DatePackPatchNewEvent = {
@@ -166,10 +200,13 @@ export type DatePackPatchNewEvent = {
   place?: string;
   placeId?: string;
   travelMinutes?: number;
+  timing?: EventTiming;
+  estimatedDurationMinutes?: number;
+  protectedFields?: ProtectedField[];
 };
 export type DatePackPatchOperation =
   | { op: 'replace'; target: string; value: DatePackPatchReplaceValue }
-  | { op: 'move'; target: string; value: { start?: string; end?: string } }
+  | { op: 'move'; target: string; value: { start?: string; end?: string; timing?: EventTiming } }
   | { op: 'remove'; target: string }
   | { op: 'insertBefore'; target: string; value: DatePackPatchNewEvent }
   | { op: 'insertAfter'; target: string; value: DatePackPatchNewEvent }

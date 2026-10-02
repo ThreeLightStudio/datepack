@@ -17,22 +17,25 @@ import {
 } from '../../store/datepackStore';
 import { EventEditorSheet } from '../editor/EventEditorSheet';
 import { PlanMetaSheet } from '../editor/PlanMetaSheet';
+import { conditionsText } from '../outing/conditions';
 import { CurrentContextSheet } from '../day/CurrentContextSheet';
 import { useStore } from '../../store/datepackStore';
 import { CheckIcon, EditIcon, EVENT_TYPE_ICONS, PlusIcon, SkipIcon } from '../../components/icons';
 import { eventTypeLabel, format, formatDate, useLocale } from '../../i18n';
 import { useNow } from '../../hooks/useNow';
 import { computeDayContext, timeRangeLabel } from '../day/dayRuntime';
+import { usePlanReorder } from './usePlanReorder';
 
 function pointLabel(point: { time: string; dayOffset: 0 | 1 }, locale: 'ko' | 'en'): string {
   return `${point.time}${point.dayOffset ? (locale === 'ko' ? ' (다음 날)' : ' (next day)') : ''}`;
 }
 
-type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null };
-export function PlanView({ plan, runtime }: Props) {
+type Props = { plan: DatePlan; runtime: DatePackRuntimeState | null; onOpenAi: () => void };
+export function PlanView({ plan, runtime, onOpenAi }: Props) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const store = useStore();
+  const documentId = store.pack?.id ?? plan.id;
   const now = useNow(30_000);
   const ctx = computeDayContext(plan, runtime, now);
   const [editing, setEditing] = useState<DateEvent | null | 'new'>(null);
@@ -41,6 +44,7 @@ export function PlanView({ plan, runtime }: Props) {
   const [candidateTitle, setCandidateTitle] = useState('');
   const [candidateType, setCandidateType] = useState<DateEventType>('place');
   const ordered = sortEventsByOrder(plan.events);
+  const reorder = usePlanReorder(plan);
   const statusById = new Map(ctx.events.map((entry) => [entry.event.id, entry.status]));
   function addCandidate() {
     if (!candidateTitle.trim()) return;
@@ -82,11 +86,12 @@ export function PlanView({ plan, runtime }: Props) {
             type="button"
             className="icon-btn framed"
             onClick={() => setMetaOpen(true)}
-            aria-label={ko ? '데이트 정보 편집' : 'Edit date details'}
+            aria-label={ko ? '외출 정보 편집' : 'Edit outing details'}
           >
             <EditIcon width={17} height={17} />
           </button>
         </div>
+        {conditionsText(plan, ko) && <p className="meta-line">{conditionsText(plan, ko)}</p>}
         {plan.memo && <p className="sub-line">{plan.memo}</p>}
         {plan.availableFrom || plan.mustEndBy ? (
           <p className="meta-line">
@@ -96,27 +101,29 @@ export function PlanView({ plan, runtime }: Props) {
           </p>
         ) : null}
       </header>
-      <section className="meeting-summary">
-        <div>
-          <p className="eyebrow">{format(locale, 'p3.meeting')}</p>
-          <strong>
-            {plan.meeting?.placeId
-              ? plan.places?.find((p) => p.id === plan.meeting?.placeId)?.name
-              : format(locale, 'p3.meeting.unset')}
-          </strong>
-          {plan.meeting?.locationNote && <p className="sub-line">{plan.meeting.locationNote}</p>}
-          {plan.meeting?.timing?.kind === 'exact' && (
-            <p className="meta-line">{plan.meeting.timing.start.time}</p>
-          )}
-        </div>
-        <button type="button" className="btn btn-soft" onClick={() => setMetaOpen(true)}>
-          {ko ? '수정' : 'Edit'}
-        </button>
-      </section>
+      {plan.outingConditions?.party !== 'solo' && (
+        <section className="meeting-summary">
+          <div>
+            <p className="eyebrow">{format(locale, 'p3.meeting')}</p>
+            <strong>
+              {plan.meeting?.placeId
+                ? plan.places?.find((p) => p.id === plan.meeting?.placeId)?.name
+                : format(locale, 'p3.meeting.unset')}
+            </strong>
+            {plan.meeting?.locationNote && <p className="sub-line">{plan.meeting.locationNote}</p>}
+            {plan.meeting?.timing?.kind === 'exact' && (
+              <p className="meta-line">{plan.meeting.timing.start.time}</p>
+            )}
+          </div>
+          <button type="button" className="btn btn-soft" onClick={() => setMetaOpen(true)}>
+            {ko ? '수정' : 'Edit'}
+          </button>
+        </section>
+      )}
       <section className="context-summary">
         <div>
           <p className="eyebrow">{ko ? '마지막으로 알려준 상황' : 'Last situation you shared'}</p>
-          {store.liveContext?.planId === plan.id ? (
+          {store.liveContext?.planId === documentId ? (
             <p className="sub-line">
               {[
                 store.liveContext.place,
@@ -131,17 +138,33 @@ export function PlanView({ plan, runtime }: Props) {
             <p className="sub-line">{ko ? '아직 입력하지 않았어요' : 'Nothing added yet'}</p>
           )}
         </div>
-        <button type="button" className="btn btn-soft" onClick={() => setContextOpen(true)}>
+        <button
+          type="button"
+          className="btn btn-soft"
+          data-context-trigger
+          onClick={() => setContextOpen(true)}
+        >
           {ko ? '지금 상황' : 'Update now'}
         </button>
       </section>
+
+      <div className="action-row">
+        <button type="button" className="btn btn-soft" onClick={onOpenAi}>
+          {ko ? 'AI와 다시 계획하기' : 'Replan with AI'}
+        </button>
+      </div>
 
       <section aria-labelledby="selected-heading">
         <h2 id="selected-heading" className="section-title">
           {format(locale, 'p3.plan.selected')}
         </h2>
+        {ordered.length > 1 && (
+          <p id="reorder-help" className="hint-text">
+            {format(locale, 'reorder.help')}
+          </p>
+        )}
         {ordered.length ? (
-          <ol className="timeline">
+          <ol className="timeline" ref={reorder.list} aria-busy={reorder.busy}>
             {ordered.map((event, position) => {
               const status = statusById.get(event.id) ?? 'upcoming';
               const place = plan.places?.find((p) => p.id === event.placeId);
@@ -197,7 +220,11 @@ export function PlanView({ plan, runtime }: Props) {
                           ? '예정'
                           : 'Planned';
               return (
-                <li key={event.id} className="plan-event">
+                <li
+                  key={event.id}
+                  data-event-id={event.id}
+                  className={`plan-event${reorder.drop?.beforeId === event.id ? ' drop-before' : ''}${reorder.drop?.id === event.id ? ' is-dragging' : ''}${reorder.drop && reorder.drop.beforeId === null && position === ordered.length - 1 ? ' drop-after' : ''}`}
+                >
                   <button
                     type="button"
                     className={`tl-row tl-${status}`}
@@ -240,6 +267,7 @@ export function PlanView({ plan, runtime }: Props) {
                     </span>
                   </button>
                   <div className="event-plan-actions">
+                    {reorder.controls(event.id, position, event.title)}
                     <button type="button" className="link-btn" onClick={() => setEditing(event)}>
                       {ko ? '편집' : 'Edit'}
                     </button>
@@ -308,6 +336,9 @@ export function PlanView({ plan, runtime }: Props) {
           {ko ? '활동 추가' : 'Add activity'}
         </button>
       </section>
+      <p className="reorder-notice" role="status" aria-live="polite">
+        {reorder.notice}
+      </p>
 
       <section className="candidate-section" aria-labelledby="candidate-heading">
         <h2 id="candidate-heading" className="section-title">
@@ -384,7 +415,7 @@ export function PlanView({ plan, runtime }: Props) {
       </section>
       {plan.constraints && (
         <section className="constraint-box">
-          <p className="eyebrow">{ko ? '데이트 약속' : 'Date preferences'}</p>
+          <p className="eyebrow">{ko ? '외출 약속' : 'Date preferences'}</p>
           <div className="chip-row wrap">
             {(plan.constraints.must ?? []).map((x) => (
               <span className="chip" key={`m${x}`}>
@@ -429,6 +460,7 @@ export function PlanView({ plan, runtime }: Props) {
           onClose={() => setContextOpen(false)}
         />
       )}
+      {reorder.sheet}
     </div>
   );
 }

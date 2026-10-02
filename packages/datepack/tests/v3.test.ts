@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDatePack, createEvent } from '../src/create';
 import { migrateLegacyDatePack } from '../src/migration';
-import { readDatePack, DatePackReadError } from '../src/read';
+import { readDatePack as readAnyDatePack, DatePackReadError } from '../src/read';
 import { validateDatePack, validatePlan } from '../src/validate';
 import { DatePackWriteError, writeDatePack } from '../src/write';
 import { describePatch } from '../src/patch';
@@ -55,7 +55,7 @@ describe('DatePack v3 model', () => {
         },
       }),
     );
-    pack.baselinePlan = structuredClone(pack.plan);
+    pack.originalPlan = structuredClone(pack.plan);
     pack.revision = 4;
     pack.experiences.push({
       id: 'fact-1',
@@ -71,12 +71,12 @@ describe('DatePack v3 model', () => {
     const file = await writeDatePack(pack, (id) => (id === 'photo-1' ? sourcePhoto : null));
     const raw = JSON.parse(await file.blob.text()) as {
       version: string;
-      baselinePlan: unknown;
+      originalPlan: unknown;
       revision: number;
       plan: { events: Array<Record<string, unknown>> };
     };
-    expect(raw.version).toBe('3.0');
-    expect(raw.baselinePlan).toBeDefined();
+    expect(raw.version).toBe('4.0');
+    expect(raw.originalPlan).toBeDefined();
     expect(raw.revision).toBe(4);
     expect(raw.plan.events[0]).not.toHaveProperty('start');
     const read = await readDatePack(file.blob);
@@ -257,3 +257,9 @@ describe('DatePack v3 model', () => {
     if (error instanceof DatePackReadError) expect(await error.originalFile?.text()).toBe(bytes);
   });
 });
+
+async function readDatePack(file: Blob) {
+  const result = await readAnyDatePack(file);
+  if (result.pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return { ...result, pack: result.pack };
+}

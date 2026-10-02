@@ -1,0 +1,388 @@
+{
+  "schemaVersion": 1,
+  "researchVersion": "1.0",
+  "dateKst": "2026-10-01",
+  "baselineCommit": "48a20a35b8e2297fe3109d80d6399d1a949889eb",
+  "fixture": "Public synthetic test coordinates near Seoul City Hall and Jonggak; not user GPS; no field walk",
+  "fixtureCoordinates": [
+    { "lat": 37.5665, "lon": 126.978 },
+    { "lat": 37.57, "lon": 126.983 }
+  ],
+  "http": [
+    {
+      "id": "foot-seoul",
+      "url": "https://routing.openstreetmap.de/routed-foot/route/v1/foot/126.9780,37.5665;126.9830,37.5700?overview=false&steps=false&generate_hints=false",
+      "checkedAt": "2026-09-30T20:50:51.370266+00:00",
+      "status": 200,
+      "headers": {
+        "Server": "nginx",
+        "Date": "Wed, 30 Sep 2026 20:50:51 GMT",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Content-Length": "335",
+        "Connection": "close",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET",
+        "Access-Control-Allow-Headers": "X-Requested-With, Content-Type",
+        "Content-Disposition": "inline; filename=\"response.json\""
+      },
+      "bytes": 335,
+      "body": {
+        "code": "Ok",
+        "routes": [
+          {
+            "legs": [
+              { "steps": [], "weight": 88.02, "summary": "", "duration": 677.7, "distance": 847 }
+            ],
+            "weight_name": "routability",
+            "weight": 88.02,
+            "duration": 677.7,
+            "distance": 847
+          }
+        ],
+        "waypoints": [
+          { "distance": 3.774641101, "name": "", "location": [126.978001, 37.566466] },
+          { "distance": 5.065693265, "name": "", "location": [126.983057, 37.569995] }
+        ]
+      }
+    },
+    {
+      "id": "router-walking-seoul",
+      "url": "https://router.project-osrm.org/route/v1/walking/126.9780,37.5665;126.9830,37.5700?overview=false&steps=false&generate_hints=false",
+      "checkedAt": "2026-09-30T20:50:53.463148+00:00",
+      "status": 200,
+      "headers": {
+        "Server": "nginx",
+        "Date": "Wed, 30 Sep 2026 20:50:53 GMT",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Content-Length": "362",
+        "Connection": "close",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET",
+        "Access-Control-Allow-Headers": "X-Requested-With, Content-Type",
+        "Content-Disposition": "inline; filename=\"response.json\""
+      },
+      "bytes": 362,
+      "body": {
+        "code": "Ok",
+        "routes": [
+          {
+            "legs": [
+              { "steps": [], "weight": 64.8, "summary": "", "duration": 64.8, "distance": 921.2 }
+            ],
+            "weight_name": "routability",
+            "weight": 64.8,
+            "duration": 64.8,
+            "distance": 921.2
+          }
+        ],
+        "waypoints": [
+          { "distance": 56.0525781, "name": "세종대로20길", "location": [126.977993, 37.567005] },
+          { "distance": 5.51722589, "name": "우정국로", "location": [126.982938, 37.570006] }
+        ]
+      }
+    },
+    {
+      "id": "reverse-seoul",
+      "url": "https://nominatim.openstreetmap.org/reverse?lat=37.5665&lon=126.9780&format=jsonv2&zoom=14&addressdetails=1&accept-language=ko",
+      "checkedAt": "2026-09-30T20:50:55.558841+00:00",
+      "status": 200,
+      "headers": {
+        "Connection": "close",
+        "Content-Length": "636",
+        "server": "gunicorn/asgi",
+        "content-type": "application/json; charset=utf-8",
+        "access-control-allow-origin": "*",
+        "x-nominatim-server": "vhagar.openstreetmap.org",
+        "Accept-Ranges": "bytes",
+        "Age": "0",
+        "Date": "Wed, 30 Sep 2026 20:50:55 GMT",
+        "Via": "1.1 varnish",
+        "X-Served-By": "cache-icn1450091-ICN, cache-icn1450023-ICN",
+        "X-Cache": "MISS, MISS",
+        "X-Cache-Hits": "0, 0",
+        "X-Timer": "S1790801455.680443,VS0,VE822",
+        "Vary": "accept-language, Accept-Encoding",
+        "Strict-Transport-Security": "max-age=300",
+        "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400"
+      },
+      "bytes": 636,
+      "body": {
+        "place_id": 222688312,
+        "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+        "osm_type": "node",
+        "osm_id": 415153894,
+        "lat": "37.5674900",
+        "lon": "126.9807500",
+        "category": "place",
+        "type": "quarter",
+        "place_rank": 20,
+        "importance": 0.13340631342030973,
+        "addresstype": "quarter",
+        "name": "다동",
+        "display_name": "다동, 명동, 중구, 서울특별시, 04522, 대한민국",
+        "address": {
+          "quarter": "다동",
+          "suburb": "명동",
+          "borough": "중구",
+          "city": "서울특별시",
+          "ISO3166-2-lvl4": "KR-11",
+          "postcode": "04522",
+          "country": "대한민국",
+          "country_code": "kr"
+        },
+        "boundingbox": ["37.5574900", "37.5774900", "126.9707500", "126.9907500"]
+      }
+    },
+    {
+      "id": "transitous-reverse-seoul",
+      "url": "https://api.transitous.org/api/v1/reverse-geocode?place=37.5665,126.9780&type=PLACE,STOP&numResults=3",
+      "checkedAt": "2026-09-30T20:53:18.225653+00:00",
+      "status": 200,
+      "headers": {
+        "Date": "Wed, 30 Sep 2026 20:53:18 GMT",
+        "Content-Type": "application/json",
+        "Transfer-Encoding": "chunked",
+        "Connection": "close",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Server": "MOTIS v2.11.3",
+        "Link": "<https://transitous.org/sources/>; rel=\"license\"",
+        "Alt-Svc": "h3=\":443\"; ma=21600, h3-29=\":443\"; ma=21600"
+      },
+      "body": [
+        {
+          "type": "PLACE",
+          "category": "place_6",
+          "tokens": [],
+          "name": "서울특별시",
+          "id": "node/[1912365631]",
+          "lat": 37.5666791,
+          "lon": 126.9782914,
+          "country": "KR",
+          "tz": "Asia/Seoul",
+          "areas": [
+            {
+              "name": "대한민국",
+              "adminLevel": 2.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            {
+              "name": "서울특별시",
+              "adminLevel": 4.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            {
+              "name": "중구",
+              "adminLevel": 6.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            { "name": "명동", "adminLevel": 8.0, "matched": true, "unique": true, "default": true }
+          ],
+          "score": 22.499961853027344
+        },
+        {
+          "type": "PLACE",
+          "category": "town_hall_16",
+          "tokens": [],
+          "name": "서울특별시청",
+          "id": "way/[198561926]",
+          "lat": 37.5669035,
+          "lon": 126.9778176,
+          "country": "KR",
+          "tz": "Asia/Seoul",
+          "areas": [
+            {
+              "name": "대한민국",
+              "adminLevel": 2.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            {
+              "name": "서울특별시",
+              "adminLevel": 4.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            {
+              "name": "중구",
+              "adminLevel": 6.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            { "name": "명동", "adminLevel": 8.0, "matched": true, "unique": true, "default": true }
+          ],
+          "score": 37.66037368774414
+        },
+        {
+          "type": "PLACE",
+          "category": "library_16",
+          "tokens": [],
+          "name": "서울도서관",
+          "id": "way/[21515051]",
+          "lat": 37.5665521,
+          "lon": 126.9774192,
+          "country": "KR",
+          "tz": "Asia/Seoul",
+          "areas": [
+            {
+              "name": "대한민국",
+              "adminLevel": 2.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            {
+              "name": "서울특별시",
+              "adminLevel": 4.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            {
+              "name": "중구",
+              "adminLevel": 6.0,
+              "matched": true,
+              "unique": false,
+              "default": false
+            },
+            { "name": "명동", "adminLevel": 8.0, "matched": true, "unique": true, "default": true }
+          ],
+          "score": 41.51744079589844
+        }
+      ]
+    },
+    {
+      "id": "router-driving-control",
+      "url": "https://router.project-osrm.org/route/v1/driving/126.9780,37.5665;126.9830,37.5700?overview=false&steps=false&generate_hints=false",
+      "status": 200,
+      "headers": {
+        "server": "nginx",
+        "date": "Wed, 30 Sep 2026 20:54:05 GMT",
+        "content-type": "application/json; charset=UTF-8",
+        "content-length": "362",
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET",
+        "access-control-allow-headers": "X-Requested-With, Content-Type",
+        "content-disposition": "inline; filename=\"response.json\""
+      },
+      "body": {
+        "code": "Ok",
+        "routes": [
+          {
+            "legs": [
+              { "steps": [], "weight": 64.8, "summary": "", "duration": 64.8, "distance": 921.2 }
+            ],
+            "weight_name": "routability",
+            "weight": 64.8,
+            "duration": 64.8,
+            "distance": 921.2
+          }
+        ],
+        "waypoints": [
+          { "distance": 56.0525781, "name": "세종대로20길", "location": [126.977993, 37.567005] },
+          { "distance": 5.51722589, "name": "우정국로", "location": [126.982938, 37.570006] }
+        ]
+      }
+    }
+  ],
+  "browser": [
+    {
+      "id": "browser-foot",
+      "checkedAt": "2026-09-30T20:52:33.734Z",
+      "status": 200,
+      "type": "cors",
+      "code": "Ok",
+      "distanceMeters": 847,
+      "durationSeconds": 677.7,
+      "origin": "http://127.0.0.1:8765",
+      "observation": "cua_repl accessibility result from clicking local harness fetch button; summarized transcription, not network trace"
+    },
+    {
+      "id": "browser-nominatim-public-reverse",
+      "checkedAt": "2026-09-30T20:53:21.392Z",
+      "status": 200,
+      "type": "cors",
+      "address": {
+        "quarter": "태평로1가",
+        "suburb": "명동",
+        "borough": "중구",
+        "city": "서울특별시",
+        "postcode": "04520",
+        "country_code": "kr"
+      },
+      "origin": "http://127.0.0.1:8765",
+      "observation": "cua_repl accessibility result from clicking local harness fetch button; summarized transcription, not network trace"
+    },
+    {
+      "id": "browser-transitous-public-reverse",
+      "checkedAt": "2026-09-30T20:53:47.919Z",
+      "status": 200,
+      "type": "cors",
+      "areas": ["대한민국", "서울특별시", "중구", "명동"],
+      "matchNames": ["서울특별시", "서울특별시청", "서울도서관"],
+      "origin": "http://127.0.0.1:8765",
+      "observation": "cua_repl accessibility result from clicking local harness fetch button; summarized transcription, not network trace"
+    }
+  ],
+  "sourceSnapshotDigests": [
+    {
+      "id": "fossgis-routing-policy",
+      "sha256": "800afd6fc8dd723ab0ee1bf9462384cffc2eed4f2155eb6cf3e47087c14db18e",
+      "bytes": 3445
+    },
+    {
+      "id": "fossgis-terms",
+      "sha256": "5080fb25e11a100ca62b8392926954ed19012f5fc71f7cb7ae266034bd4f0a8f",
+      "bytes": 22504
+    },
+    {
+      "id": "fossgis-privacy",
+      "sha256": "d9ee2bf4a38ef5c1cee427ac6ff3071e3e824a17069670521a4515634768e1af",
+      "bytes": 11704
+    },
+    {
+      "id": "transitous-api",
+      "sha256": "b3312d3a75ea7e3f5166d1761fcfd9bf6e96dec433e2c3e76a49cb51e381051c",
+      "bytes": 21430
+    },
+    {
+      "id": "transitous-privacy",
+      "sha256": "6ddda8b227cf70819499b8ee5589e128a04e350780f044f9d4a1f52617e14a2f",
+      "bytes": 17315
+    },
+    {
+      "id": "transitous-sources",
+      "sha256": "3cee3033c94dffef5d7f3fd3e6b18102ec66c6e59afba682bcf9a4e3d43770ba",
+      "bytes": 1870168
+    },
+    {
+      "id": "nominatim-policy",
+      "sha256": "19054224850561fd66851158b3aca27ac87481e46174aa9b4e0f19d1fdb50ed4",
+      "bytes": 8274
+    },
+    {
+      "id": "kakao-docs",
+      "sha256": "1b32f64f2041dcd745438a6b5a32d6ab0229167501ef0306dc075258547a2f49",
+      "bytes": 276933
+    }
+  ],
+  "notPerformed": [
+    "user GPS permission or location access",
+    "production-origin browser fetch",
+    "Transitous route request (operator pre-contact policy)",
+    "venue coordinate selection",
+    "iOS/Android PWA",
+    "actual journey"
+  ],
+  "interpretation": "HTTP success and local browser CORS are separate evidence. No app implementation or reservation arrival claim."
+}

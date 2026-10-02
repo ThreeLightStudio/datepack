@@ -1,108 +1,56 @@
-# DatePack 0.3.0 release readiness
+# DatePack 0.4.0 release readiness
 
-검토 기준일: 2026-09-29 · 앱 버전: 0.3.0 (pre-release) · 파일 형식: 3.0 ·
-코어 패키지: `@datepack/core` 0.3.0
+2026-10-02 (Asia/Seoul) · app/core **0.4.0** · portable format **4.0**.
+Local pre-release implementation; no push, PR, deployment or publication.
+U04's report is reviewable evidence, not self-approval of the whole project.
+The main orchestrator owns final acceptance. [Integration report](u04-integration.md)
+records the tested result, build and outstanding environment/device limits.
 
-이 문서는 구현 계획의 D01–D18, 조사 문서의 C01–C40, 필수 인수 경로를
-코드와 검증 증거에 연결한다. `완료`는 코드 경로와 자동 검증 또는 아래
-브라우저 확인으로 뒷받침되는 범위다. `부분/후속`은 첫 구현만으로 원래
-상황의 모든 변형을 다루지 못하거나 별도 제품 검증이 필요한 경우다.
+## Current contract
 
-## 실행 결과
+- Home / Plans / Memories; home can start with photos and no plan.
+- Format 4.0 outing/memories, document identity, originalPlan, title-free photo
+  records and separate occurrence/recorded timestamps. Independent documents
+  have real records and no fake plan.
+- Atomic record/photo saves, links and unlinking; plan deletion preserves linked
+  memories. Imports deduplicate identical contents or create conflict copies.
+- Only format 4.0 imported files; other versions, including 4.1, reject.
+  Existing local v3 data/drafts migrate separately;
+  source data survives failure for retry. Historical 3.0 reader claims are in
+  the [archived readiness report](archive/release-readiness-0.3.0.md).
+- Optional solo/together, region, 1–1440 minutes, nearby/one venue and KRW budget
+  with total/per-person basis. Direct planning and AI share the same conditions.
+- Durable legacy/new/edit record text and separate AI answer drafts, revision
+  conflict review and explicit saving. Unsaved new File selection does not
+  survive complete app shutdown.
+- Long AI work uses restorable screens; short editing/linking/sharing uses sheets.
+  Original wording, protected fields, request/document identity and stale checks
+  remain enforced. A map link is not route evidence; public routing remains disabled.
 
-| 확인                                              | 결과   | 증거 및 범위                                                                                                                                                                                                                                                                               |
-| ------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm run verify`                                 | 통과   | 포맷 검사, lint, typecheck, 앱 테스트, core typecheck/tests. 현재 앱 테스트 63개, core 테스트 82개 통과. core에는 체크인된 예제 파일을 `readDatePack`으로 읽는 검증이 포함된다.                                                                                                            |
-| `pnpm run build`                                  | 통과   | Vite 프로덕션 빌드 및 서비스 워커 생성.                                                                                                                                                                                                                                                    |
-| `git diff --check`                                | 통과   | 후속 커밋 직전 다시 실행.                                                                                                                                                                                                                                                                  |
-| 브라우저 온라인                                   | 통과   | macOS 데스크톱의 Codex 인앱 브라우저. `http://localhost:4173/datepack/`에서 프로덕션 빌드를 확인하고 데모 계획을 열었다.                                                                                                                                                                   |
-| 오프라인 재실행·저장                              | 통과   | 서비스 워커가 캐시한 프로덕션 앱을 먼저 연 다음 정적 서버를 중단하고 새로고침했다. 앱이 다시 열렸고, 활동 제목을 수정·저장한 뒤 오프라인에서 재새로고침해 변경이 남는 것을 확인했다. 이 검증은 데스크톱 브라우저의 로컬 origin이며 설치 PWA나 모바일 검증은 아니다.                        |
-| 오프라인 내보내기                                 | 통과   | 서버 중단 상태에서 `.datepack.json` Download를 눌러 다운로드 완료 알림을 확인했다. OS 다운로드 폴더의 파일 선택·재가져오기는 별도 검증하지 못했다.                                                                                                                                         |
-| 예제 파일 브라우저 가져오기                       | 미검증 | 앱의 파일 열기 컨트롤을 눌렀지만 Codex 인앱 브라우저 제어에는 로컬 파일 선택 API가 없다. 호스트 macOS는 잠금 상태였고 CUA가 네이티브 파일 선택기 상호작용을 차단했다(`The Mac is locked and automatic unlock could not unlock it`). 예제는 core 자동 검사에서 `readDatePack`으로 검증했다. |
-| PWA 설치, iOS / Android, 스크린리더, OS 공유 시트 | 미검증 | 실제 설치 상태·기기·보조기술·운영체제 공유 UI는 사용하지 않았다.                                                                                                                                                                                                                           |
+## Verification sources
 
-## 필수 인수 경로
+| Source                                | Verified scope                                                                                                    | Limits                                                                |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| U01 reviewed `1a1aa80`                | format/storage/atomic rollback/local migration/import/AI safety                                                   | automatic fixtures                                                    |
+| U02 reviewed `6cba751`                | photo-first save/restart/date/link/unlink, failures and sharing                                                   | viewport desktop browser, injected quota/share, native picker pending |
+| U03 reviewed `1836790` + `d83b030`    | direct/AI conditions/screens, v3 visible draft resume, intentional save, new/edit restart/conflict                | synthetic AI/v3 fixtures, no native AI                                |
+| U04 [integration](u04-integration.md) | final version/docs/examples, production browser cache, photo save/restart/Blob roundtrip, direct next destination | final result and environment constraints listed in report             |
 
-| 경로                                                                 | 코드 경로                                                                        | 상태      | 확인 / 남은 확인                                                                                                                                          |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 각자 합류·반나절: 다른 출발지, 14–17시 만남, 선택 일정만 입력        | `PlanMetaSheet`, `PlanView`, 기기별 `PersonalJourney`, `Meeting`, 일정 시간 범위 | 부분/후속 | 합류 정보와 현재 기기의 개인 이동 메모를 분리한다. 두 사람 각각의 이동 상태·수단·도착 미정 상태를 하나의 계획에서 함께 관리하지는 않는다. C01–C08 참고.   |
-| 앱 밖에서 결정한 현재 상황: 카페 도착, 서점 선택, 지난 일정은 미확인 | `CurrentContextSheet`, `dayRuntime`, `nextDestination`, `DayView`                | 완료      | 직접 입력 가능하며 과거 일정의 방문/미방문을 자동 확정하지 않는다. 지난 항목은 명시적으로 남은 계획에 재포함할 수 있다.                                   |
-| 보호된 예약과 오래된 AI 답안                                         | `AiSection`, `exchange`, core `patch` 및 계획 검증                               | 완료      | 답안의 요청/계획/revision 맥락을 확인하고 보호 위반·오래되거나 중복된 답안은 적용 전에 거부한다. 유효 답안은 변경안을 검토한 뒤 사용자 확인으로 적용한다. |
-| 며칠 뒤 사진·짧은 메모 기록                                          | `MemoriesSection`, `Experience`, core read/write                                 | 완료      | 계획 완료 없이 기록할 수 있고 발생 시각과 `recordedAt`을 분리한다. 사진은 보관 파일에 포함된다.                                                           |
+The latest automatic verification and build logs are associated with U04's
+result in its handoff. The existing main JavaScript chunk exceeds Vite's 500 kB
+warning threshold; this work does not hide that warning or introduce a performance redesign.
 
-## C01–C40 제품 상황 추적
+## Device and operating checks still needed
 
-| ID  | 상태      | 구현·검증 경로 / 제한                                                                                      |
-| --- | --------- | ---------------------------------------------------------------------------------------------------------- |
-| C01 | 부분/후속 | `Meeting`과 기기별 `PersonalJourney` 분리. 두 사람 각각의 출발 정보는 공동 계획에서 모델링하지 않음.       |
-| C02 | 부분/후속 | 기기별 이동 수단 메모는 가능. 양쪽의 서로 다른 교통수단·예상시간을 계획에서 구조화하지 않음.               |
-| C03 | 후속      | 합류 지점과 시간은 저장되지만 한 사람의 도착/대기 상태는 별도 표현이 없음.                                 |
-| C04 | 완료      | 합류 장소(`Meeting`)와 첫 활동(`DateEvent`) 분리.                                                          |
-| C05 | 부분/후속 | 출발 메모와 공동 계획은 분리되나 픽업→합류→공동 이동은 별도 이동 단계로 모델링하지 않음.                   |
-| C06 | 후속      | 공동 일정은 저장하지만 각자 귀가 목적지/이동은 개인 기기 메모 수준.                                        |
-| C07 | 완료      | 개인 출발 정보는 `DeviceState.personalJourney`에 저장되며 보관 파일·AI 문맥·공유 텍스트에 포함되지 않는다. |
-| C08 | 부분/후속 | 합류 시간은 선택 입력이라 미정을 보존. 확정 출발 안내와 불명 상태의 전용 모델은 없음.                      |
-| C09 | 완료      | 계획 가용 범위는 선택 입력이며 종료 제한 뒤 일정을 자동 생성하지 않음.                                     |
-| C10 | 완료      | 제목 하나인 활동도 유효. 비어 있는 계획과 선택 날짜를 보존.                                                |
-| C11 | 완료      | 활동 시작/종료는 선택 입력이며 종료 없는 시각 입력을 허용.                                                 |
-| C12 | 완료      | 정확한 예약과 window/unscheduled 활동을 함께 저장.                                                         |
-| C13 | 완료      | 배열 순서를 보존하고 unscheduled label로 상대 순서를 표현.                                                 |
-| C14 | 완료      | 방문/체류 결과를 자동 판정하지 않고 남은 일정을 사용자가 조정.                                             |
-| C15 | 완료      | 이벤트 사이 빈 시간을 그대로 두며 달성률은 계산하지 않음.                                                  |
-| C16 | 완료      | `dayOffset: 0                                                                                              | 1`로 자정 경계를 명시. core time 및 consistency 테스트. |
-| C17 | 부분      | 보호 필드와 직접 편집/해제, AI patch 보호 검증이 있음. 외부 영업·휴무 확인은 제공하지 않음.                |
-| C18 | 완료      | 다음 장소 직접 교체 및 남은 일정 조정, 변경 영향 검토 경로 제공.                                           |
-| C19 | 부분      | 직접 선택으로 대체 가능. 혼잡도 확인·자동 추론 기능은 없음.                                                |
-| C20 | 완료      | 사용자가 상황과 제약을 직접 바꾸고 남은 계획을 조정.                                                       |
-| C21 | 완료      | 시간·장소·순서·삭제를 직접 수정하고 범위 축소 가능.                                                        |
-| C22 | 완료      | 사용자가 선호/후보를 바꾸고 선택을 적용.                                                                   |
-| C23 | 부분/후속 | 제약·메모와 직접 일정 축소는 가능하지만 예산/가격 검증과 확정 가격 모델은 없음.                            |
-| C24 | 완료      | 후보, 제안자, 제외/선택 상태를 보존하며 합의를 추정하지 않음.                                              |
-| C25 | 부분      | 후보를 추가해 의견을 저장할 수 있고 계정은 요구하지 않음. 공동 계정·동기화는 제공하지 않음.                |
-| C26 | 완료      | 기존 활동을 유지하며 선택한 활동만 직접 교체/제외 가능.                                                    |
-| C27 | 완료      | 앱 밖에서 정한 현재 상황과 다음 목적지를 직접 반영 가능. AI 제안 강요 없음.                                |
-| C28 | 완료      | 계획에 없는 장소도 `liveContext`의 현재 위치/다음 장소로 입력 가능.                                        |
-| C29 | 완료      | 경험은 독립 입력이며 모르는 일정은 미확인으로 남김.                                                        |
-| C30 | 완료      | 체크 여부와 경험 기록은 별도 데이터이며 계획만으로 방문 사실을 만들지 않음.                                |
-| C31 | 완료      | 지난 예정 항목을 사용자가 남은 계획에 명시적으로 복귀 가능.                                                |
-| C32 | 완료      | 날짜가 지나도 자동 완료하지 않으며 추억 화면에서 나중 기록 시작 가능.                                      |
-| C33 | 완료      | pending request에 계획/revision 맥락을 보관하고 답안 적용 시 다시 검증.                                    |
-| C34 | 완료      | 요청 식별 및 적용된 답안 중복 차단. `aiExchange` 테스트.                                                   |
-| C35 | 완료      | AI 없이 직접 편집·현재 상황·기록 가능. 로컬 우선 저장 경로. 실기기 오프라인은 미검증.                      |
-| C36 | 완료      | 계획 완료 없이 제목·메모·사진 경험 저장. 브라우저에서 기록 화면 확인.                                      |
-| C37 | 완료      | 발생 시간과 기록 시간 분리. 경험 저장 및 core v3 테스트.                                                   |
-| C38 | 완료      | 계획 이벤트 ID 없는 독립 경험 허용.                                                                        |
-| C39 | 완료      | 공유할 경험/메모를 별도 선택하고 공유 텍스트는 원본 기록과 분리. OS share sheet 자체는 미검증.             |
-| C40 | 완료      | 3.0 보관 파일, 기존 1.x ZIP·2.x JSON 읽기/변환 및 향후 버전 원문 보존 경로. 다른 실기기에서 재열기 미검증. |
+- Physical iOS Safari / Android Chrome installed PWA: installation, cold launch,
+  offline editing/photos/import/export and external-app return.
+- Raw HEIC/HEIF is not decoded/converted by the app. Platform image conversion
+  behavior and native photo-picker cancellation need device verification.
+- Actual GPS consent/failure/freshness, operating public route services, external
+  AI compliance, OS sharing, VoiceOver/TalkBack and enlarged text.
+- Actual download completion and recovered file re-import are distinct from
+  tested generated Blob contents and reader/writer/storage roundtrip.
+- Screen layout at mobile CSS widths is not physical touch or installed-PWA proof.
 
-## D01–D18 결정 추적
-
-| ID  | 구현 경로                                                                   | 상태                           |
-| --- | --------------------------------------------------------------------------- | ------------------------------ |
-| D01 | `DatePlan` 초안 생성, 선택 날짜/장소/시각 및 빈 계획 저장                   | 완료                           |
-| D02 | `availableFrom` / `mustEndBy`, 자동 시간표 채우기 없음                      | 완료                           |
-| D03 | `exact` / `window` / `unscheduled` timing과 표시                            | 완료                           |
-| D04 | 배열 순서 유지, 시간/순서 불일치 advisory conflict                          | 완료                           |
-| D05 | `dayOffset`으로 시작일~다음 날 범위 검증                                    | 완료                           |
-| D06 | event `importance` 및 granular `protectedFields`; AI로 보호 해제 불가       | 완료                           |
-| D07 | `Meeting`와 `PersonalJourney` 분리, 개인 이동은 기기 상태에 보관            | 완료                           |
-| D08 | IndexedDB `liveContext` 및 확인 시각, 재방문 질문 강제 없음                 | 완료                           |
-| D09 | 미확인 과거 사실 자동 생성 안 함, 사용자의 명시적 재포함 동작               | 완료                           |
-| D10 | 독립 `Experience`, 선택적 occurred timing, `recordedAt`, 명시적 완료/건너뜀 | 완료                           |
-| D11 | 직접 이벤트/후보/현재 상황 수정, AI는 선택 경로                             | 완료                           |
-| D12 | 직접 변경 저장 및 AI 변경 검토 뒤 적용                                      | 완료                           |
-| D13 | 구조/참조/보호/충돌 검증; 실패 시 적용 전 거부                              | 완료                           |
-| D14 | 새 revision, 불변 baseline, 계획 undo와 현재 맥락/경험 분리                 | 완료                           |
-| D15 | IndexedDB에 최근 계획 변경 undo 보관; 복원도 현재 검증 통과 필요            | 완료                           |
-| D16 | 사진·장소 스냅샷·메모의 경험, 원문과 AI 수정본 분리                         | 완료                           |
-| D17 | Web Share API 가능 시 공유, 복사 fallback, 외부 AI 결과를 사용자가 붙여넣기 | 코드 완료; 실제 OS 공유 미검증 |
-| D18 | 3.0 write, 1.x/2.x known migration, 미지원 미래 버전 원문 보존              | 완료; 기기 간 현장 검증 미수행 |
-
-## 릴리스 전 후속 확인
-
-- iOS Safari와 Android Chrome에서 설치, 재실행, 오프라인 직접 편집, 사진 보관,
-  파일 가져오기/내보내기, 외부 AI 전환 후 복귀를 확인한다.
-- VoiceOver/TalkBack, OS 공유 시트와 복사 fallback을 실기기에서 확인한다.
-- 두 사람의 개별 도착/대기/귀가, 앱 안에서 비교 가능한 각자 이동 계획,
-  예산·가격 확정 흐름은 별도 제품/구현 후속이다.
-- 이 작업에서는 배포·게시·패키지 공개를 하지 않았다.
+Recruitment/usability study, deployment, publishing, accounts, a recommendation
+server/feed, automatic tracking and an expense ledger are outside U01–U04.

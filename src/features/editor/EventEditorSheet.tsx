@@ -21,6 +21,7 @@ import {
   showToast,
   undo,
   updatePlan,
+  useStore,
 } from '../../store/datepackStore';
 import { AssetImage } from '../../components/AssetImage';
 import { Sheet } from '../../components/Sheet';
@@ -33,6 +34,8 @@ const point = (time: string, dayOffset: 0 | 1): LocalPoint => ({ time, dayOffset
 
 export function EventEditorSheet({ plan, event, onClose }: Props) {
   const locale = useLocale();
+  const { pack } = useStore();
+  const documentId = pack?.id ?? plan.id;
   const ko = locale === 'ko';
   const [title, setTitle] = useState(event?.title ?? '');
   const [type, setType] = useState<DateEventType>(event?.type ?? 'place');
@@ -522,7 +525,7 @@ export function EventEditorSheet({ plan, event, onClose }: Props) {
                   onClick={() => void removeAsset(id)}
                   aria-label={ko ? '사진 삭제' : 'Remove photo'}
                 >
-                  <AssetImage packId={plan.id} assetId={id} className="thumb-img" alt="" />
+                  <AssetImage packId={documentId} assetId={id} className="thumb-img" alt="" />
                 </button>
               ))}
               <button

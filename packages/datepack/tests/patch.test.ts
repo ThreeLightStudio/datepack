@@ -26,6 +26,24 @@ function makePlan(): DatePlan {
 }
 
 describe('patch validation', () => {
+  it('keeps legacy fixed fully protected when partial field protection is present', () => {
+    const plan = makePlan();
+    plan.events[0].fixed = true;
+    plan.events[0].protectedFields = ['time'];
+    for (const operation of [
+      { op: 'replace' as const, target: plan.events[0].id, value: { title: 'Changed' } },
+      { op: 'replace' as const, target: plan.events[0].id, value: { placeId: 'new-place' } },
+      { op: 'remove' as const, target: plan.events[0].id },
+    ]) {
+      const result = describePatch(plan, {
+        type: 'datepack.patch',
+        version: 1,
+        operations: [operation],
+      });
+      expect(result.canApply).toBe(false);
+      expect(result.plan).toEqual(plan);
+    }
+  });
   it('creates and links a new searchable place from an AI-inserted event', () => {
     const plan = makePlan();
     const result = describePatch(plan, {

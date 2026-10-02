@@ -11,7 +11,7 @@ import {
   listPackAssetBlobs,
   listPacks,
   loadDeviceState,
-  loadPack,
+  loadPack as loadAnyPack,
   saveDeviceState,
   saveImportedPack,
   savePack,
@@ -20,6 +20,7 @@ import {
   getCurrentPackId,
   savePackWithPendingRequest,
   savePendingRequest,
+  saveDeviceFields,
 } from '../src/storage/indexedDb';
 import { openDB } from 'idb';
 
@@ -37,6 +38,68 @@ beforeEach(clearDatabase);
 afterEach(closeStorage);
 
 describe('device IndexedDB persistence', () => {
+  it('does not overwrite a runtime context changed while a one-shot GPS request was pending', async () => {
+    const pack = createDatePack({ title: 'GPS context race' });
+    await savePack(pack);
+    await saveRuntimeAndAdvanceContext({
+      planId: pack.plan.id,
+      updatedAt: '2026-10-01T07:40:00Z',
+      events: {},
+    });
+    await expect(
+      saveDeviceFields(
+        pack.plan.id,
+        {
+          liveContext: {
+            planId: pack.plan.id,
+            revision: 1,
+            updatedAt: '2026-10-01T07:41:00Z',
+            place: 'Stale GPS result',
+          },
+        },
+        0,
+        undefined,
+        0,
+      ),
+    ).rejects.toThrow('context-revision-conflict');
+    expect((await loadDeviceState(pack.plan.id)).contextRevision).toBe(1);
+    expect((await loadDeviceState(pack.plan.id)).liveContext).toBeUndefined();
+  });
+  it('strips exact GPS coordinates at every device write and excludes device context from portable packs', async () => {
+    const pack = createDatePack({ title: 'Private origin' });
+    await savePack(pack);
+    const attempt = {
+      attemptedAt: '2026-10-01T07:40:00Z',
+      status: 'success' as const,
+      observation: {
+        source: 'gps' as const,
+        observedAt: '2026-10-01T07:40:00Z',
+        coarseLabel: 'Seoul',
+        coordinate: { lat: 37.563214, lon: 126.987654, accuracyMeters: 5 },
+      },
+    };
+    const liveContext = {
+      planId: pack.plan.id,
+      revision: 1,
+      updatedAt: attempt.attemptedAt,
+      gpsConsent: true,
+      locationAttempt: attempt,
+    };
+    await saveDeviceFields(pack.plan.id, { liveContext });
+    await closeStorage();
+    const saved = await loadDeviceState(pack.plan.id);
+    expect(JSON.stringify(saved)).not.toMatch(/37\.563214|126\.987654|coordinate|accuracy/);
+    expect(saved.liveContext?.locationAttempt?.observation?.observedAt).toBe(attempt.attemptedAt);
+    await saveDeviceState({ ...saved, liveContext });
+    const rawDb = await openDB('datepack');
+    expect(JSON.stringify(await rawDb.get('device', pack.plan.id))).not.toMatch(
+      /37\.563214|126\.987654|coordinate|accuracy/,
+    );
+    rawDb.close();
+    expect(JSON.stringify(await loadPack(pack.plan.id))).not.toMatch(
+      /gpsConsent|locationAttempt|37\.563214/,
+    );
+  });
   it('saves a memory and its image blob atomically across a storage restart', async () => {
     const pack = createDatePack({ title: 'Later memories', date: '2026-09-25' });
     await savePack(pack);
@@ -107,8 +170,8 @@ describe('device IndexedDB persistence', () => {
     const a: DatePlan = { ...initial.plan, title: 'Tab A' };
     const b: DatePlan = { ...initial.plan, title: 'Tab B' };
     const results = await Promise.allSettled([
-      commitPlanChange(initial.plan.id, 0, 'A', a),
-      commitPlanChange(initial.plan.id, 0, 'B', b),
+      commitPlanChange(initial, 0, 'A', a),
+      commitPlanChange(initial, 0, 'B', b),
     ]);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
@@ -121,7 +184,7 @@ describe('device IndexedDB persistence', () => {
     const asset = { id: 'test-image', filename: 'image.png', mimeType: 'image/png' };
     await expect(
       commitPlanChange(
-        initial.plan.id,
+        initial,
         1,
         'broken',
         invalidClonePlan,
@@ -170,8 +233,32 @@ describe('device IndexedDB persistence', () => {
       createdAt: '2026-09-29T00:00:00Z',
       updatedAt: '2026-09-29T00:02:00Z',
     };
+    await expect(
+      commitPlanChange(
+        pack,
+        0,
+        'Expired route',
+        { ...pack.plan, title: 'Rejected' },
+        undefined,
+        [],
+        {
+          requestId: 'request-ai',
+          kind: 'remaining-change',
+          baseRevision: 0,
+          contextRevision: 7,
+          generatedAt: requestUpdate.generatedAt,
+          responseFingerprint: 'fingerprint',
+          answerText: 'answer',
+          requestUpdate,
+          validateImpact: () => false,
+        },
+      ),
+    ).rejects.toThrow('route-impact-conflict');
+    expect((await loadPack(pack.plan.id))?.revision).toBe(0);
+    expect((await loadDeviceState(pack.plan.id)).pendingRequest?.status).toBe('review');
+    expect((await loadDeviceState(pack.plan.id)).undoStack).toHaveLength(0);
     await commitPlanChange(
-      pack.plan.id,
+      pack,
       0,
       'AI change',
       { ...pack.plan, title: 'Reviewed' },
@@ -186,6 +273,7 @@ describe('device IndexedDB persistence', () => {
         responseFingerprint: 'fingerprint',
         answerText: 'answer',
         requestUpdate,
+        validateImpact: (before) => before.title === pack.plan.title,
       },
     );
     expect((await loadPack(pack.plan.id))?.plan.title).toBe('Reviewed');
@@ -252,7 +340,7 @@ describe('device IndexedDB persistence', () => {
   it('retains pending requests and undo through a database restart', async () => {
     const pack = createDatePack({ title: 'Test', date: '2026-09-29' });
     await savePack(pack);
-    await commitPlanChange(pack.plan.id, 0, 'Rename', { ...pack.plan, title: 'Changed' });
+    await commitPlanChange(pack, 0, 'Rename', { ...pack.plan, title: 'Changed' });
     await saveDeviceState({
       planId: pack.plan.id,
       undoStack: [],
@@ -308,7 +396,21 @@ describe('device IndexedDB persistence', () => {
         db.createObjectStore('sourceBackups');
       },
     });
-    await old.put('packsV3', { pack, savedAt: '2026-09-29T00:00:00.000Z' }, pack.plan.id);
+    await old.put(
+      'packsV3',
+      {
+        pack: {
+          manifest: { ...pack.manifest, version: '3.0' },
+          plan: pack.plan,
+          baselinePlan: pack.originalPlan,
+          experiences: pack.experiences,
+          revision: pack.revision,
+          assets: pack.assets,
+        },
+        savedAt: '2026-09-29T00:00:00.000Z',
+      },
+      pack.id,
+    );
     await old.put(
       'device',
       {
@@ -328,7 +430,7 @@ describe('device IndexedDB persistence', () => {
     expect((await loadPack(pack.plan.id))?.plan.title).toBe(pack.plan.title);
     expect((await loadDeviceState(pack.plan.id)).liveContext?.revision).toBe(7);
     const upgraded = await openDB('datepack');
-    expect(upgraded.version).toBe(4);
+    expect(upgraded.version).toBe(5);
     expect(upgraded.objectStoreNames.contains('deletedPacks')).toBe(true);
     expect(await upgraded.get('sourceBackups', pack.plan.id)).toMatchObject({
       source: 'legacy source',
@@ -347,11 +449,11 @@ describe('device IndexedDB persistence', () => {
       timing: { kind: 'unscheduled' as const },
     };
     const firstPlan = { ...blank.plan, events: [firstEvent] };
-    await commitPlanChange(blank.plan.id, 0, 'Add first stop', firstPlan);
-    expect((await loadPack(blank.plan.id))?.baselinePlan).toEqual(firstPlan);
+    await commitPlanChange(blank, 0, 'Add first stop', firstPlan);
+    expect((await loadPack(blank.plan.id))?.originalPlan).toEqual(firstPlan);
 
     const revisedPlan = { ...firstPlan, title: 'Later edit' };
-    await commitPlanChange(blank.plan.id, 1, 'Rename plan', revisedPlan);
+    await commitPlanChange(blank, 1, 'Rename plan', revisedPlan);
     await commitExperienceChange(blank.plan.id, 2, [
       {
         id: 'first-experience',
@@ -362,45 +464,45 @@ describe('device IndexedDB persistence', () => {
       },
     ]);
     const afterExperience = await loadPack(blank.plan.id);
-    expect(afterExperience?.baselinePlan).toEqual(firstPlan);
+    expect(afterExperience?.originalPlan).toEqual(firstPlan);
 
     const initialWithEvents = createDatePack({ title: 'Imported plan', date: '2026-09-29' });
     initialWithEvents.plan = { ...initialWithEvents.plan, events: [firstEvent] };
     await savePack(initialWithEvents, undefined, false, true);
-    expect((await loadPack(initialWithEvents.plan.id))?.baselinePlan).toEqual(
+    expect((await loadPack(initialWithEvents.plan.id))?.originalPlan).toEqual(
       initialWithEvents.plan,
     );
 
     const importedWithEvents = createDatePack({ title: 'Imported with stops', date: '2026-09-29' });
     importedWithEvents.plan = { ...importedWithEvents.plan, events: [firstEvent] };
-    const importedBaseline = structuredClone(importedWithEvents.baselinePlan);
+    const importedBaseline = structuredClone(importedWithEvents.originalPlan);
     const savedImport = await saveImportedPack(importedWithEvents, new Blob(['source']), []);
-    expect(savedImport.baselinePlan).toEqual(importedBaseline);
+    expect(savedImport.originalPlan).toEqual(importedBaseline);
 
     const preserved = createDatePack({ title: 'Current plan', date: '2026-09-29' });
     preserved.plan = { ...preserved.plan, events: [firstEvent] };
-    preserved.baselinePlan = { ...preserved.plan, title: 'Original plan' };
+    preserved.originalPlan = { ...preserved.plan, title: 'Original plan' };
     const imported = await saveImportedPack(preserved, new Blob(['v3 source']), []);
     await closeStorage();
     const roundTrip = await loadPack(preserved.plan.id);
     expect(imported.plan).toEqual(preserved.plan);
-    expect(imported.baselinePlan).toEqual(preserved.baselinePlan);
+    expect(imported.originalPlan).toEqual(preserved.originalPlan);
     expect(roundTrip?.plan).toEqual(preserved.plan);
-    expect(roundTrip?.baselinePlan).toEqual(preserved.baselinePlan);
+    expect(roundTrip?.originalPlan).toEqual(preserved.originalPlan);
 
     const localDraft = createDatePack({ title: 'Current plan', date: '2026-09-29' });
     localDraft.plan = { ...localDraft.plan, events: [firstEvent] };
-    localDraft.baselinePlan = { ...localDraft.plan, title: 'Established baseline' };
+    localDraft.originalPlan = { ...localDraft.plan, title: 'Established baseline' };
     const savedDraft = await savePack(localDraft);
-    expect(savedDraft.baselinePlan).toEqual(localDraft.baselinePlan);
+    expect(savedDraft.originalPlan).toEqual(localDraft.originalPlan);
 
     const genericCreate = createDatePack({ title: 'Generic create', date: '2026-09-29' });
     genericCreate.plan = { ...genericCreate.plan, events: [firstEvent] };
     const savedGenericCreate = await savePack(genericCreate);
-    expect(savedGenericCreate.baselinePlan).toEqual(genericCreate.baselinePlan);
+    expect(savedGenericCreate.originalPlan).toEqual(genericCreate.originalPlan);
   });
 
-  it('uses create-only semantics and rejects stale explicit import replacement', async () => {
+  it('uses create-only writes and imports conflicting content as a copy', async () => {
     const pack = createDatePack({ title: 'Original', date: '2026-09-29' });
     const creations = await Promise.allSettled([savePack(pack), savePack(pack)]);
     expect(creations.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
@@ -408,23 +510,14 @@ describe('device IndexedDB persistence', () => {
 
     const imported = { ...pack, plan: { ...pack.plan, title: 'Imported' } };
     const explicitReplacement = { ...pack, plan: { ...pack.plan, title: 'Explicit replacement' } };
-    await commitPlanChange(pack.plan.id, 0, 'Concurrent tab', {
-      ...pack.plan,
-      title: 'Concurrent tab',
-    });
+    await commitPlanChange(pack, 0, 'Concurrent tab', { ...pack.plan, title: 'Concurrent tab' });
     await expect(savePack(explicitReplacement, 0)).rejects.toThrow('revision-conflict');
-    await expect(saveImportedPack(imported, new Blob(['source']), [], 0)).rejects.toThrow(
-      'revision-conflict',
-    );
-    expect((await loadPack(pack.plan.id))?.plan.title).toBe('Concurrent tab');
-    expect(await listPackAssetBlobs(pack.plan.id)).toEqual(new Map());
-    const db = await openDB('datepack');
-    expect(await db.getAll('sourceBackups')).toEqual([]);
-    db.close();
-
-    const replaced = await saveImportedPack(imported, new Blob(['source']), [], 1);
-    expect(replaced.revision).toBe(2);
-    expect(replaced.plan.title).toBe('Imported');
+    const copy = await saveImportedPack(imported, new Blob(['source']), []);
+    expect(copy.id).not.toBe(pack.id);
+    expect(copy.revision).toBe(imported.revision);
+    expect(copy.plan!.title).toBe('Imported');
+    expect((await loadPack(pack.id))?.plan.title).toBe('Concurrent tab');
+    expect((await listPacks()).length).toBe(2);
   });
 
   it('migrates old bytes once and preserves the source and experience identity on retry', async () => {
@@ -482,17 +575,17 @@ describe('device IndexedDB persistence', () => {
       'experience-legacy-legacy-plan-legacy-event',
     ]);
     expect(second?.experiences).toHaveLength(1);
-    expect(first?.baselinePlan).toEqual(first?.plan);
+    expect(first?.originalPlan).toEqual(first?.plan);
     const check = await openDB('datepack');
     expect(await check.get('packs', 'legacy-plan')).toEqual(original);
-    expect(await check.get('sourceBackups', 'legacy-plan')).toMatchObject({ source: original });
+    expect(await check.get('sourceBackups', 'v4:legacy-plan')).toMatchObject({ source: original });
     check.close();
   });
 
   it('undo restores only the plan while keeping newer context and runtime facts intact', async () => {
     const pack = createDatePack({ title: 'Test', date: '2026-09-29' });
     await savePack(pack);
-    await commitPlanChange(pack.plan.id, 0, 'Rename', { ...pack.plan, title: 'Changed' });
+    await commitPlanChange(pack, 0, 'Rename', { ...pack.plan, title: 'Changed' });
     const device = await loadDeviceState(pack.plan.id);
     device.liveContext = {
       planId: pack.plan.id,
@@ -515,14 +608,14 @@ describe('device IndexedDB persistence', () => {
     await expect(commitExperienceChange(pack.plan.id, 1, pack.experiences)).rejects.toThrow(
       'revision-conflict',
     );
-    expect((await loadPack(pack.plan.id))?.baselinePlan.title).toBe('Test');
+    expect((await loadPack(pack.plan.id))?.originalPlan.title).toBe('Test');
     await commitUndo(pack.plan.id, 2);
     const restored = await loadPack(pack.plan.id);
     const local = await loadDeviceState(pack.plan.id);
     expect(restored?.plan.title).toBe('Test');
     expect(restored?.revision).toBe(3);
     expect(restored?.experiences.map((experience) => experience.id)).toEqual(['experience-later']);
-    expect(restored?.baselinePlan.title).toBe('Test');
+    expect(restored?.originalPlan.title).toBe('Test');
     expect(local.liveContext?.revision).toBe(4);
     expect(local.personalJourney?.origin).toBe('Home');
   });
@@ -550,7 +643,13 @@ describe('device IndexedDB persistence', () => {
     expect(await listPacks()).toEqual([]);
     const check = await openDB('datepack');
     expect(await check.get('packs', 'deleted-plan')).toBeDefined();
-    expect(await check.get('sourceBackups', 'deleted-plan')).toBeDefined();
+    expect(await check.get('sourceBackups', 'v4:deleted-plan')).toBeDefined();
     check.close();
   });
 });
+
+async function loadPack(id: string) {
+  const pack = await loadAnyPack(id);
+  if (pack && pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return pack;
+}

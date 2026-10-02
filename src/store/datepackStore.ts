@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import type {
   DatePack,
+  OutingDatePack,
+  Experience,
   DatePackAsset,
   DatePackRuntimeState,
   DatePlan,
@@ -38,6 +40,11 @@ import {
   loadDeviceState,
   saveDeviceFields,
   savePendingRequest,
+  saveExperience,
+  moveExperience,
+  deleteExperience,
+  type AssetWrite,
+  type ExperienceDestination,
   type PendingRequest,
   type AiCommitGuard,
   type LiveContext,
@@ -45,9 +52,23 @@ import {
 } from '../storage/indexedDb';
 import { createSeoulSeed } from '../seed/seoul';
 import { emptyRuntime, getRuntimeEntry } from '../features/day/dayRuntime';
+import {
+  hasRouteImpact,
+  protectionReasons,
+  localImpactInput,
+  snapshotMatches,
+  validateImpact,
+  prepareImpact,
+  type ImpactResult,
+  type ValidationSnapshot,
+} from '../features/day/routeImpact';
+import { reorderPlan, adjustReorderedTimes } from '../features/plan/reorder';
+import { parseMemoryReply } from '../features/memories/aiMemory';
+import { getAiScopeEventIds } from '../features/ai/promptBuilder';
 import { t, getLocale, type I18nIssue } from '../i18n/core';
+import { summarizeActivity, type LibraryActivity } from '../features/home/libraryActivity';
 
-export type SavedPackSummary = { pack: DatePack; savedAt: string };
+export type SavedPackSummary = { pack: OutingDatePack; savedAt: string };
 
 export type UndoEntry = { label: string; plan: DatePlan; revision: number };
 
@@ -55,7 +76,10 @@ export type ToastAction = { label: string; onClick: () => void };
 
 export type StoreState = {
   status: 'loading' | 'ready' | 'empty';
-  pack: DatePack | null;
+  pack: OutingDatePack | null;
+  document: DatePack | null;
+  savedDocuments: Array<{ pack: DatePack; savedAt: string }>;
+  savedActivities: LibraryActivity[];
   runtime: DatePackRuntimeState | null;
   savedPacks: SavedPackSummary[];
   undoStack: UndoEntry[];
@@ -71,6 +95,9 @@ export type StoreState = {
 let state: StoreState = {
   status: 'loading',
   pack: null,
+  document: null,
+  savedDocuments: [],
+  savedActivities: [],
   runtime: null,
   savedPacks: [],
   undoStack: [],
@@ -84,7 +111,40 @@ let state: StoreState = {
 const listeners = new Set<() => void>();
 
 function setState(patch: Partial<StoreState>): void {
+  if ('pack' in patch && !('document' in patch)) patch.document = patch.pack ?? null;
+  if (patch.document) {
+    const document = patch.document;
+    patch.savedDocuments = (patch.savedDocuments ?? state.savedDocuments).map((row) =>
+      row.pack.id === document.id ? { pack: document, savedAt: document.meta.updatedAt } : row,
+    );
+    patch.savedPacks = (patch.savedPacks ?? state.savedPacks).map((row) =>
+      row.pack.id === document.id && document.kind === 'outing'
+        ? { pack: document, savedAt: document.meta.updatedAt }
+        : row,
+    );
+  }
   state = { ...state, ...patch };
+  if (patch.savedDocuments) {
+    const ids = new Set(patch.savedDocuments.map(({ pack }) => pack.id));
+    state.savedActivities = state.savedActivities.filter((item) => ids.has(item.packId));
+  }
+  if (
+    state.document &&
+    ['document', 'pack', 'pendingRequest', 'liveContext', 'runtime'].some((key) => key in patch)
+  ) {
+    const activity = summarizeActivity(
+      state.document,
+      {
+        pendingRequest: state.pendingRequest ?? undefined,
+        liveContext: state.liveContext ?? undefined,
+      },
+      state.runtime,
+    );
+    state.savedActivities = [
+      ...state.savedActivities.filter((item) => item.packId !== activity.packId),
+      activity,
+    ];
+  }
   for (const listener of listeners) listener();
 }
 
@@ -144,64 +204,58 @@ export async function resolveBlob(packId: string, assetId: string): Promise<Blob
 // Bootstrap
 // ---------------------------------------------------------------------------
 
-function isLoadablePack(pack: DatePack | undefined): pack is DatePack {
-  return !!pack && validateDatePack(pack).ok;
+function isLoadablePack(pack: DatePack | undefined): pack is OutingDatePack {
+  return !!pack && pack.kind === 'outing' && validateDatePack(pack).ok;
 }
 
 export async function initStore(): Promise<void> {
   try {
-    const [currentId, initialPacks] = await Promise.all([getCurrentPackId(), listPacks()]);
-
-    // Never trust bytes read back from storage: a corrupt pack falls through
-    // to the next saved one, and only a fully valid pack reaches the UI.
-    let pack: DatePack | undefined;
-    if (currentId) {
-      const candidate = await loadPack(currentId);
-      if (isLoadablePack(candidate)) pack = candidate;
-      else if (candidate) console.error('[datepack] stored pack failed validation', currentId);
-    }
-    if (!pack) {
-      for (const { pack: candidate } of initialPacks) {
-        if (isLoadablePack(candidate)) {
-          pack = candidate;
-          break;
-        }
-      }
-    }
-
-    if (!pack) {
-      // First run (or wiped storage): start empty so planning with the AI is
-      // the primary path. The demo pack is opt-in via loadDemoPack().
+    const [currentId, savedDocuments] = await Promise.all([getCurrentPackId(), listPacks()]);
+    const current = currentId ? await loadPack(currentId) : undefined;
+    const document =
+      current && validateDatePack(current).ok
+        ? current
+        : savedDocuments.find((row) => validateDatePack(row.pack).ok)?.pack;
+    const savedPacks = savedDocuments.filter(
+      (row): row is SavedPackSummary => row.pack.kind === 'outing',
+    );
+    const savedActivities = await readLibraryActivities(savedDocuments);
+    if (!document) {
       setState({
         status: 'empty',
         pack: null,
+        document: null,
         runtime: null,
-        savedPacks: [],
+        savedPacks,
+        savedDocuments,
+        savedActivities,
         undoStack: [],
         liveContext: null,
         contextRevision: 0,
         personalJourney: null,
         pendingRequest: null,
+        error: null,
       });
       return;
     }
-
-    const [runtimeValue, device, packs] = await Promise.all([
-      loadRuntime(pack.plan.id),
-      loadDeviceState(pack.plan.id),
-      listPacks(),
+    const [runtime, device] = await Promise.all([
+      loadRuntime(document.id),
+      loadDeviceState(document.id),
     ]);
-    const runtime = runtimeValue ?? emptyRuntime(pack.plan.id);
     setState({
       status: 'ready',
-      pack,
-      runtime,
-      savedPacks: packs,
-      undoStack: device.undoStack,
+      document,
+      pack: document.kind === 'outing' ? document : null,
+      runtime: document.kind === 'outing' ? (runtime ?? emptyRuntime(document.id)) : null,
+      savedPacks,
+      savedDocuments,
+      savedActivities,
+      undoStack: document.kind === 'outing' ? device.undoStack : [],
       liveContext: device.liveContext ?? null,
       contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
       personalJourney: device.personalJourney ?? null,
       pendingRequest: device.pendingRequest ?? null,
+      error: null,
     });
   } catch (error) {
     setState({ status: 'empty', error: error instanceof Error ? error.message : String(error) });
@@ -219,12 +273,9 @@ export function canUndo(): boolean {
 export async function undo(): Promise<void> {
   if (!state.pack) return;
   try {
-    const { pack, label } = await commitUndo(state.pack.plan.id, state.pack.revision);
-    const [runtime, device] = await Promise.all([
-      loadRuntime(pack.plan.id),
-      loadDeviceState(pack.plan.id),
-    ]);
-    setState({ pack, runtime: runtime ?? emptyRuntime(pack.plan.id), undoStack: device.undoStack });
+    const { pack, label } = await commitUndo(state.pack.id, state.pack.revision);
+    const [runtime, device] = await Promise.all([loadRuntime(pack.id), loadDeviceState(pack.id)]);
+    setState({ pack, runtime: runtime ?? emptyRuntime(pack.id), undoStack: device.undoStack });
     showToast(t('toast.undo', { label }));
   } catch (error) {
     await refreshAfterConflict(error);
@@ -244,6 +295,101 @@ export async function updatePlan(
   return commitCurrentPlan(label, plan);
 }
 
+export type ReorderReview = {
+  documentId: string;
+  before: DatePlan;
+  proposed: DatePlan;
+  revision: number;
+  contextRevision: number;
+  impact: ImpactResult;
+};
+export async function prepareReorder(
+  eventId: string,
+  beforeId: string | null,
+): Promise<ReorderReview | null> {
+  if (!state.pack) return null;
+  const documentId = state.pack.id;
+  const before = state.pack.plan;
+  const proposed = reorderPlan(before, eventId, beforeId);
+  if (!proposed) return null;
+  const revision = state.pack.revision,
+    contextRevision = state.contextRevision;
+  const impact = await prepareImpact({
+    documentId,
+    before,
+    proposed,
+    planRevision: revision,
+    contextRevision,
+    phase: 'plan',
+  });
+  return { documentId, before, proposed, revision, contextRevision, impact };
+}
+export async function prepareReorderTimeAdjustment(
+  review: ReorderReview,
+): Promise<ReorderReview | null> {
+  const proposed = adjustReorderedTimes(review.proposed);
+  if (!proposed) return null;
+  const impact = await prepareImpact({
+    documentId: review.documentId,
+    before: review.before,
+    proposed,
+    planRevision: review.revision,
+    contextRevision: review.contextRevision,
+    phase: 'plan',
+  });
+  return { ...review, proposed, impact };
+}
+export async function commitReviewedReorder(review: ReorderReview): Promise<boolean> {
+  const current = state.pack;
+  const check = (before: DatePlan): boolean => {
+    const age = Date.now() - Date.parse(review.impact.snapshot.evaluatedAt);
+    const input = localImpactInput({
+      documentId: current?.id,
+      before,
+      proposed: review.proposed,
+      planRevision: review.revision,
+      contextRevision: review.contextRevision,
+      phase: 'plan',
+    });
+    return (
+      age >= 0 &&
+      age <= 300_000 &&
+      snapshotMatches(review.impact.snapshot, input) &&
+      validateImpact(input).status === 'verified'
+    );
+  };
+  if (
+    !current ||
+    current.id !== review.documentId ||
+    current.plan.id !== review.before.id ||
+    current.revision !== review.revision ||
+    state.contextRevision !== review.contextRevision ||
+    !check(current.plan)
+  ) {
+    showToast(t('reorder.stale'));
+    return false;
+  }
+  try {
+    const pack = await commitPlanChange(
+      current,
+      review.revision,
+      t('undo.reorder'),
+      review.proposed,
+      undefined,
+      [],
+      undefined,
+      { contextRevision: review.contextRevision, validateImpact: check },
+    );
+    const device = await loadDeviceState(pack.id);
+    setState({ pack, undoStack: device.undoStack });
+    showToast(t('reorder.saved'), { label: t('app.undo'), onClick: () => void undo() });
+    return true;
+  } catch (error) {
+    await refreshAfterConflict(error);
+    return false;
+  }
+}
+
 async function commitCurrentPlan(
   label: string,
   plan: DatePlan,
@@ -253,15 +399,8 @@ async function commitCurrentPlan(
   if (!state.pack) return false;
   const prior = state.pack;
   try {
-    const pack = await commitPlanChange(
-      prior.plan.id,
-      prior.revision,
-      label,
-      plan,
-      assets,
-      assetWrites,
-    );
-    const device = await loadDeviceState(plan.id);
+    const pack = await commitPlanChange(prior, prior.revision, label, plan, assets, assetWrites);
+    const device = await loadDeviceState(prior.id);
     setState({ pack, undoStack: device.undoStack });
     return true;
   } catch (error) {
@@ -276,17 +415,15 @@ async function refreshAfterConflict(error: unknown): Promise<void> {
     ['revision-conflict', 'context-revision-conflict', 'request-conflict'].includes(
       error.message,
     ) &&
-    state.pack
+    state.document
   ) {
-    const pack = await loadPack(state.pack.plan.id);
+    const pack = await loadPack(state.document.id);
     if (pack) {
-      const [runtime, device] = await Promise.all([
-        loadRuntime(pack.plan.id),
-        loadDeviceState(pack.plan.id),
-      ]);
+      const [runtime, device] = await Promise.all([loadRuntime(pack.id), loadDeviceState(pack.id)]);
       setState({
-        pack,
-        runtime: runtime ?? emptyRuntime(pack.plan.id),
+        pack: pack.kind === 'outing' ? pack : null,
+        document: pack,
+        runtime: runtime ?? emptyRuntime(pack.id),
         undoStack: device.undoStack,
         liveContext: device.liveContext ?? null,
         contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
@@ -298,7 +435,10 @@ async function refreshAfterConflict(error: unknown): Promise<void> {
   showToast(t('toast.persistFailed'));
 }
 
-export async function updateLiveContext(context: Omit<LiveContext, 'revision'>): Promise<void> {
+export async function updateLiveContext(
+  context: Omit<LiveContext, 'revision'>,
+  expectedContextRevision?: number,
+): Promise<void> {
   const existing = await loadDeviceState(context.planId);
   const revision = (existing.liveContext?.revision ?? 0) + 1;
   const liveContext = { ...context, revision };
@@ -306,8 +446,10 @@ export async function updateLiveContext(context: Omit<LiveContext, 'revision'>):
     context.planId,
     { liveContext },
     existing.liveContext?.revision ?? 0,
+    undefined,
+    expectedContextRevision,
   );
-  if (state.pack?.plan.id === context.planId)
+  if (state.pack?.id === context.planId)
     setState({ liveContext, contextRevision: device.contextRevision ?? 0 });
 }
 
@@ -315,34 +457,71 @@ export async function updatePersonalJourney(
   personalJourney: PersonalJourney | undefined,
 ): Promise<void> {
   if (!state.pack) return;
-  await saveDeviceFields(state.pack.plan.id, { personalJourney });
+  await saveDeviceFields(state.pack.id, { personalJourney });
   setState({ personalJourney: personalJourney ?? null });
 }
 
-export async function updatePendingRequest(pendingRequest: PendingRequest): Promise<void> {
-  if (!state.pack) return;
-  if (pendingRequest && pendingRequest.planId !== state.pack.plan.id)
-    throw new Error('request-plan-mismatch');
-  const expected = state.pendingRequest
-    ? {
-        id: state.pendingRequest.id,
-        kind: state.pendingRequest.kind,
-        status: state.pendingRequest.status,
-        baseRevision: state.pendingRequest.baseRevision,
-        contextRevision: state.pendingRequest.contextRevision,
-        generatedAt: state.pendingRequest.generatedAt,
-        updatedAt: state.pendingRequest.updatedAt,
-        answerText: state.pendingRequest.answerText,
-        responseFingerprint: state.pendingRequest.responseFingerprint,
-      }
-    : null;
+// Serialize this tab's edits; IndexedDB still arbitrates across tabs. Capture the
+// expected snapshot before queueing so a late preview cannot overwrite new input.
+let requestWrites: Promise<unknown> = Promise.resolve();
+function enqueueRequestWrite<T>(write: () => Promise<T>): Promise<T> {
+  const result = requestWrites.then(write, write);
+  requestWrites = result.catch(() => undefined);
+  return result;
+}
+
+async function writePendingRequest(
+  pendingRequest: PendingRequest,
+  expected: PendingRequest | null,
+): Promise<void> {
+  const document = state.document ?? state.pack;
+  if (!document || pendingRequest.planId !== document.id) throw new Error('request-plan-mismatch');
   try {
     await savePendingRequest(pendingRequest, expected);
   } catch (error) {
     await refreshAfterConflict(error);
     throw error;
   }
-  setState({ pendingRequest });
+  if (state.document?.id === pendingRequest.planId) setState({ pendingRequest });
+}
+
+export function updatePendingRequest(
+  pendingRequest: PendingRequest,
+  expected = state.pendingRequest,
+): Promise<void> {
+  return enqueueRequestWrite(() => writePendingRequest(pendingRequest, expected));
+}
+
+/** Each keystroke/paste is queued immediately, including before preview. */
+export function savePendingAnswer(requestId: string, answerText: string): Promise<void> {
+  return enqueueRequestWrite(async () => {
+    const request = state.pendingRequest;
+    if (!request || request.id !== requestId || ['applied', 'cancelled'].includes(request.status))
+      throw new Error('request-conflict');
+    await writePendingRequest(
+      {
+        ...request,
+        status: request.status === 'stale' ? 'stale' : 'draft',
+        answerText,
+        responseFingerprint: undefined,
+        error: undefined,
+        updatedAt: new Date().toISOString(),
+      },
+      request,
+    );
+  });
+}
+
+/** Sharing may finish after a paste or review. It cannot downgrade that answer. */
+export function markPendingRequestSent(requestId: string): Promise<void> {
+  return enqueueRequestWrite(async () => {
+    const request = state.pendingRequest;
+    if (!request || request.id !== requestId || request.status !== 'ready') return;
+    await writePendingRequest(
+      { ...request, status: 'waiting', updatedAt: new Date().toISOString() },
+      request,
+    );
+  });
 }
 
 /** Commit an approved AI plan using the same validated transaction as direct edits. */
@@ -352,12 +531,13 @@ export async function applyAiPlan(
     'id' | 'planId' | 'baseRevision' | 'contextRevision' | 'generatedAt' | 'kind'
   >,
   plan: DatePlan,
+  impactSnapshot?: ValidationSnapshot,
 ): Promise<boolean> {
   const current = state.pack;
   const request = state.pendingRequest;
   if (
     !current ||
-    current.plan.id !== identity.planId ||
+    current.id !== identity.planId ||
     !request ||
     request.id !== identity.id ||
     request.kind !== identity.kind ||
@@ -389,6 +569,57 @@ export async function applyAiPlan(
     status: 'applied',
     updatedAt: new Date().toISOString(),
   };
+  const replan = request.kind === 'next-change' || request.kind === 'remaining-change';
+  const checkImpact = (before: DatePlan): boolean => {
+    if (
+      request.kind === 'create' &&
+      (JSON.stringify(before.outingConditions) !== JSON.stringify(plan.outingConditions) ||
+        JSON.stringify(before.availableFrom) !== JSON.stringify(plan.availableFrom) ||
+        JSON.stringify(before.mustEndBy) !== JSON.stringify(plan.mustEndBy) ||
+        (before.date && before.date !== plan.date))
+    )
+      return false;
+    if (protectionReasons(before, plan).length) return false;
+    if (!replan) return true;
+    const allowed = getAiScopeEventIds(
+      before,
+      state.runtime,
+      request.kind as 'next-change' | 'remaining-change',
+      new Date(),
+      state.liveContext,
+    );
+    if ((request.scopeEventIds ?? []).some((id) => !allowed.includes(id))) return false;
+    const input = localImpactInput({
+      documentId: current?.id,
+      before,
+      proposed: plan,
+      planRevision: identity.baseRevision,
+      contextRevision: identity.contextRevision,
+      requestId: identity.id,
+      scopeEventIds: request.scopeEventIds ?? [],
+      eventIds: getAiScopeEventIds(
+        before,
+        state.runtime,
+        'remaining-change',
+        new Date(),
+        state.liveContext,
+      ),
+    });
+    if (
+      hasRouteImpact(before, plan) &&
+      (!impactSnapshot || !snapshotMatches(impactSnapshot, input))
+    )
+      return false;
+    return validateImpact(input).status === 'verified';
+  };
+  if (!checkImpact(current.plan)) {
+    showToast(
+      getLocale() === 'ko'
+        ? '동선을 확인하지 못했어요. 기존 일정을 유지하고 다른 후보를 확인해주세요.'
+        : 'Route not confirmed. Keep this plan and check another option.',
+    );
+    return false;
+  }
   const guard: AiCommitGuard = {
     requestId: identity.id,
     kind: identity.kind,
@@ -398,10 +629,11 @@ export async function applyAiPlan(
     responseFingerprint: request.responseFingerprint,
     answerText: request.answerText,
     requestUpdate: completed,
+    validateImpact: checkImpact,
   };
   try {
     const saved = await commitPlanChange(
-      identity.planId,
+      current,
       identity.baseRevision,
       t('undo.patch'),
       plan,
@@ -433,22 +665,22 @@ export async function updateExperiences(
   assetWrites: Array<{ asset: DatePackAsset; blob: Blob }> = [],
   expectedRevision?: number,
 ): Promise<boolean> {
-  if (!state.pack) return false;
-  if (expectedRevision !== undefined && state.pack.revision !== expectedRevision) {
+  const current = state.document ?? state.pack;
+  if (!current) return false;
+  if (expectedRevision !== undefined && current.revision !== expectedRevision) {
     await refreshAfterConflict(new Error('revision-conflict'));
     return false;
   }
   try {
     const pack = await commitExperienceChange(
-      state.pack.plan.id,
-      state.pack.revision,
+      current.id,
+      current.revision,
       experiences,
       assets,
       assetWrites,
     );
-    for (const { asset, blob } of assetWrites)
-      blobCache.set(cacheKey(pack.plan.id, asset.id), blob);
-    setState({ pack });
+    for (const { asset, blob } of assetWrites) blobCache.set(cacheKey(pack.id, asset.id), blob);
+    setState({ pack: pack.kind === 'outing' ? pack : null, document: pack });
     return true;
   } catch (error) {
     await refreshAfterConflict(error);
@@ -465,7 +697,7 @@ export async function applyAiMemoryNote(
   experienceId: string,
   editedText: string,
 ): Promise<boolean> {
-  const current = state.pack;
+  const current = state.document ?? state.pack;
   const request = state.pendingRequest;
   const payload = request?.payload as
     | { experienceId?: unknown; originalText?: unknown }
@@ -473,7 +705,7 @@ export async function applyAiMemoryNote(
   if (
     !current ||
     identity.kind !== 'memory-edit' ||
-    current.plan.id !== identity.planId ||
+    current.id !== identity.planId ||
     !request ||
     request.id !== identity.id ||
     request.kind !== identity.kind ||
@@ -506,6 +738,21 @@ export async function applyAiMemoryNote(
     showToast(t('ai.request.stale'));
     return false;
   }
+  const parsed = parseMemoryReply(
+    request.answerText,
+    {
+      requestId: request.id,
+      packId: request.planId,
+      baseRevision: request.baseRevision,
+      contextRevision: request.contextRevision,
+      generatedAt: request.generatedAt,
+      kind: 'memory-edit',
+    },
+    experience,
+    payload.originalText,
+  );
+  if (!parsed.ok || parsed.experienceId !== experienceId || parsed.editedText !== editedText.trim())
+    return false;
   const completed: PendingRequest = {
     ...request,
     status: 'applied',
@@ -534,7 +781,11 @@ export async function applyAiMemoryNote(
       guard,
     );
     const device = await loadDeviceState(identity.planId);
-    setState({ pack: saved, pendingRequest: device.pendingRequest ?? null });
+    setState({
+      pack: saved.kind === 'outing' ? saved : null,
+      document: saved,
+      pendingRequest: device.pendingRequest ?? null,
+    });
     return true;
   } catch (error) {
     await refreshAfterConflict(error);
@@ -550,8 +801,8 @@ export async function applyAiMemoryNote(
 export async function updateBaselinePlan(): Promise<void> {
   if (!state.pack) return;
   try {
-    const pack = await commitBaselinePlan(state.pack.plan.id, state.pack.revision);
-    setState({ pack });
+    const pack = await commitBaselinePlan(state.pack, state.pack.revision);
+    setState({ pack: pack.kind === 'outing' ? pack : null, document: pack });
   } catch (error) {
     await refreshAfterConflict(error);
   }
@@ -563,10 +814,10 @@ export async function updateRuntime(
 ): Promise<void> {
   if (!state.pack) return;
   const runtime: DatePackRuntimeState = structuredClone(
-    state.runtime ?? emptyRuntime(state.pack.plan.id),
+    state.runtime ?? emptyRuntime(state.pack.id),
   );
   mutate(runtime);
-  runtime.planId = state.pack.plan.id;
+  runtime.planId = state.pack.id;
   runtime.updatedAt = new Date().toISOString();
   try {
     const contextRevision = await saveRuntimeAndAdvanceContext(runtime);
@@ -589,7 +840,7 @@ export async function addEventAssets(
   const created = await createAssetsFromFiles(files);
   if (created.length === 0) return;
 
-  const pack: DatePack = structuredClone(state.pack);
+  const pack: OutingDatePack = structuredClone(state.pack);
   const registered: Array<{ asset: DatePackAsset; blob: Blob }> = [];
   for (const item of created) {
     registered.push({ asset: registerAsset(pack, item.asset), blob: item.blob });
@@ -607,7 +858,7 @@ export async function addEventAssets(
   // (cache, then IndexedDB) and never retries — a miss would freeze the
   // placeholder in place until the next reload.
   if (!(await commitCurrentPlan(t('undo.photo'), plan, pack.assets, registered))) return;
-  for (const { asset, blob } of registered) blobCache.set(cacheKey(plan.id, asset.id), blob);
+  for (const { asset, blob } of registered) blobCache.set(cacheKey(pack.id, asset.id), blob);
   showToast(t('toast.photos.added'));
 }
 
@@ -616,7 +867,7 @@ export async function setCoverFromFiles(files: FileList | File[]): Promise<void>
   const first = (await createAssetsFromFiles(files))[0];
   if (!first) return;
 
-  const pack: DatePack = structuredClone(state.pack);
+  const pack: OutingDatePack = structuredClone(state.pack);
   const asset = registerAsset(pack, first.asset);
   pack.plan.coverAssetId = asset.id;
   // Same ordering rule as addEventAssets: blob must be resolvable before the
@@ -627,13 +878,13 @@ export async function setCoverFromFiles(files: FileList | File[]): Promise<void>
     ]))
   )
     return;
-  blobCache.set(cacheKey(pack.plan.id, asset.id), first.blob);
+  blobCache.set(cacheKey(pack.id, asset.id), first.blob);
   showToast(t('toast.cover.changed'));
 }
 
 export async function removeAsset(assetId: string): Promise<void> {
   if (!state.pack) return;
-  const pack: DatePack = structuredClone(state.pack);
+  const pack: OutingDatePack = structuredClone(state.pack);
   pack.assets = pack.assets.filter((a) => a.id !== assetId);
   const plan = pack.plan;
   if (plan.coverAssetId === assetId) plan.coverAssetId = undefined;
@@ -730,6 +981,7 @@ export type PatchApplyResult = { applied: PatchChange[]; skipped: I18nIssue[] };
 export async function applyPatchWithUndo(
   outcome: PatchOutcome,
   basePlan: DatePlan,
+  impactSnapshot?: ValidationSnapshot,
 ): Promise<PatchApplyResult> {
   if (!state.pack) return { applied: [], skipped: [] };
   if (!outcome.canApply || state.pack.plan !== basePlan) {
@@ -741,6 +993,19 @@ export async function applyPatchWithUndo(
     };
   }
   const plan = outcome.plan;
+  const input = localImpactInput({
+    documentId: state.pack.id,
+    before: basePlan,
+    proposed: plan,
+    planRevision: state.pack.revision,
+    contextRevision: state.contextRevision,
+  });
+  if (
+    validateImpact(input).status !== 'verified' ||
+    (hasRouteImpact(basePlan, plan) && (!impactSnapshot || !snapshotMatches(impactSnapshot, input)))
+  ) {
+    return { applied: [], skipped: [{ key: 'err.patch.nothingApplied' }] };
+  }
   if (!(await commitCurrentPlan(t('undo.patch'), plan))) {
     return { applied: [], skipped: [{ key: 'err.patch.stale' }] };
   }
@@ -751,20 +1016,26 @@ export async function applyPatchWithUndo(
 // Pack lifecycle
 // ---------------------------------------------------------------------------
 
-export async function createNewPack(title: string, date: string): Promise<void> {
+export async function createNewPack(
+  title: string,
+  date: string,
+  brief: Partial<Pick<DatePlan, 'outingConditions' | 'availableFrom' | 'mustEndBy'>> = {},
+): Promise<void> {
   const pack = createDatePack({
+    ...brief,
     title: title.trim() || t('fallback.packTitle'),
     ...(date ? { date } : {}),
   });
-  const runtime = emptyRuntime(pack.plan.id);
+  const runtime = emptyRuntime(pack.id);
   await savePack(pack);
   await saveRuntime(runtime);
-  await setCurrentPackId(pack.plan.id);
+  await setCurrentPackId(pack.id);
   setState({
     status: 'ready',
-    pack,
+    pack: pack.kind === 'outing' ? pack : null,
+    document: pack,
     runtime,
-    savedPacks: await listPacks(),
+    savedPacks: await listOutings(),
     undoStack: [],
     liveContext: null,
     contextRevision: 0,
@@ -774,14 +1045,18 @@ export async function createNewPack(title: string, date: string): Promise<void> 
   showToast(t('toast.pack.created'));
 }
 
-export async function createAiDraftPack(pack: DatePack, request: PendingRequest): Promise<void> {
+export async function createAiDraftPack(
+  pack: OutingDatePack,
+  request: PendingRequest,
+): Promise<void> {
   await savePackWithPendingRequest(pack, request);
-  const runtime = emptyRuntime(pack.plan.id);
+  const runtime = emptyRuntime(pack.id);
   setState({
     status: 'ready',
-    pack,
+    pack: pack.kind === 'outing' ? pack : null,
+    document: pack,
     runtime,
-    savedPacks: await listPacks(),
+    savedPacks: await listOutings(),
     undoStack: [],
     liveContext: null,
     contextRevision: 0,
@@ -792,16 +1067,17 @@ export async function createAiDraftPack(pack: DatePack, request: PendingRequest)
 }
 
 /** Create a pack from an AI-authored plan (datepack.plan draft already built). */
-export async function createPackFromPlan(pack: DatePack): Promise<void> {
-  const runtime = emptyRuntime(pack.plan.id);
+export async function createPackFromPlan(pack: OutingDatePack): Promise<void> {
+  const runtime = emptyRuntime(pack.id);
   const savedPack = await savePack(pack, undefined, false, true);
   await saveRuntime(runtime);
-  await setCurrentPackId(savedPack.plan.id);
+  await setCurrentPackId(savedPack.id);
   setState({
     status: 'ready',
-    pack: savedPack,
+    pack: savedPack.kind === 'outing' ? savedPack : null,
+    document: savedPack,
     runtime,
-    savedPacks: await listPacks(),
+    savedPacks: await listOutings(),
     undoStack: [],
     liveContext: null,
     contextRevision: 0,
@@ -818,19 +1094,19 @@ export async function createPackFromPlan(pack: DatePack): Promise<void> {
 export async function loadDemoPack(): Promise<void> {
   // The demo content is regenerated in the active UI locale (map queries stay Korean).
   const seed = createSeoulSeed(getLocale());
-  const prior = await loadPack(seed.pack.plan.id);
+  const prior = await loadPack(seed.pack.id);
   const pack = await savePack(seed.pack, prior?.revision, true, true);
-  for (const { asset, blob } of seed.blobs) await putAsset(seed.pack.plan.id, asset, blob);
-  for (const { asset, blob } of seed.blobs)
-    blobCache.set(cacheKey(seed.pack.plan.id, asset.id), blob);
-  const runtime = emptyRuntime(seed.pack.plan.id);
+  for (const { asset, blob } of seed.blobs) await putAsset(seed.pack.id, asset, blob);
+  for (const { asset, blob } of seed.blobs) blobCache.set(cacheKey(seed.pack.id, asset.id), blob);
+  const runtime = emptyRuntime(seed.pack.id);
   await saveRuntime(runtime);
-  await setCurrentPackId(seed.pack.plan.id);
+  await setCurrentPackId(seed.pack.id);
   setState({
     status: 'ready',
-    pack,
+    pack: pack.kind === 'outing' ? pack : null,
+    document: pack,
     runtime,
-    savedPacks: await listPacks(),
+    savedPacks: await listOutings(),
     undoStack: [],
     liveContext: null,
     contextRevision: 0,
@@ -843,7 +1119,6 @@ export async function loadDemoPack(): Promise<void> {
 export async function importPackFile(file: File): Promise<void> {
   const result = await readDatePack(file);
   const imported = result.pack;
-  const prior = await loadPack(imported.plan.id);
   const pack = await saveImportedPack(
     imported,
     file,
@@ -856,18 +1131,19 @@ export async function importPackFile(file: File): Promise<void> {
       };
       return { asset, blob };
     }),
-    prior?.revision,
   );
-  for (const [assetId, blob] of result.blobs) blobCache.set(cacheKey(pack.plan.id, assetId), blob);
-  const runtime = (await loadRuntime(pack.plan.id)) ?? emptyRuntime(pack.plan.id);
-  await saveRuntime(runtime);
-  const device = await loadDeviceState(pack.plan.id);
-  await setCurrentPackId(pack.plan.id);
+  for (const [assetId, blob] of result.blobs) blobCache.set(cacheKey(pack.id, assetId), blob);
+  const runtime =
+    pack.kind === 'outing' ? ((await loadRuntime(pack.id)) ?? emptyRuntime(pack.id)) : null;
+  if (runtime) await saveRuntime(runtime);
+  const device = await loadDeviceState(pack.id);
+  await setCurrentPackId(pack.id);
   setState({
     status: 'ready',
-    pack,
+    pack: pack.kind === 'outing' ? pack : null,
+    document: pack,
     runtime,
-    savedPacks: await listPacks(),
+    savedPacks: await listOutings(),
     undoStack: device.undoStack,
     liveContext: device.liveContext ?? null,
     contextRevision: device.contextRevision ?? device.liveContext?.revision ?? 0,
@@ -875,25 +1151,30 @@ export async function importPackFile(file: File): Promise<void> {
     pendingRequest: device.pendingRequest ?? null,
   });
   const warnNote = result.warnings.length > 0 ? ` (${t(result.warnings[0])})` : '';
-  showToast(t('toast.pack.imported', { title: pack.plan.title, warn: warnNote }));
+  showToast(
+    t('toast.pack.imported', {
+      title: pack.plan?.title ?? pack.meta.title ?? t('fallback.packTitle'),
+      warn: warnNote,
+    }),
+  );
 }
 
 export async function exportCurrentPack(): Promise<void> {
-  if (!state.pack) return;
-  const pack = state.pack;
+  const pack = state.document ?? state.pack;
+  if (!pack) return;
   // Make sure every asset blob is in the cache (they may only live in IndexedDB
-  // after a reload), then build the ZIP once.
-  const missing = pack.assets.filter((a) => !blobCache.has(cacheKey(pack.plan.id, a.id)));
+  // after a reload), then build the portable JSON once.
+  const missing = pack.assets.filter((a) => !blobCache.has(cacheKey(pack.id, a.id)));
   if (missing.length > 0) {
-    const stored = await listPackAssetBlobs(pack.plan.id);
+    const stored = await listPackAssetBlobs(pack.id);
     for (const asset of missing) {
       const blob = stored.get(asset.id);
-      if (blob) blobCache.set(cacheKey(pack.plan.id, asset.id), blob);
+      if (blob) blobCache.set(cacheKey(pack.id, asset.id), blob);
     }
   }
   const result = await writeDatePack(
     pack,
-    (assetId) => blobCache.get(cacheKey(pack.plan.id, assetId)) ?? null,
+    (assetId) => blobCache.get(cacheKey(pack.id, assetId)) ?? null,
   );
   downloadBlob(result.blob, result.filename);
   showToast(
@@ -902,34 +1183,177 @@ export async function exportCurrentPack(): Promise<void> {
 }
 
 export async function switchPack(packId: string): Promise<void> {
-  const pack = await loadPack(packId);
-  if (!pack) return;
-  if (!isLoadablePack(pack)) {
+  const document = await loadPack(packId);
+  if (!document || !validateDatePack(document).ok) {
     showToast(t('err.read.invalidContent'));
     return;
   }
-  const runtime = (await loadRuntime(packId)) ?? emptyRuntime(packId);
+  const [runtime, device] = await Promise.all([loadRuntime(packId), loadDeviceState(packId)]);
   await setCurrentPackId(packId);
-  setState({ pack, runtime, undoStack: [] });
-  showToast(t('toast.pack.switched', { title: pack.plan.title }));
+  setState({
+    status: 'ready',
+    document,
+    pack: document.kind === 'outing' ? document : null,
+    runtime: document.kind === 'outing' ? (runtime ?? emptyRuntime(packId)) : null,
+    undoStack: document.kind === 'outing' ? device.undoStack : [],
+    liveContext: device.liveContext ?? null,
+    contextRevision: device.contextRevision ?? 0,
+    personalJourney: device.personalJourney ?? null,
+    pendingRequest: device.pendingRequest ?? null,
+  });
+  showToast(
+    t('toast.pack.switched', {
+      title:
+        document.kind === 'memories'
+          ? (document.meta.title ?? (getLocale() === 'ko' ? '기록' : 'Memories'))
+          : document.plan.title,
+    }),
+  );
 }
 
 export async function deletePackById(packId: string): Promise<void> {
-  await deletePack(packId);
-  for (const key of [...blobCache.keys()]) {
-    if (key.startsWith(`${packId}:`)) blobCache.delete(key);
+  const wasSelected = state.document?.id === packId;
+  const preserved = await deletePack(packId, wasSelected ? state.document?.revision : undefined);
+  blobCache.clear();
+  await refreshLibrary();
+  if (wasSelected) {
+    const nextId = preserved?.id ?? state.savedDocuments[0]?.pack.id;
+    if (nextId) await switchPack(nextId);
+    else
+      setState({
+        status: 'empty',
+        pack: null,
+        document: null,
+        runtime: null,
+        pendingRequest: null,
+        undoStack: [],
+        liveContext: null,
+        personalJourney: null,
+        contextRevision: 0,
+      });
   }
-  const saved = await listPacks();
-  if (state.pack?.plan.id === packId) {
-    const next = saved[0]?.pack;
-    if (next) {
-      await switchPack(next.plan.id);
-    } else {
-      setState({ pack: null, runtime: null, status: 'empty', savedPacks: [], undoStack: [] });
-    }
-    showToast(t('toast.pack.deleted'));
-  } else {
-    setState({ savedPacks: saved });
-    showToast(t('toast.pack.deleted'));
+  showToast(t('toast.pack.deleted'));
+}
+
+async function listOutings(): Promise<SavedPackSummary[]> {
+  const documents = await listPacks();
+  const savedActivities = await readLibraryActivities(documents);
+  setState({ savedDocuments: documents, savedActivities });
+  return documents.filter((row): row is SavedPackSummary => row.pack.kind === 'outing');
+}
+
+/** Library actions do not discard selected photos or drafts on a failed write. */
+export async function saveRecord(
+  experience: Experience,
+  options: {
+    packId?: string;
+    expectedRevision?: number;
+    assetWrites?: AssetWrite[];
+    recordDraftKey?: string;
+  } = {},
+): Promise<DatePack> {
+  const document = await saveExperience(experience, options);
+  await presentSavedDocument(document);
+  return document;
+}
+export async function connectRecord(
+  sourceId: string,
+  revision: number,
+  experienceId: string,
+  destination?: ExperienceDestination,
+): Promise<DatePack> {
+  const { target } = await moveExperience(sourceId, revision, experienceId, destination);
+  blobCache.clear();
+  await presentSavedDocument(target);
+  return target;
+}
+export async function deleteRecord(
+  packId: string,
+  revision: number,
+  experienceId: string,
+): Promise<void> {
+  await deleteExperience(packId, revision, experienceId);
+  blobCache.clear();
+  await refreshLibrary();
+  if (state.document?.id === packId) {
+    const current = await loadPack(packId);
+    if (current) await switchPack(packId);
+    else if (state.savedDocuments[0]) await switchPack(state.savedDocuments[0].pack.id);
+    else
+      setState({
+        status: 'empty',
+        pack: null,
+        document: null,
+        runtime: null,
+        pendingRequest: null,
+        undoStack: [],
+      });
+  }
+}
+export async function refreshLibrary(): Promise<void> {
+  const savedDocuments = await listPacks();
+  const savedActivities = await readLibraryActivities(savedDocuments);
+  setState({
+    savedDocuments,
+    savedActivities,
+    savedPacks: savedDocuments.filter((row): row is SavedPackSummary => row.pack.kind === 'outing'),
+  });
+}
+
+/** Device/request metadata is small; no photo binaries are loaded for the home screen. */
+async function readLibraryActivities(
+  documents: Array<{ pack: DatePack }>,
+): Promise<LibraryActivity[]> {
+  return Promise.all(
+    documents.map(async ({ pack }) => {
+      const [device, runtime] = await Promise.all([
+        loadDeviceState(pack.id),
+        pack.kind === 'outing' ? loadRuntime(pack.id) : Promise.resolve(undefined),
+      ]);
+      return summarizeActivity(pack, device, runtime);
+    }),
+  );
+}
+/** Export any document without changing the current selection. */
+export async function exportPackById(packId: string): Promise<void> {
+  const pack = await loadPack(packId);
+  if (!pack) throw new Error('pack-missing');
+  const blobs = await listPackAssetBlobs(packId);
+  const result = await writeDatePack(pack, (id) => blobs.get(id));
+  downloadBlob(result.blob, result.filename);
+}
+
+/** A library refresh failure cannot turn an already committed record into a failed save. */
+async function presentSavedDocument(document: DatePack): Promise<void> {
+  const sameDocument = state.document?.id === document.id;
+  const rows = state.savedDocuments.filter((row) => row.pack.id !== document.id);
+  rows.unshift({ pack: document, savedAt: document.meta.updatedAt });
+  setState({
+    status: 'ready',
+    document,
+    pack: document.kind === 'outing' ? document : null,
+    savedDocuments: rows,
+    savedPacks: rows.filter((row): row is SavedPackSummary => row.pack.kind === 'outing'),
+    ...(!sameDocument
+      ? {
+          runtime: document.kind === 'outing' ? emptyRuntime(document.id) : null,
+          undoStack: [],
+          liveContext: null,
+          contextRevision: 0,
+          personalJourney: null,
+          pendingRequest: null,
+        }
+      : {}),
+  });
+  try {
+    await refreshLibrary();
+    await switchPack(document.id);
+  } catch (error) {
+    console.error('[datepack] saved record library refresh failed', error);
+    showToast(
+      getLocale() === 'ko'
+        ? '기록은 저장됐어요. 목록을 다시 열어주세요.'
+        : 'Record saved. Please reopen the library.',
+    );
   }
 }

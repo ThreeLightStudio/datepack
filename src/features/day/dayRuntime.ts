@@ -1,5 +1,6 @@
 import type { DateEvent, DatePackRuntimeState, DatePlan, EventRuntimeState } from '@datepack/core';
-import { floorTo5, formatTime, localPointMinutes, minutesOfDay, todayISO } from '@datepack/core';
+import { floorTo5, formatTime, localPointMinutes } from '@datepack/core';
+import { seoulMinuteOfDay, seoulPlanDate } from './planTime';
 
 export type DayEventStatus = 'completed' | 'skipped' | 'current' | 'unknown-past' | 'upcoming';
 export type DayEventView = {
@@ -93,9 +94,11 @@ export function computeDayContext(
   runtime: DatePackRuntimeState | null,
   now: Date,
 ): DayContext {
-  const isToday = plan.date === todayISO(now);
-  const nowMinutes = minutesOfDay(now);
-  const planDayOffset = plan.date ? calendarDayDifference(todayISO(now), plan.date) : null;
+  const isToday = plan.date === seoulPlanDate(now.getTime());
+  const nowMinutes = seoulMinuteOfDay(now.getTime());
+  const planDayOffset = plan.date
+    ? calendarDayDifference(seoulPlanDate(now.getTime()), plan.date)
+    : null;
   const inferenceWithinPlanDays =
     planDayOffset !== null && planDayOffset >= 0 && planDayOffset <= 1;
   const withinPlanDays =
@@ -180,9 +183,7 @@ export function getRemainingPlanEvents(
   const next =
     eligible.find((view) => view.event.id === preferredEventId) ??
     eligible.find((view) => view.status === 'unknown-past' && view.includeInRemaining) ??
-    eligible.find((view) => view.event.id === context.next?.event.id) ??
-    eligible.find((view) => view.event.timing.kind === 'unscheduled') ??
-    (!context.isWithinPlanDays ? eligible[0] : undefined);
+    eligible[0];
   return next ? [next, ...eligible.filter((view) => view.event.id !== next.event.id)] : eligible;
 }
 

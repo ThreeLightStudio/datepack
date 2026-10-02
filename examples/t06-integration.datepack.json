@@ -1,0 +1,314 @@
+{
+  "format": "datepack",
+  "version": "4.0",
+  "createdAt": "2026-09-30T23:00:00.000Z",
+  "updatedAt": "2026-09-30T23:00:00.000Z",
+  "generator": "T06 local integration fixture",
+  "plan": {
+    "id": "plan-t06-integration-fixture",
+    "title": "T06 긴 목록과 보호 확인",
+    "date": "2026-10-01",
+    "availableFrom": { "dayOffset": 0, "time": "16:00" },
+    "mustEndBy": { "dayOffset": 0, "time": "19:30" },
+    "places": [
+      { "id": "venue", "name": "한 장소에서 함께" },
+      { "id": "cafe", "name": "공개 카페 fixture" },
+      { "id": "park", "name": "공개 공원 fixture" },
+      { "id": "restaurant", "name": "18시 예약 fixture" }
+    ],
+    "events": [
+      {
+        "id": "step-0",
+        "title": "함께 고른 이야기 01",
+        "order": 0,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-1",
+        "title": "함께 고른 이야기 02",
+        "order": 1,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-2",
+        "title": "함께 고른 이야기 03",
+        "order": 2,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-3",
+        "title": "함께 고른 이야기 04",
+        "order": 3,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-4",
+        "title": "함께 고른 이야기 05",
+        "order": 4,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-5",
+        "title": "함께 고른 이야기 06",
+        "order": 5,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-6",
+        "title": "함께 고른 이야기 07",
+        "order": 6,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-7",
+        "title": "함께 고른 이야기 08",
+        "order": 7,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-8",
+        "title": "함께 고른 이야기 09",
+        "order": 8,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-9",
+        "title": "함께 고른 이야기 10",
+        "order": 9,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-10",
+        "title": "함께 고른 이야기 11",
+        "order": 10,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-11",
+        "title": "함께 고른 이야기 12",
+        "order": 11,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "booking",
+        "title": "18시 고정 식사 예약",
+        "order": 12,
+        "type": "reservation",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "18:00" },
+          "end": { "dayOffset": 0, "time": "19:00" }
+        },
+        "placeId": "restaurant",
+        "protectedFields": ["time", "place", "content", "delete", "order"]
+      }
+    ],
+    "candidates": [
+      {
+        "id": "candidate-t06",
+        "title": "비가 오면 실내에서 쉬기",
+        "type": "cafe",
+        "note": "선택 전 후보"
+      }
+    ]
+  },
+  "originalPlan": {
+    "id": "plan-t06-integration-fixture",
+    "title": "T06 긴 목록과 보호 확인",
+    "date": "2026-10-01",
+    "availableFrom": { "dayOffset": 0, "time": "16:00" },
+    "mustEndBy": { "dayOffset": 0, "time": "19:30" },
+    "places": [
+      { "id": "venue", "name": "한 장소에서 함께" },
+      { "id": "cafe", "name": "공개 카페 fixture" },
+      { "id": "park", "name": "공개 공원 fixture" },
+      { "id": "restaurant", "name": "18시 예약 fixture" }
+    ],
+    "events": [
+      {
+        "id": "step-0",
+        "title": "함께 고른 이야기 01",
+        "order": 0,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-1",
+        "title": "함께 고른 이야기 02",
+        "order": 1,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-2",
+        "title": "함께 고른 이야기 03",
+        "order": 2,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-3",
+        "title": "함께 고른 이야기 04",
+        "order": 3,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-4",
+        "title": "함께 고른 이야기 05",
+        "order": 4,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-5",
+        "title": "함께 고른 이야기 06",
+        "order": 5,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-6",
+        "title": "함께 고른 이야기 07",
+        "order": 6,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-7",
+        "title": "함께 고른 이야기 08",
+        "order": 7,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-8",
+        "title": "함께 고른 이야기 09",
+        "order": 8,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-9",
+        "title": "함께 고른 이야기 10",
+        "order": 9,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-10",
+        "title": "함께 고른 이야기 11",
+        "order": 10,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "step-11",
+        "title": "함께 고른 이야기 12",
+        "order": 11,
+        "type": "activity",
+        "timing": { "kind": "unscheduled" },
+        "placeId": "venue",
+        "estimatedDurationMinutes": 5
+      },
+      {
+        "id": "booking",
+        "title": "18시 고정 식사 예약",
+        "order": 12,
+        "type": "reservation",
+        "timing": {
+          "kind": "exact",
+          "start": { "dayOffset": 0, "time": "18:00" },
+          "end": { "dayOffset": 0, "time": "19:00" }
+        },
+        "placeId": "restaurant",
+        "protectedFields": ["time", "place", "content", "delete", "order"]
+      }
+    ],
+    "candidates": [
+      {
+        "id": "candidate-t06",
+        "title": "비가 오면 실내에서 쉬기",
+        "type": "cafe",
+        "note": "선택 전 후보"
+      }
+    ]
+  },
+  "experiences": [
+    {
+      "id": "experience-t06-note",
+      "title": "T06 비를 피해 쉬었던 순간",
+      "outcome": "note",
+      "recordedAt": "2026-09-30T23:42:00.000Z",
+      "note": "  비를 피했다.\n커피를 마셨다.  ",
+      "editedNote": "비를 피하며 커피를 마셨다."
+    }
+  ],
+  "revision": 0,
+  "assets": [],
+  "id": "plan-t06-integration-fixture",
+  "kind": "outing",
+  "meta": {
+    "title": "T06 긴 목록과 보호 확인",
+    "createdAt": "2026-09-30T23:00:00.000Z",
+    "updatedAt": "2026-09-30T23:00:00.000Z"
+  }
+}

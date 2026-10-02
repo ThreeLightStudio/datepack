@@ -3,6 +3,7 @@
  * Read, write, validate and patch portable .datepack.json documents.
  */
 export * from './types';
+export * from './outingConditions';
 export * from './schema';
 export * from './assets';
 export * from './create';
@@ -18,3 +19,5 @@ export * from './utils/time';
 export * from './i18n/core';
 export { ko as datepackKo, type DatePackIssueKey } from './i18n/ko';
 export { en as datepackEn } from './i18n/en';
+
+export * from './utils/id';

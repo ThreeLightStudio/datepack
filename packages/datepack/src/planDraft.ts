@@ -1,10 +1,20 @@
-import type { DateEventType, DatePack, PlanConstraints } from './types';
+import type {
+  DateEventType,
+  OutingDatePack,
+  EventTiming,
+  PlanConstraints,
+  OutingConditions,
+  LocalPoint,
+  ProtectedField,
+} from './types';
+import { isValidOutingConditions } from './outingConditions';
+import { isValidLocalPoint, localPointMinutes } from './utils/time';
 import { DATE_EVENT_TYPES } from './types';
-import { createEvent, createPlace, sortEventsByStart } from './create';
+import { createEvent, createPlace } from './create';
 import { makeManifest } from './schema';
 import { extractJsonObject } from './json';
 import { createId } from './utils/id';
-import { isValidTime, isValidDateISO, normalizeTime } from './utils/time';
+import { isValidTime, isValidDateISO, isValidTiming, normalizeTime } from './utils/time';
 import type { DatePackIssue } from './i18n/core';
 
 /**
@@ -14,8 +24,11 @@ import type { DatePackIssue } from './i18n/core';
  */
 export type PlanDraftEvent = {
   title: string;
-  start: string; // HH:mm
+  start?: string; // Legacy HH:mm; omit when undecided
   end?: string; // HH:mm
+  timing?: EventTiming;
+  estimatedDurationMinutes?: number;
+  protectedFields?: ProtectedField[];
   type?: DateEventType;
   /** Exact place name as it is searchable on real maps. */
   place?: string;
@@ -24,6 +37,9 @@ export type PlanDraftEvent = {
 };
 
 export type PlanDraft = {
+  outingConditions?: OutingConditions;
+  availableFrom?: LocalPoint;
+  mustEndBy?: LocalPoint;
   title: string;
   date?: string; // YYYY-MM-DD; omitted for an undated plan
   memo?: string;
@@ -58,10 +74,27 @@ function validatePlanDraft(
   const warnings: DatePackIssue[] = [];
   const errors: DatePackIssue[] = [];
 
-  if (typeof raw !== 'object' || raw === null) {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return { ok: false, errors: [{ key: 'err.planDraft.notJson' }], warnings };
   }
   const obj = raw as Record<string, unknown>;
+  rejectUnknownFields(
+    obj,
+    [
+      'type',
+      'version',
+      'title',
+      'date',
+      'memo',
+      'constraints',
+      'events',
+      'outingConditions',
+      'availableFrom',
+      'mustEndBy',
+    ],
+    '',
+    errors,
+  );
   if (obj.type !== 'datepack.plan') {
     errors.push({ key: 'err.planDraft.wrongType', params: { value: String(obj.type) } });
   }
@@ -86,23 +119,97 @@ function validatePlanDraft(
     errors.push({ key: 'err.planDraft.memo' });
   }
 
+  if (obj.outingConditions !== undefined && !isValidOutingConditions(obj.outingConditions))
+    errors.push({ key: 'err.plan.outingConditions' });
+  for (const point of [obj.availableFrom, obj.mustEndBy])
+    if (point !== undefined && !isValidLocalPoint(point))
+      errors.push({ key: 'err.planDraft.badDate' });
+  if (isValidLocalPoint(obj.availableFrom) && isValidLocalPoint(obj.mustEndBy)) {
+    const span = localPointMinutes(obj.mustEndBy)! - localPointMinutes(obj.availableFrom)!;
+    if (span < 0 || span > 1440) errors.push({ key: 'err.planDraft.badDate' });
+  }
   const constraints = validateConstraints(obj.constraints);
   if (constraints === false) errors.push({ key: 'err.planDraft.constraints' });
 
   obj.events.forEach((event, index) => {
-    if (typeof event !== 'object' || event === null) {
+    if (typeof event !== 'object' || event === null || Array.isArray(event)) {
       errors.push({ key: 'err.planDraft.eventTitle', params: { index } });
       return;
     }
     const e = event as Record<string, unknown>;
+    rejectUnknownFields(
+      e,
+      [
+        'title',
+        'start',
+        'end',
+        'timing',
+        'type',
+        'place',
+        'note',
+        'travelMinutes',
+        'estimatedDurationMinutes',
+        'protectedFields',
+      ],
+      `events[${index}].`,
+      errors,
+    );
     if (typeof e.title !== 'string' || e.title.trim().length === 0) {
       errors.push({ key: 'err.planDraft.eventTitle', params: { index } });
     }
-    if (!isValidTime(typeof e.start === 'string' ? e.start : undefined)) {
+    if (e.start !== undefined && !isValidTime(e.start as string)) {
       errors.push({ key: 'err.planDraft.startInvalid', params: { index } });
     }
     if (e.end !== undefined && e.end !== null && !isValidTime(e.end as string)) {
       errors.push({ key: 'err.planDraft.endInvalid', params: { index } });
+    }
+    if (e.timing !== undefined) {
+      if (!isValidTiming(e.timing) || !hasSupportedTimingFields(e.timing)) {
+        errors.push({ key: 'err.planDraft.timingInvalid', params: { index } });
+      } else {
+        for (const field of ['start', 'end'] as const) {
+          if (e[field] === undefined || e[field] === null) continue;
+          if (
+            e.timing.kind !== 'exact' ||
+            !e.timing[field] ||
+            !isValidTime(e[field] as string) ||
+            normalizeTime(e[field] as string) !== normalizeTime(e.timing[field]!.time)
+          )
+            errors.push({ key: 'err.planDraft.timingInvalid', params: { index } });
+        }
+      }
+    } else if (e.end != null && e.start === undefined) {
+      errors.push({ key: 'err.planDraft.timingInvalid', params: { index } });
+    } else if (
+      isValidTime(e.start as string) &&
+      isValidTime(e.end as string) &&
+      !isValidTiming({
+        kind: 'exact',
+        start: { dayOffset: 0, time: e.start },
+        end: { dayOffset: 0, time: e.end },
+      })
+    ) {
+      errors.push({ key: 'err.planDraft.timingInvalid', params: { index } });
+    }
+    if (e.note !== undefined && e.note !== null && typeof e.note !== 'string') {
+      errors.push({ key: 'err.planDraft.note', params: { index } });
+    }
+    if (
+      e.estimatedDurationMinutes !== undefined &&
+      (typeof e.estimatedDurationMinutes !== 'number' ||
+        !Number.isFinite(e.estimatedDurationMinutes) ||
+        e.estimatedDurationMinutes < 0)
+    ) {
+      errors.push({ key: 'err.planDraft.durationInvalid', params: { index } });
+    }
+    if (
+      e.protectedFields !== undefined &&
+      (!Array.isArray(e.protectedFields) ||
+        e.protectedFields.some(
+          (field) => !['time', 'place', 'content', 'delete', 'order'].includes(field),
+        ))
+    ) {
+      errors.push({ key: 'err.planDraft.protectionInvalid', params: { index } });
     }
     if (
       e.type !== undefined &&
@@ -134,6 +241,9 @@ function validatePlanDraft(
       title: (obj.title as string).trim(),
       ...(typeof obj.date === 'string' && obj.date ? { date: obj.date } : {}),
       memo: typeof obj.memo === 'string' && obj.memo.trim() ? obj.memo.trim() : undefined,
+      outingConditions: obj.outingConditions as OutingConditions | undefined,
+      availableFrom: obj.availableFrom as LocalPoint | undefined,
+      mustEndBy: obj.mustEndBy as LocalPoint | undefined,
       constraints: constraints || undefined,
       events: obj.events.map((event) => eventFromRaw(event as Record<string, unknown>)),
     },
@@ -141,11 +251,14 @@ function validatePlanDraft(
 }
 
 function eventFromRaw(e: Record<string, unknown>): PlanDraftEvent {
-  const out: PlanDraftEvent = {
-    title: (e.title as string).trim(),
-    start: normalizeTime(e.start as string),
-  };
+  const out: PlanDraftEvent = { title: (e.title as string).trim() };
+  if (typeof e.start === 'string') out.start = normalizeTime(e.start);
   if (typeof e.end === 'string' && e.end.trim()) out.end = normalizeTime(e.end);
+  if (isValidTiming(e.timing)) out.timing = normalizeTiming(e.timing);
+  if (typeof e.estimatedDurationMinutes === 'number')
+    out.estimatedDurationMinutes = e.estimatedDurationMinutes;
+  if (Array.isArray(e.protectedFields))
+    out.protectedFields = [...e.protectedFields] as ProtectedField[];
   if (typeof e.type === 'string' && (DATE_EVENT_TYPES as readonly string[]).includes(e.type)) {
     out.type = e.type as DateEventType;
   }
@@ -163,8 +276,9 @@ function eventFromRaw(e: Record<string, unknown>): PlanDraftEvent {
 
 function validateConstraints(raw: unknown): PlanConstraints | undefined | false {
   if (raw === undefined || raw === null) return undefined;
-  if (typeof raw !== 'object') return false;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return false;
   const obj = raw as Record<string, unknown>;
+  if (Object.keys(obj).some((key) => !['must', 'prefer', 'avoid'].includes(key))) return false;
   const out: PlanConstraints = {};
   for (const field of ['must', 'prefer', 'avoid'] as const) {
     const value = obj[field];
@@ -176,10 +290,59 @@ function validateConstraints(raw: unknown): PlanConstraints | undefined | false 
   return out;
 }
 
-/** Turn a validated draft into a full DatePack: generated ids, linked places, sorted events. */
-export function buildPlanFromDraft(draft: PlanDraft): DatePack {
+function rejectUnknownFields(
+  obj: Record<string, unknown>,
+  allowed: string[],
+  prefix: string,
+  errors: DatePackIssue[],
+): void {
+  for (const field of Object.keys(obj)) {
+    if (!allowed.includes(field))
+      errors.push({
+        key: 'err.planDraft.unsupportedField',
+        params: { field: `${prefix}${field}` },
+      });
+  }
+}
+
+function hasSupportedTimingFields(timing: EventTiming): boolean {
+  const allowed =
+    timing.kind === 'exact'
+      ? ['kind', 'start', 'end']
+      : timing.kind === 'window'
+        ? ['kind', 'earliestStart', 'latestStart']
+        : ['kind', 'label'];
+  if (Object.keys(timing).some((key) => !allowed.includes(key))) return false;
+  const points =
+    timing.kind === 'exact'
+      ? [timing.start, timing.end]
+      : timing.kind === 'window'
+        ? [timing.earliestStart, timing.latestStart]
+        : [];
+  return points.every(
+    (point) => !point || Object.keys(point).every((key) => ['dayOffset', 'time'].includes(key)),
+  );
+}
+
+function normalizeTiming(timing: EventTiming): EventTiming {
+  if (timing.kind === 'unscheduled') return { ...timing };
+  if (timing.kind === 'exact')
+    return {
+      kind: 'exact',
+      start: { ...timing.start, time: normalizeTime(timing.start.time) },
+      ...(timing.end ? { end: { ...timing.end, time: normalizeTime(timing.end.time) } } : {}),
+    };
+  return {
+    kind: 'window',
+    earliestStart: { ...timing.earliestStart, time: normalizeTime(timing.earliestStart.time) },
+    latestStart: { ...timing.latestStart, time: normalizeTime(timing.latestStart.time) },
+  };
+}
+
+/** Turn a validated draft into a full OutingDatePack, preserving the AI's explicit array order. */
+export function buildPlanFromDraft(draft: PlanDraft): OutingDatePack {
   const places = new Map<string, ReturnType<typeof createPlace>>();
-  const events = draft.events.map((event) => {
+  const events = draft.events.map((event, order) => {
     let placeId: string | undefined;
     if (event.place) {
       let place = places.get(event.place);
@@ -190,10 +353,13 @@ export function buildPlanFromDraft(draft: PlanDraft): DatePack {
       placeId = place.id;
     }
     return createEvent({
-      order: 0,
+      order,
       title: event.title,
       start: event.start,
       end: event.end,
+      timing: event.timing,
+      estimatedDurationMinutes: event.estimatedDurationMinutes,
+      protectedFields: event.protectedFields,
       type: event.type ?? 'place',
       note: event.note,
       travelMinutes: event.travelMinutes,
@@ -205,14 +371,24 @@ export function buildPlanFromDraft(draft: PlanDraft): DatePack {
     title: draft.title,
     date: draft.date,
     memo: draft.memo,
+    outingConditions: draft.outingConditions,
+    availableFrom: draft.availableFrom,
+    mustEndBy: draft.mustEndBy,
     constraints: draft.constraints,
-    events: sortEventsByStart(events).map((event, order) => ({ ...event, order })),
+    events,
     places: [...places.values()],
   };
   return {
+    id: plan.id,
+    kind: 'outing',
+    meta: {
+      title: plan.title,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
     manifest: makeManifest(),
     plan,
-    baselinePlan: structuredClone(plan),
+    originalPlan: structuredClone(plan),
     experiences: [],
     revision: 0,
     assets: [],

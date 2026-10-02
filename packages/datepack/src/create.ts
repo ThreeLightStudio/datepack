@@ -1,4 +1,14 @@
-import type { DateEvent, DatePack, DatePlan, EventTiming, Place } from './types';
+import type {
+  DateEvent,
+  OutingDatePack,
+  DatePlan,
+  OutingConditions,
+  LocalPoint,
+  EventTiming,
+  Place,
+  Experience,
+  MemoriesDatePack,
+} from './types';
 import { DATE_EVENT_TYPES } from './types';
 import { makeManifest } from './schema';
 import { createId } from './utils/id';
@@ -53,19 +63,35 @@ export function createPlace(name: string, mapQuery?: string): Place {
   return { id: createId('place'), name, mapQuery: mapQuery ?? name };
 }
 
-export function createDatePack(input: { title: string; date?: string }): DatePack {
+export function createDatePack(input: {
+  title: string;
+  date?: string;
+  outingConditions?: OutingConditions;
+  availableFrom?: LocalPoint;
+  mustEndBy?: LocalPoint;
+}): OutingDatePack {
   const plan: DatePlan = {
     id: createId('plan'),
     title: input.title,
     date: input.date,
+    outingConditions: input.outingConditions,
+    availableFrom: input.availableFrom,
+    mustEndBy: input.mustEndBy,
     events: [],
     places: [],
     candidates: [],
   };
   return {
+    id: plan.id,
+    kind: 'outing',
+    meta: {
+      title: plan.title,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
     manifest: makeManifest(),
     plan,
-    baselinePlan: structuredClone(plan),
+    originalPlan: structuredClone(plan),
     experiences: [],
     revision: 0,
     assets: [],
@@ -79,4 +105,20 @@ export function sortEventsByStart(events: DateEvent[]): DateEvent[] {
 
 export function sortEventsByOrder(events: DateEvent[]): DateEvent[] {
   return [...events].sort((a, b) => a.order - b.order);
+}
+
+/** A standalone collection starts with real content, never an empty plan wrapper. */
+export function createMemoriesPack(
+  experiences: Experience[],
+  assets: MemoriesDatePack['assets'] = [],
+): MemoriesDatePack {
+  return {
+    id: createId('memories'),
+    kind: 'memories',
+    manifest: makeManifest(),
+    meta: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    experiences: structuredClone(experiences),
+    revision: 0,
+    assets: structuredClone(assets),
+  };
 }

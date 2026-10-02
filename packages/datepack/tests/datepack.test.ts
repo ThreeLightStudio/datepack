@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createDatePack, createEvent } from '../src/create';
-import { readDatePack, DatePackReadError } from '../src/read';
+import { readDatePack as readAnyDatePack, DatePackReadError } from '../src/read';
 import { writeDatePack } from '../src/write';
 import { validateDatePack, validatePlan } from '../src/validate';
-import type { DatePack, DatePackAsset } from '../src/types';
+import type { OutingDatePack, DatePackAsset } from '../src/types';
 import { assetPath } from '../src/assets';
 
-function makePack(): { pack: DatePack; blob: Blob } {
+function makePack(): { pack: OutingDatePack; blob: Blob } {
   const pack = createDatePack({ title: '테스트 데이트', date: '2026-09-28' });
   pack.plan.events.push(
     createEvent({
@@ -58,7 +58,7 @@ describe('write → read roundtrip', () => {
     );
     expect(read.pack.plan.title).toBe(pack.plan.title);
     expect(read.pack.manifest.format).toBe('datepack');
-    expect(read.pack.manifest.version).toBe('3.0');
+    expect(read.pack.manifest.version).toBe('4.0');
     expect(read.pack.assets).toHaveLength(1);
     expect(read.pack.assets[0]).toMatchObject({ id: 'asset-1', mimeType: 'image/png' });
 
@@ -145,47 +145,14 @@ describe('write → read roundtrip', () => {
     if (error instanceof DatePackReadError) expect(error.originalFile).toBe(future);
   });
 
-  it('still reads legacy v1.0 ZIP packs', async () => {
-    const read = await readDatePack(await legacyZip());
-    expect(read.pack.manifest.version).toBe('3.0');
-    expect(read.pack.plan.title).toBe('테스트 데이트');
-    expect(read.pack.assets).toHaveLength(1);
-    const restored = read.blobs.get('asset-1');
-    expect(restored).toBeDefined();
-    expect(restored!.type).toBe('image/png');
-  });
-
-  it('converts legacy v2 JSON to a stable v3 shape', async () => {
-    const { pack } = makePack();
-    const doc = {
-      format: 'datepack',
-      version: '2.0',
-      plan: {
-        id: pack.plan.id,
-        title: pack.plan.title,
-        date: pack.plan.date,
-        events: pack.plan.events.map((event) => ({
-          id: event.id,
-          title: event.title,
-          type: event.type,
-          start: event.start,
-          end: event.end,
-          assetIds: event.assetIds,
-        })),
-        places: [],
-      },
-      assets: pack.assets,
-    };
-    const file = new Blob([JSON.stringify(doc)], { type: 'application/json' });
-    const first = await readDatePack(file);
-    const second = await readDatePack(file);
-    expect(first.pack).toEqual(second.pack);
-    expect(first.pack.manifest.version).toBe('3.0');
-    expect(first.pack.plan.events[0].timing).toEqual({
-      kind: 'exact',
-      start: { dayOffset: 0, time: '10:00' },
-      end: { dayOffset: 0, time: '11:20' },
-    });
+  it('rejects legacy v1 ZIP and v2/v3 JSON files without converting them', async () => {
+    await expect(readDatePack(await legacyZip())).rejects.toBeInstanceOf(DatePackReadError);
+    for (const version of ['2.0', '3.0']) {
+      const file = new Blob([
+        JSON.stringify({ format: 'datepack', version, plan: makePack().pack.plan, assets: [] }),
+      ]);
+      await expect(readDatePack(file)).rejects.toBeInstanceOf(DatePackReadError);
+    }
   });
 
   it('keeps invalid legacy input available when conversion is blocked', async () => {
@@ -289,3 +256,9 @@ describe('validation', () => {
     });
   });
 });
+
+async function readDatePack(file: Blob) {
+  const result = await readAnyDatePack(file);
+  if (result.pack.kind !== 'outing') throw new Error('Expected outing fixture');
+  return { ...result, pack: result.pack };
+}

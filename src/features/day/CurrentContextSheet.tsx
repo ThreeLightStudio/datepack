@@ -2,10 +2,12 @@ import { useRef, useState } from 'react';
 import type { DateEventType, DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { DATE_EVENT_TYPES } from '@datepack/core';
 import type { LiveContext } from '../../storage/indexedDb';
-import { updateLiveContext, updatePlan } from '../../store/datepackStore';
+import { updateLiveContext, updatePlan, useStore } from '../../store/datepackStore';
 import { Sheet } from '../../components/Sheet';
 import { CheckIcon } from '../../components/icons';
 import { eventTypeLabel, format, useLocale } from '../../i18n';
+import { setLocalObservation } from './location';
+import { locationMessage } from './routeCopy';
 import {
   addNextActivity,
   isSettledNextEvent,
@@ -30,12 +32,15 @@ export function CurrentContextSheet({
   onClose: () => void;
 }) {
   const locale = useLocale();
+  const { pack } = useStore();
+  const documentId = pack?.id ?? plan.id;
   const ko = locale === 'ko';
   const initialEvent = selectableNextEvents(plan.events, runtime).find(
     (event) => event.id === context?.nextPlaceId,
   );
   const [place, setPlace] = useState(context?.place ?? '');
   const [activity, setActivity] = useState(context?.activity ?? '');
+  const [gpsConsent, setGpsConsent] = useState(context?.gpsConsent ?? false);
   const [nextSelection, setNextSelection] = useState(
     initialEvent ? `event:${initialEvent.id}` : '',
   );
@@ -111,14 +116,27 @@ export function CurrentContextSheet({
       }
 
       await updateLiveContext({
-        planId: plan.id,
+        planId: documentId,
         updatedAt: new Date().toISOString(),
         place: place.trim() || undefined,
         activity: activity.trim() || undefined,
         nextPlaceId,
         nextPlace: nextTitle,
         confirmedAt: new Date(confirmedAt).toISOString(),
+        gpsConsent,
+        locationAttempt: place.trim()
+          ? {
+              status: 'success',
+              attemptedAt: new Date().toISOString(),
+              observation: {
+                source: 'manual',
+                coarseLabel: place.trim(),
+                observedAt: new Date(confirmedAt).toISOString(),
+              },
+            }
+          : context?.locationAttempt,
       });
+      setLocalObservation(documentId);
       pendingDestinationRef.current = null;
       onClose();
     } catch {
@@ -137,7 +155,16 @@ export function CurrentContextSheet({
   }
 
   return (
-    <Sheet open title={format(locale, 'p3.day.context')} onClose={onClose}>
+    <Sheet
+      open
+      title={format(locale, 'p3.day.context')}
+      onClose={onClose}
+      restoreFocus={() => {
+        const trigger = document.querySelector<HTMLElement>('[data-context-trigger]');
+        trigger?.focus({ preventScroll: true });
+        return Boolean(trigger);
+      }}
+    >
       <div className="form">
         <p className="hint-text">
           {ko
@@ -157,6 +184,38 @@ export function CurrentContextSheet({
           <span>{ko ? '하고 있는 일 (선택)' : 'What you’re doing (optional)'}</span>
           <input value={activity} onChange={(e) => setActivity(e.target.value)} />
         </label>
+        <label className="consent-row">
+          <input
+            type="checkbox"
+            checked={gpsConsent}
+            onChange={(e) => setGpsConsent(e.target.checked)}
+          />
+          <span>
+            {ko
+              ? '새 AI 요청마다 현재 위치 한 번 조회'
+              : 'Look up my location once for each new AI request'}
+          </span>
+        </label>
+        <p className="hint-text">
+          {ko
+            ? '동의한 경우에만 조회해요. 정확 좌표는 메모리에서만 사용하고 AI 요청문·파일에 넣지 않아요. 지역 조회와 경로 서비스는 이용 조건 확인 전까지 꺼져 있어요. 직접 입력으로 계속 사용할 수 있어요.'
+            : 'Only with your consent. Exact coordinates stay in memory and are excluded from AI requests and files. Area lookup and routing remain disabled until service requirements are met. You can keep entering your location manually.'}
+        </p>
+        <p className="hint-text">
+          {ko
+            ? '경로 서비스가 활성화되면 FOSSGIS에 경로 계산용 좌표가 전달될 수 있어요. '
+            : 'If routing is enabled, coordinates may be sent to FOSSGIS to calculate routes. '}
+          <a
+            href="https://www.fossgis.de/datenschutzerkl%C3%A4rung"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {ko ? '서비스 개인정보 정책' : 'Service privacy policy'}
+          </a>
+        </p>
+        {context?.locationAttempt && (
+          <p className="hint-text">{locationMessage(context.locationAttempt, locale)}</p>
+        )}
         <label className="field">
           <span>{ko ? '이미 정한 다음 목적지' : 'Next place you chose'}</span>
           <select

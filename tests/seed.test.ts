@@ -65,8 +65,9 @@ describe('AI prompt builder', () => {
     expect(prompt).toContain('datepack.patch');
     expect(prompt).toContain('insertAfter');
     expect(prompt).toContain('완료/건너뜀 처리된 일정은 변경하지 마세요');
-    // new/relocated stops must be verified against the real world
-    expect(prompt).toContain('지도에서 검색되는 장소명');
+    // Real-world claims require an actual check; otherwise the prompt explains uncertainty.
+    expect(prompt).toContain('지도에서 검색되는 공개 이름');
+    expect(prompt).toContain('확인 못한 부분은 미확인');
     expect(prompt).toContain('브레이크타임');
     // the patch can only target ids the prompt actually listed
     expect(prompt).toContain('id: event-');

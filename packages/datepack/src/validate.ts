@@ -6,6 +6,7 @@ import {
   isValidTiming,
   isValidLocalPoint,
   localPointMinutes,
+  normalizeTime,
 } from './utils/time';
 import { isLegacyDatePlan, isV3DatePlan } from './migration';
 import type { DatePackIssue } from './i18n/core';
@@ -19,6 +20,8 @@ function ok(warnings: DatePackIssue[] = []): ValidationResult {
 function fail(errors: DatePackIssue[], warnings: DatePackIssue[] = []): ValidationResult {
   return { ok: false, errors, warnings };
 }
+
+import { isValidOutingConditions } from './outingConditions';
 
 export function validatePlan(plan: unknown): ValidationResult {
   if (typeof plan !== 'object' || plan === null) {
@@ -40,6 +43,10 @@ export function validatePlan(plan: unknown): ValidationResult {
 
   const seenIds = new Set<string>();
   p.events.forEach((event, index) => {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) {
+      errors.push({ key: 'err.plan.eventId', params: { index } });
+      return;
+    }
     if (typeof event?.id !== 'string' || event.id.length === 0) {
       errors.push({ key: 'err.plan.eventId', params: { index } });
     } else if (seenIds.has(event.id)) {
@@ -128,6 +135,8 @@ export function validatePlan(plan: unknown): ValidationResult {
       if (point !== undefined && !isValidLocalPoint(point))
         errors.push({ key: 'err.plan.badDate', params: { field } });
     };
+    if (p.outingConditions !== undefined && !isValidOutingConditions(p.outingConditions))
+      errors.push({ key: 'err.plan.outingConditions' });
     checkPoint(p.availableFrom, 'availableFrom');
     checkPoint(p.mustEndBy, 'mustEndBy');
     if (
@@ -224,30 +233,50 @@ export function validatePlan(plan: unknown): ValidationResult {
   return errors.length > 0 ? fail(errors) : ok();
 }
 
-export function validateDatePack(pack: DatePack): ValidationResult {
-  const planResult = validatePlan(pack.plan);
-  if (!planResult.ok) return planResult;
-
+export function validateDatePack(raw: unknown): ValidationResult {
+  const invalid = () => fail([{ key: 'err.read.invalidContent' }]);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return invalid();
+  const pack = raw as DatePack;
+  if (
+    typeof pack.id !== 'string' ||
+    !pack.id.trim() ||
+    !['outing', 'memories'].includes(pack.kind) ||
+    pack.manifest?.format !== 'datepack' ||
+    pack.manifest.version !== '4.0' ||
+    !pack.meta ||
+    typeof pack.meta.createdAt !== 'string' ||
+    !Number.isFinite(Date.parse(pack.meta.createdAt)) ||
+    typeof pack.meta.updatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(pack.meta.updatedAt)) ||
+    (pack.meta.title !== undefined && typeof pack.meta.title !== 'string') ||
+    !Array.isArray(pack.experiences) ||
+    !Array.isArray(pack.assets) ||
+    !Number.isSafeInteger(pack.revision) ||
+    pack.revision < 0
+  )
+    return invalid();
+  if (pack.kind === 'outing') {
+    if (!isV3DatePlan(pack.plan) || !isV3DatePlan(pack.originalPlan)) return invalid();
+    const planResult = validatePlan(pack.plan);
+    if (!planResult.ok) return planResult;
+    if (!validatePlan(pack.originalPlan).ok || pack.originalPlan.id !== pack.plan.id)
+      return invalid();
+  } else if ('plan' in pack || 'originalPlan' in pack || pack.experiences.length === 0)
+    return invalid();
   const warnings: DatePackIssue[] = [];
   const errors: DatePackIssue[] = [];
-  if (pack.manifest?.version !== '3.0') {
-    errors.push({ key: 'err.plan.manifestVersion' });
-  }
-
-  // v3 metadata is validated as part of the portable file contract.
-  if (pack.manifest.version === '3.0') {
-    if (
-      !pack.baselinePlan ||
-      !Array.isArray(pack.experiences) ||
-      !Number.isSafeInteger(pack.revision) ||
-      pack.revision < 0
-    )
-      errors.push({ key: 'err.plan.manifestVersion' });
-    else if (!validatePlan(pack.baselinePlan).ok) errors.push({ key: 'err.read.invalidContent' });
-  }
   const assetIds = new Set<string>();
   for (const asset of pack.assets) {
-    if (!asset?.id || assetIds.has(asset.id))
+    if (
+      !asset ||
+      typeof asset.id !== 'string' ||
+      !asset.id ||
+      typeof asset.filename !== 'string' ||
+      !asset.filename ||
+      typeof asset.mimeType !== 'string' ||
+      !asset.mimeType ||
+      assetIds.has(asset.id)
+    )
       errors.push({ key: 'err.plan.dupAssetId', params: { id: asset?.id ?? '' } });
     else assetIds.add(asset.id);
   }
@@ -293,9 +322,10 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       checkPlace(travel.toPlaceId, `${fieldPrefix}.sharedTravel.${travel.id}.toPlaceId`);
     }
   };
-  checkPlanReferences(pack.plan, 'plan');
-  if (pack.baselinePlan && validatePlan(pack.baselinePlan).ok)
-    checkPlanReferences(pack.baselinePlan, 'baselinePlan');
+  if (pack.kind === 'outing') {
+    checkPlanReferences(pack.plan, 'plan');
+    checkPlanReferences(pack.originalPlan, 'originalPlan');
+  }
 
   const experienceIds = new Set<string>();
   for (const experience of pack.experiences ?? []) {
@@ -303,9 +333,26 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       errors.push({ key: 'err.read.invalidContent' });
       continue;
     }
-    if (!experience.id || experienceIds.has(experience.id))
+    if (typeof experience.id !== 'string' || !experience.id || experienceIds.has(experience.id))
       errors.push({ key: 'err.plan.dupId', params: { id: experience.id } });
     experienceIds.add(experience.id);
+    if (
+      (experience.title !== undefined && typeof experience.title !== 'string') ||
+      (experience.note !== undefined && typeof experience.note !== 'string') ||
+      (experience.assetIds !== undefined &&
+        (!Array.isArray(experience.assetIds) ||
+          experience.assetIds.some((id) => typeof id !== 'string' || !id))) ||
+      (!(typeof experience.title === 'string' && experience.title.trim()) &&
+        !(typeof experience.note === 'string' && experience.note.trim()) &&
+        !experience.assetIds?.length)
+    ) {
+      errors.push({ key: 'err.read.invalidContent' });
+    }
+    if (
+      experience.eventId !== undefined &&
+      (typeof experience.eventId !== 'string' || pack.kind !== 'outing')
+    )
+      errors.push({ key: 'err.read.invalidContent' });
     if (!['completed', 'skipped', 'note'].includes(experience.outcome))
       errors.push({ key: 'err.plan.eventId' });
     if (experience.editedNote !== undefined && typeof experience.editedNote !== 'string')
@@ -337,7 +384,7 @@ export function validateDatePack(pack: DatePack): ValidationResult {
       errors.push({ key: 'err.plan.startInvalid', params: { field: 'experiences.timing.period' } });
     if (experience.timing && !['exact', 'approximate'].includes(experience.timing.kind))
       errors.push({ key: 'err.plan.startInvalid', params: { field: 'experiences.timing.kind' } });
-    for (const id of experience.assetIds ?? [])
+    for (const id of Array.isArray(experience.assetIds) ? experience.assetIds : [])
       checkAsset(id, `experiences.${experience.id}.assetIds`);
   }
 
@@ -408,61 +455,90 @@ export function validatePatch(raw: unknown): PatchValidation {
       return;
     }
     const v = value as Record<string, unknown>;
-    if (op.op === 'insertBefore' || op.op === 'insertAfter' || op.op === 'insertFirst') {
+    const inserting =
+      op.op === 'insertBefore' || op.op === 'insertAfter' || op.op === 'insertFirst';
+    const allowedFields =
+      op.op === 'move'
+        ? ['start', 'end', 'timing']
+        : [
+            'title',
+            'start',
+            'end',
+            'timing',
+            'type',
+            'note',
+            'travelMinutes',
+            'place',
+            'placeId',
+            'estimatedDurationMinutes',
+            ...(inserting ? ['protectedFields'] : ['fixed']),
+          ];
+    if (Object.keys(v).some((key) => !allowedFields.includes(key)))
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (op.op === 'move' && Object.keys(v).length === 0)
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (inserting) {
       if (typeof v.title !== 'string' || v.title.trim().length === 0) {
         errors.push({ key: 'err.patch.needTitle', params: { index } });
       }
-      if (
-        op.op !== 'insertFirst' &&
-        !isValidTime(typeof v.start === 'string' ? v.start : undefined)
-      ) {
-        errors.push({ key: 'err.patch.needStart', params: { index } });
-      }
-      if (v.start !== undefined && v.start !== null && !isValidTime(v.start as string)) {
-        errors.push({ key: 'err.patch.badTime', params: { index, field: 'start' } });
-      }
-      if (v.end !== undefined && v.end !== null && !isValidTime(v.end as string)) {
-        errors.push({ key: 'err.patch.badTime', params: { index, field: 'end' } });
-      }
-      if (
-        v.type !== undefined &&
-        !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string)
-      ) {
-        errors.push({ key: 'err.patch.badType', params: { index, value: String(v.type) } });
-      }
-      if (v.place !== undefined && (typeof v.place !== 'string' || !v.place.trim())) {
-        errors.push({ key: 'err.patch.noValue', params: { index } });
-      }
-      return;
     }
-    // replace / move: any provided time fields must be valid
+    // Absence of time is intentional. Explicit timing and legacy aliases must agree.
     for (const field of ['start', 'end'] as const) {
-      if (v[field] !== undefined && v[field] !== null && !isValidTime(v[field] as string)) {
+      if (v[field] !== undefined && !isValidTime(v[field] as string)) {
         errors.push({ key: 'err.patch.badTime', params: { index, field } });
       }
     }
+    if (v.timing !== undefined) {
+      if (!isValidTiming(v.timing))
+        errors.push({ key: 'err.patch.badTime', params: { index, field: 'timing' } });
+      else {
+        for (const field of ['start', 'end'] as const) {
+          if (v[field] === undefined) continue;
+          if (
+            v.timing.kind !== 'exact' ||
+            !v.timing[field] ||
+            !isValidTime(v[field] as string) ||
+            normalizeTime(v[field] as string) !== normalizeTime(v.timing[field]!.time)
+          )
+            errors.push({ key: 'err.patch.badTime', params: { index, field: 'timing' } });
+        }
+      }
+    } else if (inserting && v.end !== undefined && v.start === undefined) {
+      errors.push({ key: 'err.patch.needStart', params: { index } });
+    }
+    for (const field of ['travelMinutes', 'estimatedDurationMinutes'] as const) {
+      if (
+        v[field] !== undefined &&
+        (typeof v[field] !== 'number' || !Number.isFinite(v[field]) || v[field] < 0)
+      )
+        errors.push({ key: 'err.patch.badTravel', params: { index } });
+    }
+    for (const field of ['place', 'placeId'] as const) {
+      if (v[field] !== undefined && (typeof v[field] !== 'string' || !v[field].trim()))
+        errors.push({ key: 'err.patch.noValue', params: { index } });
+    }
+    if (v.place !== undefined && v.placeId !== undefined)
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (v.note !== undefined && typeof v.note !== 'string')
+      errors.push({ key: 'err.patch.noValue', params: { index } });
+    if (v.title !== undefined && (typeof v.title !== 'string' || !v.title.trim()))
+      errors.push({ key: 'err.patch.needTitle', params: { index } });
+    if (v.type !== undefined && !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string))
+      errors.push({ key: 'err.patch.badType', params: { index, value: String(v.type) } });
+    if (
+      v.protectedFields !== undefined &&
+      (!Array.isArray(v.protectedFields) ||
+        v.protectedFields.some(
+          (field) => !['time', 'place', 'content', 'delete', 'order'].includes(field),
+        ))
+    )
+      errors.push({ key: 'err.patch.noValue', params: { index } });
     if (op.op === 'replace') {
       if (Object.keys(v).length === 0) {
         warnings.push({ key: 'err.patch.emptyReplace', params: { index } });
       }
       if (v.fixed !== undefined && typeof v.fixed !== 'boolean') {
         errors.push({ key: 'err.patch.badFixed', params: { index } });
-      }
-      if (
-        v.type !== undefined &&
-        v.type !== null &&
-        !(DATE_EVENT_TYPES as readonly string[]).includes(v.type as string)
-      ) {
-        errors.push({ key: 'err.patch.badType', params: { index, value: String(v.type) } });
-      }
-      if (
-        v.travelMinutes !== undefined &&
-        v.travelMinutes !== null &&
-        (typeof v.travelMinutes !== 'number' ||
-          !Number.isFinite(v.travelMinutes) ||
-          v.travelMinutes < 0)
-      ) {
-        errors.push({ key: 'err.patch.badTravel', params: { index } });
       }
     }
   });

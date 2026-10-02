@@ -1,6 +1,7 @@
 import type {
   DateEvent,
-  DatePack,
+  OutingDatePack,
+  LocalV3DatePack,
   DatePackRuntimeState,
   DatePlan,
   EventTiming,
@@ -11,7 +12,7 @@ import type {
 import { DATE_EVENT_TYPES } from './types';
 import { normalizeTime, isValidTime, parseTime } from './utils/time';
 
-export type MigrationResult = { pack: DatePack; migrated: boolean; sourceVersion: string };
+export type MigrationResult = { pack: OutingDatePack; migrated: boolean; sourceVersion: string };
 
 /** Pure, repeatable conversion of supported v1/v2 plans to the v3 contract. */
 export function migrateLegacyDatePack(
@@ -89,9 +90,17 @@ export function migrateLegacyDatePack(
   }
   return {
     pack: {
-      manifest: { ...input.manifest, version: '3.0', entry: 'plan.json' },
+      id: input.plan.id,
+      kind: 'outing',
+      meta: {
+        title: plan.title,
+        createdAt: input.manifest.createdAt ?? '1970-01-01T00:00:00.000Z',
+        updatedAt:
+          input.manifest.updatedAt ?? input.manifest.createdAt ?? '1970-01-01T00:00:00.000Z',
+      },
+      manifest: { ...input.manifest, version: '4.0', entry: 'plan.json' },
       plan,
-      baselinePlan: structuredClone(plan),
+      originalPlan: structuredClone(plan),
       experiences,
       revision: 0,
       assets: structuredClone(input.assets ?? []),
@@ -132,4 +141,23 @@ export function isV3DatePlan(plan: unknown): plan is DatePlan {
       (e) => typeof e === 'object' && e !== null && 'timing' in e,
     )
   );
+}
+
+/** Device-only 3.0 conversion. IDs, text, timestamps, assets and revisions are retained. */
+export function migrateLocalV3DatePack(input: LocalV3DatePack): OutingDatePack {
+  return {
+    id: input.plan.id,
+    kind: 'outing',
+    manifest: { ...input.manifest, version: '4.0' },
+    meta: {
+      title: input.plan.title,
+      createdAt: input.manifest.createdAt ?? '1970-01-01T00:00:00.000Z',
+      updatedAt: input.manifest.updatedAt ?? input.manifest.createdAt ?? '1970-01-01T00:00:00.000Z',
+    },
+    plan: structuredClone(input.plan),
+    originalPlan: structuredClone(input.baselinePlan),
+    experiences: structuredClone(input.experiences),
+    revision: input.revision,
+    assets: structuredClone(input.assets),
+  };
 }

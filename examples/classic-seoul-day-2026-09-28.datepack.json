@@ -1,9 +1,9 @@
 {
   "format": "datepack",
-  "version": "3.0",
+  "version": "4.0",
   "createdAt": "2026-09-28T08:00:00.000Z",
   "updatedAt": "2026-09-29T13:09:11.856Z",
-  "generator": "datepack-core 0.3.0",
+  "generator": "datepack-core 0.4.0",
   "plan": {
     "id": "plan-classic-seoul-day",
     "title": "Classic Seoul Day",
@@ -48,7 +48,7 @@
       "timing": { "kind": "unscheduled", "label": "Around the afternoon" }
     }
   },
-  "baselinePlan": {
+  "originalPlan": {
     "id": "plan-classic-seoul-day",
     "title": "Classic Seoul Day",
     "date": "2026-09-28",
@@ -102,5 +102,12 @@
       "createdAt": "2026-09-28T08:10:00.000Z",
       "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
     }
-  ]
+  ],
+  "id": "plan-classic-seoul-day",
+  "kind": "outing",
+  "meta": {
+    "title": "Classic Seoul Day",
+    "createdAt": "2026-09-28T08:00:00.000Z",
+    "updatedAt": "2026-09-29T13:09:11.856Z"
+  }
 }

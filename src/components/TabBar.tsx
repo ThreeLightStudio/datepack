@@ -1,26 +1,26 @@
-import { ListIcon, DotsIcon, HeartIcon } from './icons';
+import { ListIcon, CameraIcon, HeartIcon } from './icons';
 import type { ReactElement } from 'react';
-import type { ViewId } from '../app/routes';
+import type { TabId } from '../app/routes';
 import { useLocale } from '../i18n';
 
-const LABELS: Record<ViewId, { ko: string; en: string }> = {
-  today: { ko: '오늘', en: 'Today' },
-  plan: { ko: '전체 일정', en: 'Itinerary' },
-  details: { ko: '더보기', en: 'More' },
+const LABELS: Record<TabId, { ko: string; en: string }> = {
+  home: { ko: '홈', en: 'Home' },
+  plan: { ko: '일정', en: 'Plans' },
+  records: { ko: '기록', en: 'Memories' },
 };
 
 const ICONS: Record<
-  ViewId,
+  TabId,
   (p: { width: number; height: number; fill?: string; stroke?: string }) => ReactElement
-> = { today: HeartIcon, plan: ListIcon, details: DotsIcon };
+> = { home: HeartIcon, plan: ListIcon, records: CameraIcon };
 
-type Props = { current: ViewId; onSelect: (view: ViewId) => void };
+type Props = { current: TabId; onSelect: (view: TabId) => void };
 
 export function TabBar({ current, onSelect }: Props) {
   const locale = useLocale();
   return (
-    <nav className="tab-bar" aria-label={LABELS.plan[locale]}>
-      {(Object.keys(LABELS) as ViewId[]).map((id) => {
+    <nav className="tab-bar" aria-label={locale === 'ko' ? '주요 화면' : 'Main navigation'}>
+      {(Object.keys(LABELS) as TabId[]).map((id) => {
         const active = current === id;
         const Icon = ICONS[id];
         return (

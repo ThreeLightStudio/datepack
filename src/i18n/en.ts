@@ -5,6 +5,22 @@ import type { MessageKey } from './ko';
  * English date-planner would say it, keeping the same intent and tone.
  */
 export const en: Record<MessageKey, string> = {
+  'reorder.handle': 'Drag to reorder {title}',
+  'reorder.help': 'Drag or use the up and down arrow keys',
+  'reorder.up': 'Up',
+  'reorder.down': 'Down',
+  'reorder.upLabel': 'Move {title} up',
+  'reorder.downLabel': 'Move {title} down',
+  'reorder.review': 'Review new order',
+  'reorder.reviewHint':
+    'Check the new order and times. Apply once the journey and protected stops are verified.',
+  'reorder.adjust': 'Preview overlapping time adjustments',
+  'reorder.keep': 'Keep current plan',
+  'reorder.confirm': 'Apply this order',
+  'reorder.saved': 'Itinerary order saved.',
+  'reorder.stale': 'The plan or situation changed. Review the order again.',
+  'reorder.failed': 'Could not save the new order. Your current plan is preserved.',
+
   // app chrome
   'app.brand': 'DatePack',
   'app.undo': 'Undo',
@@ -15,7 +31,7 @@ export const en: Record<MessageKey, string> = {
 
   // empty state
   'empty.tagline': 'Plan less. Be together.',
-  'fallback.packTitle': 'New date',
+  'fallback.packTitle': 'New outing',
   'empty.namePlaceholder': 'Date name (e.g. Our day out)',
   'empty.create': 'Create the date',
   'empty.openFile': 'Open a .datepack.json file',
@@ -76,7 +92,7 @@ export const en: Record<MessageKey, string> = {
   'planb.aiJump': 'Tell us what happened → replan',
 
   // plan view
-  'plan.editMeta': 'Edit date details',
+  'plan.editMeta': 'Edit outing details',
   'plan.add': 'Add a stop',
   'plan.status.current': 'Now',
   'plan.status.skipped': 'Skipped',
@@ -232,7 +248,7 @@ export const en: Record<MessageKey, string> = {
   'create.btn': 'Plan it with AI',
   'create.btn.sub': 'Work out the plan by chatting with your AI, then bring the result here.',
   'create.title': 'Plan it with AI',
-  'create.step1': '1. Describe the date',
+  'create.step1': '1. Describe the outing',
   'create.region': 'Area · neighborhood',
   'create.region.ph': 'e.g. Seongsu-dong, Seoul',
   'create.date': 'Date',
@@ -245,13 +261,14 @@ export const en: Record<MessageKey, string> = {
   'create.prompt.copy': 'Copy the note',
   'create.toast.copied': 'Note copied.',
   'create.prompt.hint':
-    "Keep the conversation going with your AI to refine the plan. Once it's final, paste the JSON it replies with into the next step.",
+    'Keep discussing with your AI. Approve a suggestion, then paste its whole final reply below.',
   'create.step2': '2. Paste the final reply',
-  'create.step2.hint': "Paste the Plan JSON your AI answered with — you'll preview it first.",
+  'create.step2.hint':
+    'Paste the whole approved reply or its JSON object. A preview appears automatically; confirm before saving.',
   'create.check': 'Review the plan',
   'create.review.head': '"{title}" · {date}',
   'create.review.events': '{count} stops',
-  'create.review.apply': 'Start this date',
+  'create.review.apply': 'Save the plan',
   'create.review.cancel': 'Cancel',
   'create.review.error': "That reply won't work",
   'create.toast.download': 'Download .datepack.json',
@@ -283,7 +300,7 @@ export const en: Record<MessageKey, string> = {
   'toast.skipped': 'Skipped.',
   'toast.delayed': '{minutes} minutes of grace added.',
   'toast.planb.on': 'Switched to Plan B.',
-  'toast.pack.created': 'New date created ♡',
+  'toast.pack.created': 'New outing created ♡',
   'toast.pack.imported': 'Opened "{title}"{warn}',
   'toast.pack.exported': '.datepack.json downloaded.',
   'toast.pack.exportedPartial': 'Saved (some images were missing and left out)',
@@ -296,7 +313,7 @@ export const en: Record<MessageKey, string> = {
   'undo.edit': 'edit stop',
   'undo.delete': 'delete stop',
   'undo.reorder': 'reorder',
-  'undo.meta': 'date details',
+  'undo.meta': 'outing details',
   'undo.photo': 'add photo',
   'undo.photoRemove': 'remove photo',
   'undo.cover': 'change cover',

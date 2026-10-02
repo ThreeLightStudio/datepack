@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { createEvent } from '@datepack/core';
+import { computeDayContext } from '../src/features/day/dayRuntime';
 import {
   addNextActivity,
   promoteCandidateToNextActivity,
   selectableNextEvents,
+  resolveDayDestination,
 } from '../src/features/day/nextDestination';
 
 function plan(): DatePlan {
@@ -74,5 +76,29 @@ describe('next destination', () => {
     expect(promoteCandidateToNextActivity(p, 'excluded')).toBeNull();
     expect(promoteCandidateToNextActivity(p, 'missing')).toBeNull();
     expect(p.events).toHaveLength(1);
+  });
+  it('uses the explicit chosen destination for both return actions and Today', () => {
+    const p = plan();
+    p.date = undefined;
+    p.events.push(createEvent({ id: 'chosen', title: 'Chosen later stop', order: 1 }));
+    const context = computeDayContext(p, null, new Date('2026-10-01T07:40:00Z'));
+    const resolved = resolveDayDestination(context, 'chosen');
+    expect(resolved.destination?.event.id).toBe('chosen');
+    expect(resolved.remaining[0].event.id).toBe('chosen');
+    expect(resolved.destination?.startMinutes).toBeNull();
+  });
+
+  it('offers no destination when the chosen stop and all remaining stops are settled', () => {
+    const p = plan();
+    const context = computeDayContext(
+      p,
+      {
+        planId: p.id,
+        updatedAt: '2026-10-01T07:40:00Z',
+        events: { existing: { eventId: 'existing', status: 'completed' } },
+      },
+      new Date('2026-10-01T07:40:00Z'),
+    );
+    expect(resolveDayDestination(context, 'existing').destination).toBeNull();
   });
 });

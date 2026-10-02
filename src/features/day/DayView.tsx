@@ -3,11 +3,13 @@ import type { DatePackRuntimeState, DatePlan } from '@datepack/core';
 import { completeEvent, setEventIncludedInRemaining } from '../../store/datepackStore';
 import { useStore } from '../../store/datepackStore';
 import { CurrentContextSheet } from './CurrentContextSheet';
-import { computeDayContext, getRemainingPlanEvents, timeRangeLabel } from './dayRuntime';
+import { computeDayContext, timeRangeLabel } from './dayRuntime';
 import { format, formatDate, useLocale } from '../../i18n';
 import { useNow } from '../../hooks/useNow';
 import { CheckIcon, MapIcon } from '../../components/icons';
 import { mapBridgeUrl } from '../../utils/mapBridge';
+import { resolveDayDestination } from './nextDestination';
+import { locationMessage } from './routeCopy';
 
 type Props = {
   plan: DatePlan;
@@ -15,24 +17,22 @@ type Props = {
   onOpenAi: () => void;
   onOpenPlan: () => void;
 };
-export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Props) {
+export function DayView({ plan, runtime, onOpenAi, onOpenPlan }: Props) {
   const locale = useLocale();
   const ko = locale === 'ko';
   const store = useStore();
+  const documentId = store.pack?.id ?? plan.id;
   const now = useNow(30_000);
   const ctx = useMemo(() => computeDayContext(plan, runtime, now), [plan, runtime, now]);
   const [contextOpen, setContextOpen] = useState(false);
   const current = ctx.current;
-  const contextPlan = store.liveContext?.planId === plan.id ? store.liveContext : null;
-  const requestedNextId = contextPlan?.nextPlaceId;
-  const requestedNext = ctx.events.find((view) => view.event.id === requestedNextId);
-  const preferredNextId =
-    requestedNext && requestedNext.status !== 'completed' && requestedNext.status !== 'skipped'
-      ? requestedNext.event.id
-      : undefined;
-  const selectedNext = preferredNextId ? requestedNext?.event : undefined;
-  const remainingPlan = getRemainingPlanEvents(ctx, preferredNextId);
-  const visibleCurrent = current ?? remainingPlan[0] ?? null;
+  const contextPlan = store.liveContext?.planId === documentId ? store.liveContext : null;
+  const {
+    preferredId: preferredNextId,
+    selected: selectedNext,
+    remaining: remainingPlan,
+    destination: visibleCurrent,
+  } = resolveDayDestination(ctx, contextPlan?.nextPlaceId);
   const isChosenNext = Boolean(visibleCurrent && preferredNextId === visibleCurrent.event.id);
   const isReincludedNext = Boolean(
     visibleCurrent?.status === 'unknown-past' && visibleCurrent.includeInRemaining,
@@ -67,7 +67,7 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
           <p className="eyebrow" id="context-heading">
             {format(locale, 'p3.day.context')}
           </p>
-          {store.liveContext?.planId === plan.id ? (
+          {store.liveContext?.planId === documentId ? (
             <>
               <strong>
                 {store.liveContext.place ||
@@ -85,9 +85,12 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
               </p>
               <p className="hint-text">
                 {ko
-                  ? '직접 확인한 내용'
+                  ? `마지막 직접 확인 · ${new Date(store.liveContext.confirmedAt ?? store.liveContext.updatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`
                   : `Confirmed ${new Date(store.liveContext.confirmedAt ?? store.liveContext.updatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`}
               </p>
+              {contextPlan?.locationAttempt && (
+                <p className="hint-text">{locationMessage(contextPlan.locationAttempt, locale)}</p>
+              )}
             </>
           ) : (
             <p className="sub-line">
@@ -97,7 +100,12 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
             </p>
           )}
         </div>
-        <button type="button" className="btn btn-soft" onClick={() => setContextOpen(true)}>
+        <button
+          type="button"
+          className="btn btn-soft"
+          data-context-trigger
+          onClick={() => setContextOpen(true)}
+        >
           {format(locale, 'p3.day.context.update')}
         </button>
       </section>
@@ -213,7 +221,7 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
           </ol>
         </section>
       )}
-      {store.personalJourney?.planId === plan.id && (
+      {store.personalJourney?.planId === documentId && (
         <p className="device-note">
           {ko
             ? `내 이동 메모는 이 기기에만 저장돼요${store.personalJourney.origin ? ` · ${store.personalJourney.origin}` : ''}`
@@ -221,8 +229,8 @@ export function DayView({ plan, runtime, onOpenAi: _onOpenAi, onOpenPlan }: Prop
         </p>
       )}
       <div className="day-actions">
-        <button type="button" className="btn btn-primary" onClick={onOpenPlan}>
-          {format(locale, 'p3.day.adjust')}
+        <button type="button" className="btn btn-primary" onClick={onOpenAi}>
+          {ko ? 'AI와 다시 계획하기' : 'Replan with AI'}
         </button>
         <button type="button" className="btn btn-soft" onClick={onOpenPlan}>
           {ko ? '전체 일정 보기' : 'View full plan'}

@@ -108,8 +108,18 @@ export const ko = {
   'err.planDraft.typeInvalid': 'events[{index}].type "{value}"은(는) 알 수 없는 종류입니다.',
   'err.planDraft.travelInvalid': 'events[{index}].travelMinutes는 0 이상의 숫자여야 합니다.',
   'err.planDraft.placeString': 'events[{index}].place는 문자열이어야 합니다.',
+  'err.plan.outingConditions': '혼자·함께, 지역, 원화 예산과 소요 시간을 확인해주세요.',
   'err.planDraft.constraints': 'constraints의 must/prefer/avoid는 문자열 배열이어야 합니다.',
   'err.planDraft.memo': 'memo는 문자열이어야 합니다.',
+  'err.planDraft.timingInvalid':
+    'events[{index}].timing이 잘못되었거나 start/end와 일치하지 않아요. 다음 날은 dayOffset으로 표시하세요.',
+  'err.planDraft.durationInvalid':
+    'events[{index}].estimatedDurationMinutes는 0 이상의 숫자여야 합니다.',
+  'err.planDraft.protectionInvalid':
+    'events[{index}].protectedFields에는 time/place/content/delete/order만 사용할 수 있어요.',
+  'err.planDraft.note': 'events[{index}].note는 문자열이어야 합니다.',
+  'err.planDraft.unsupportedField':
+    '지원하지 않는 필드 "{field}"가 있어요. 요청문의 결과 형식으로 다시 답해주세요.',
 } as const;
 
 export type DatePackIssueKey = keyof typeof ko;
