@@ -52,7 +52,7 @@ describe('AI prompt builder', () => {
       runtime: emptyRuntime(pack.plan.id),
       situationId: 'rain',
       locale: 'ko',
-      now: new Date(2026, 8, 28, 14, 42),
+      now: new Date('2026-09-28T14:42:00+09:00'),
     });
 
     expect(prompt).toContain('현재 시각: 14:42');
@@ -81,7 +81,7 @@ describe('AI prompt builder', () => {
       situationId: 'custom',
       customInput: '기차가 30분 지연되고 있어요',
       locale: 'ko',
-      now: new Date(2026, 8, 28, 14, 42),
+      now: new Date('2026-09-28T14:42:00+09:00'),
     });
     expect(prompt).toContain('기차가 30분 지연되고 있어요');
   });
@@ -93,7 +93,7 @@ describe('AI prompt builder', () => {
       runtime: emptyRuntime(pack.plan.id),
       situationId: 'rain',
       locale: 'en',
-      now: new Date(2026, 8, 28, 14, 42),
+      now: new Date('2026-09-28T14:42:00+09:00'),
     });
     expect(prompt).toContain('Current time: 14:42');
     expect(prompt).toContain('it suddenly started raining');

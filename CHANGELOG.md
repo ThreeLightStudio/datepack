@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — 2026-10-02 (local pre-release)
+## 0.4.0 — 2026-10-02 (public beta)
 
 - Format 4.0 separates outing plans and real standalone memory documents. Old
   imported formats are rejected; current local v3 data and drafts convert safely.
@@ -12,7 +12,8 @@
 - Preserve legacy/new/edit record drafts and separate AI answer drafts. Keep
   revisions, original wording, protected fields and route verification guards.
 - Update release examples and current docs. Verification and device limits are
-  in [release readiness](docs/release-readiness.md). No deployment/publication.
+  in [release readiness](docs/release-readiness.md). Deployed to
+  GitHub Pages from main; no GitHub release or package publication.
 
 ## 0.3.0 — 2026-09-29
 

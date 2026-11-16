@@ -4,7 +4,7 @@
 
 [Try the web app](https://threelightstudio.github.io/datepack/) · [한국어](README.ko.md) · [Core format API](packages/datepack/README.md) · [Release readiness](docs/release-readiness.md)
 
-**Public beta — app/core 0.4.0, file format 4.0.** The public site may show an earlier release. Planning, file import/export, and user-supplied AI replies have public implementation and tests. Installed mobile PWA, offline restart, accessibility, and native sharing still need real-device acceptance; see [readiness](docs/release-readiness.md). The product aims to reduce replanning during an outing; that goal is not a measured usability result.
+**Public beta — app/core 0.4.0, file format 4.0.** The public site is deployed from the 0.4.0 commit. Planning, file import/export, and user-supplied AI replies have public implementation and tests. Installed mobile PWA, offline restart, accessibility, and native sharing still need real-device acceptance; see [readiness](docs/release-readiness.md). The product aims to reduce replanning during an outing; that goal is not a measured usability result.
 
 ## Start with a plan or a photo
 
@@ -78,6 +78,6 @@ pnpm build
 
 `verify` runs formatting, linting, typechecking, app tests, and the core package's checks; `build` produces the Vite app. The [UI-free core](packages/datepack/README.md) is a workspace dependency, independently versioned from the file format.
 
-The previously audited 0.3.0 public commit has successful [Verify](https://github.com/ThreeLightStudio/datepack/actions/runs/36710171947) and [Pages deployment](https://github.com/ThreeLightStudio/datepack/actions/runs/36710172631) runs. These are automated workflow observations, distinct from the device acceptance above. No GitHub release artifact was listed at that commit. For the source layout and detailed format rules, follow [core docs](packages/datepack/README.md), [tests](tests/), and [release readiness](docs/release-readiness.md).
+The 0.4.0 merge commit has a successful [Pages deployment](https://github.com/ThreeLightStudio/datepack/actions/runs/36965964829), but its [Verify](https://github.com/ThreeLightStudio/datepack/actions/runs/36965964828) run failed: two AI prompt tests in [tests/seed.test.ts](tests/seed.test.ts) built their clock in the runner's time zone. The tests now pin Seoul time and pass locally under UTC. The earlier 0.3.0 commit has a successful [Verify](https://github.com/ThreeLightStudio/datepack/actions/runs/36710171947) run. These are automated workflow observations, distinct from the device acceptance above. No GitHub release artifact is listed. For the source layout and detailed format rules, follow [core docs](packages/datepack/README.md), [tests](tests/), and [release readiness](docs/release-readiness.md).
 
 [Report an issue](https://github.com/ThreeLightStudio/datepack/issues) · [MIT license](LICENSE)
