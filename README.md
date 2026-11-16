@@ -4,7 +4,7 @@
 
 [Try the web app](https://threelightstudio.github.io/datepack/) · [한국어](README.ko.md) · [Core format API](packages/datepack/README.md) · [Release readiness](docs/release-readiness.md)
 
-**Public beta — app/core 0.4.0, file format 4.0.** The public site is deployed from the 0.4.0 commit. Planning, file import/export, and user-supplied AI replies have public implementation and tests. Installed mobile PWA, offline restart, accessibility, and native sharing still need real-device acceptance; see [readiness](docs/release-readiness.md). The product aims to reduce replanning during an outing; that goal is not a measured usability result.
+**Public beta — app/core 0.4.0, file format 4.0.** The public site is deployed from the 0.4.0 commit. Planning, file import/export, and user-supplied AI replies have public implementation and tests. Installed mobile PWA, offline restart, accessibility, and native sharing still need real-device acceptance; see [readiness](docs/release-readiness.md). The product aims to reduce replanning while you are out; that goal is not yet a measured usability result.
 
 ## Start with a plan or a photo
 
