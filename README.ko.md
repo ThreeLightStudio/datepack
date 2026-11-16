@@ -58,6 +58,6 @@ pnpm build
 
 `verify`는 포맷 검사, lint, 타입 검사, 앱 테스트, 코어 패키지 검증을 실행합니다. `build`는 Vite 앱을 빌드합니다. [UI에 의존하지 않는 코어](packages/datepack/README.md)는 워크스페이스 패키지이며 파일 형식과 버전을 따로 관리합니다.
 
-0.4.0 머지 커밋은 [Pages 배포](https://github.com/ThreeLightStudio/datepack/actions/runs/36965964829)에 성공했지만 [Verify](https://github.com/ThreeLightStudio/datepack/actions/runs/36965964828) 실행은 실패했습니다. [tests/seed.test.ts](tests/seed.test.ts)의 AI 프롬프트 테스트 2개가 러너의 시간대로 시각을 만들었기 때문입니다. 지금은 테스트가 서울 시각을 고정하며 로컬 UTC 환경에서 통과합니다. 이전 0.3.0 커밋에는 성공한 [Verify](https://github.com/ThreeLightStudio/datepack/actions/runs/36710171947) 실행이 있습니다. 자동화 결과이며 앞서 설명한 실기기 인수 확인과는 별개입니다. GitHub 릴리스 산출물은 없습니다. 자세한 규칙과 경로는 [코어 문서](packages/datepack/README.md), [앱 테스트](tests/), [릴리스 준비 현황](docs/release-readiness.md)에 있습니다.
+0.4.0 커밋 `1059fc6`에는 성공한 [Verify](https://github.com/ThreeLightStudio/datepack/actions/runs/43944622793)와 [Pages 배포](https://github.com/ThreeLightStudio/datepack/actions/runs/43944622786) 실행이 있습니다. 자동화 결과이며 앞서 설명한 실기기 인수 확인과는 별개입니다. GitHub 릴리스 산출물은 없습니다. 자세한 규칙과 경로는 [코어 문서](packages/datepack/README.md), [앱 테스트](tests/), [릴리스 준비 현황](docs/release-readiness.md)에 있습니다.
 
 [문제 제보](https://github.com/ThreeLightStudio/datepack/issues) · [MIT 라이선스](LICENSE)
